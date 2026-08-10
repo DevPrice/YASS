@@ -383,9 +383,20 @@ export function ChevronRight() {
   )
 }
 
+/**
+ * Claims the space the thing it replaced was using, rather than sizing to its
+ * own text.
+ *
+ * `flex-1` is the whole point. This stands in for the song list inside a flex
+ * column that also holds the phone's control bar, and that bar is `order-last`
+ * — so an empty state that sized itself to its content let the column collapse
+ * and pulled the bar 333px up the screen, out from under the thumb still typing
+ * the search that emptied the list. Padding cannot do this job: the height has
+ * to come from the space, not from the message.
+ */
 export function EmptyState({ title, children }: PropsWithChildren<{ title: string }>) {
   return (
-    <div className="flex flex-col items-center justify-center gap-[15px] px-[25px] py-[100px] text-center">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[15px] px-[25px] py-[50px] text-center">
       <p className="yarg-label text-[20px] text-content">{title}</p>
       <div className="max-w-md text-[15px] text-content-muted">{children}</div>
     </div>
