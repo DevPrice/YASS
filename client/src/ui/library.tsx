@@ -689,18 +689,28 @@ export function PartsGrid({ song }: { song: Song }) {
 }
 
 /**
- * Band difficulty, wearing the same ring every part wears.
+ * Band difficulty, wearing the same ring every part wears — around YARG's own
+ * BAND mark.
  *
- * One number stands for five, so it is drawn the same way they are — the row,
- * the banner and the detail header all show a ring, and a reader who has
- * learned to read one has learned to read all of them. There is no glyph in the
- * middle because there is no instrument: the ring is the whole mark.
+ * The middle used to be empty, which is what an empty ring looks like: a
+ * loading spinner. Every other ring in the app has an instrument in it, so a
+ * bare one read as a ring that had failed to load its glyph rather than as a
+ * ring whose subject is the whole band. YARG draws that subject itself, in the
+ * same disc-inside-a-ring style as the five instruments — see
+ * `design/README.md` for where it came from — so the mark is now the same kind
+ * of object as its neighbours, and the row is legible without a column header
+ * to tell you what it is.
+ *
+ * A glyph in the middle also puts an over-6 tier on the badge at the bottom
+ * edge rather than in the centre, which is the same place the parts grid puts
+ * it. `DifficultyRing` decides that from the presence of children, so the two
+ * agree without either of them being told.
  *
  * Zero is left as zero rather than reinterpreted. `Song` documents that `0` can
  * mean "present but untiered" as well as "trivial", and 205 of the 4,168 songs
  * in the library this was built against carry it — too many to silently relabel
  * on a guess. Deciding what YARG actually means needs the exporter, not this
- * component; the detail view says so in words, where a phone can read it.
+ * component; the `title` says so for anything with a pointer.
  */
 export function BandDifficulty({
   tier,
@@ -715,21 +725,38 @@ export function BandDifficulty({
       title={tier === 0 ? 'Difficulty 0 — YARG also writes 0 for untiered charts' : undefined}
     >
       {/*
-       * The exact tier, for anything that cannot see a ring. It is also the
-       * only place the number survives now, which is the reason it is a
-       * sentence and not a digit.
+       * The exact tier, for anything that cannot see a ring. It is the only
+       * place the number survives now, which is the reason it is a sentence and
+       * not a digit.
        */}
       <span className="sr-only">
         {tier === null ? 'Band difficulty unrated' : `Band difficulty ${tier}`}
       </span>
-      {/*
-       * No glyph, which is what tells the ring its middle is free — that is
-       * where an unrated dash and an over-6 numeral go. An unrated ring is
-       * already dimmer than an unlit one, but "dimmer" is a judgement you can
-       * only make with something to compare against, and in a song row there
-       * is nothing beside it. The dash says it outright.
-       */}
-      <DifficultyRing tier={tier} size={size} />
+      <DifficultyRing tier={tier} size={size}>
+        <img
+          src={INSTRUMENT_ART['band'] ?? ''}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          decoding="async"
+          // Dimmed when unrated, which is the same thing a dim instrument means
+          // in the parts grid: the ring has nothing to report.
+          className={cx('size-full object-contain', tier === null ? 'opacity-20' : null)}
+        />
+      </DifficultyRing>
     </span>
   )
+}
+
+/**
+ * Whether any part the grid draws is tiered 0.
+ *
+ * The caveat about what `0` means used to hang off band difficulty, which was
+ * the number the detail pane led with. The pane doesn't show band difficulty
+ * any more, but it still shows five per-part tiers and any of them can be 0
+ * with exactly the same ambiguity — so the sentence follows the zeros rather
+ * than the field it was written for.
+ */
+export function hasUntieredPart(song: Song): boolean {
+  return INSTRUMENT_GROUPS.some((group) => groupTier(song, group) === 0)
 }

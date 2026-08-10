@@ -18,7 +18,7 @@ silently reverts the change.
 styles.css        entry point — imports every token file
 tokens/           fonts, colors, typography, layout, base  (verbatim copies)
 assets/icons/     the eight line icons that exist as real vector geometry
-assets/instruments/  13 instrument glyphs   500×500 / 512×512 PNG   (7 in use)
+assets/instruments/  14 glyphs              500×500 / 512×512 PNG   (8 in use)
 assets/difficulty/   24 difficulty rings         500×500 PNG   (blocked, below)
 assets/sources/      46 source badges            300×300 PNG   (superseded, below)
 assets/index.ts   slug → URL lookups; only for globs actually rendered
@@ -80,6 +80,25 @@ predicted:
   3. `vocalsArt` in `ui/library.tsx` picks, and falls back to the solo microphone for any
   count nothing was drawn for. These two are the whole reason the app no longer prints a
   `vocal parts` row or a `vocals` stat.
+
+### `band.png` came from the game, not from Figma
+
+`instruments/band.png` is the only file in this directory that did not come out of the
+Figma file. It is YARG's own BAND mark, cropped from the sprite sheet the game ships:
+
+```
+YARG/Assets/Art/Menu/Common/InstrumentIcons.png   4×4 grid of 512px sprites
+```
+
+The rect came from `InstrumentIcons.png.meta`, which names each sprite — `band` is
+`x: 512, y: 0, 512×512`. **Unity's sprite origin is bottom-left**, so that `y: 0` is the
+*bottom* row of the image, i.e. `crop=512:512:512:1536` in top-left coordinates. Getting
+that backwards silently yields the wrong glyph, since every cell is a plausible icon.
+
+It matches the `Instruments` frame's treatment exactly — white disc inside a thin outer
+ring, 512×512 — so it sits beside the five instruments without adjustment. The Figma file
+has no band mark that we found; re-check there before cropping again, and prefer it if one
+has appeared.
 
 ### Two generations of instrument glyph
 

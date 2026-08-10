@@ -62,7 +62,7 @@ import type { ReactNode } from 'react'
 
 import type { Song } from '@shared/types'
 import { Badge, Button, cx } from '../../ui'
-import { ArtistName, BandDifficulty, PartsGrid, SourceBadge } from '../../ui/library'
+import { ArtistName, PartsGrid, SourceBadge, hasUntieredPart } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
 import { formatDuration, formatYear } from '../../lib/format'
 
@@ -168,35 +168,35 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
       </div>
 
       {/*
-       * The reason anybody opened this.
+       * The reason anybody opened this: five parts and how hard each one is.
        *
-       * Band difficulty used to be row one of the fact table, styled exactly
-       * like `format`. It belongs on the header of the grid it summarises: five
-       * per-part tiers on the left, the one number that stands for all of them
-       * on the right, in the same capsule the song row wears so it is
-       * recognisably the same number.
+       * **Band difficulty is deliberately not here.** It was the header of this
+       * group — a `band` label and the same ring, set to the right — and it is
+       * a summary of the five rings directly beneath it. A summary earns its
+       * place where the detail won't fit: the song row, which has one slot for
+       * difficulty, and the banner, which has two stats. On a surface that
+       * shows every part, the one number that stands for all of them is the
+       * least informative thing on it. It is still on `Song` and still drawn by
+       * `BandDifficulty` in both those places.
+       *
+       * That leaves the group with no label at all, and it needs none. Five
+       * instruments in rings are self-evident, and `PartsGrid` names itself for
+       * a screen reader.
        */}
       <section className="mt-[10px] flex flex-col gap-[15px]">
-        {/*
-         * `band` is the only label left here. `parts` went with the five words
-         * under the glyphs: it named a row of instrument pictures, which name
-         * themselves. This one still earns its place, because the ring beside
-         * it is the same ring the five parts wear and nothing else would say
-         * that this one stands for all of them.
-         */}
-        <div className="flex items-center justify-end gap-[10px]">
-          <SectionLabel>band</SectionLabel>
-          <BandDifficulty tier={song.bandDifficulty} />
-        </div>
-
         <PartsGrid song={song} />
 
         {/*
-         * The caveat, in words, where a phone can read it. The capsule carries
-         * the same sentence in a `title`, which a touch device cannot reach —
-         * and this is the one surface with the room to just say it.
+         * The caveat, in words, where a phone can read it. `BandDifficulty`
+         * carries the same sentence in a `title`, which a touch device cannot
+         * reach — and this is the one surface with the room to just say it.
+         *
+         * It follows the zeros rather than the field it was written for. It
+         * used to hang off band difficulty, which this surface no longer shows;
+         * the grid above still draws per-part tiers, and any of those can be 0
+         * with exactly the same ambiguity.
          */}
-        {song.bandDifficulty === 0 ? (
+        {hasUntieredPart(song) ? (
           <p className="text-[12px] leading-[1.35] text-content-muted">
             YARG writes 0 both for a trivial chart and for one nobody tiered.
           </p>
@@ -288,14 +288,12 @@ export function SongDetailEmpty({ onShowPlaying }: { onShowPlaying: (() => void)
   )
 }
 
-/**
- * 12px, which is `--text-stat-sm` and the smallest size the type tokens offer.
- * It was 11px here and 10px inside the parts grid — two sizes invented below
- * the scale's own floor, set in uppercase extrabold, on a phone, in the dark.
+/*
+ * `SectionLabel` used to live here — the uppercase 12px label that headed the
+ * parts group. It went with the last thing it labelled. `parts` was a caption
+ * on a row of instrument pictures, and `band` went when band difficulty did.
+ * `Fact` below sets its own labels; this component was never shared with it.
  */
-function SectionLabel({ children }: { children: ReactNode }) {
-  return <span className="yarg-label text-[12px] text-count-muted">{children}</span>
-}
 
 /**
  * A short answer and the word for it, stacked.

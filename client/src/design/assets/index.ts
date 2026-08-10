@@ -29,10 +29,16 @@ const load = (glob: Record<string, unknown>): Readonly<Record<string, string>> =
 /**
  * Instrument glyphs, keyed by the design system's own name.
  *
- * Not keyed by `InstrumentKey`: the design system draws 11 glyphs and YASS
- * models 20 instruments, so a per-key mapping has to decide what a 6-fret
- * guitar, a rhythm part, or elite drums looks like when no glyph exists.
- * `GROUP_ART` below sidesteps that question rather than answering it.
+ * Not keyed by `InstrumentKey`: there are 14 glyphs here and YASS models 20
+ * instruments, so a per-key mapping has to decide what a 6-fret guitar, a
+ * rhythm part, or elite drums looks like when no glyph exists. `GROUP_ART`
+ * below sidesteps that question rather than answering it.
+ *
+ * Two of these are not instruments at all and are reached by name rather than
+ * through `GROUP_ART`: `vocals-2harmony` and `vocals-3harmony` stand in for
+ * `vocals` on the vocal count (see `vocalsArt` in `ui/library`), and `band` is
+ * the mark inside the band-difficulty ring. `band` is also the only file in
+ * this directory that did not come from Figma — see `design/README.md`.
  */
 export const INSTRUMENT_ART = load(
   import.meta.glob('./instruments/*.png', { eager: true, query: '?url', import: 'default' }),
