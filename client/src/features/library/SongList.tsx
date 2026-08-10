@@ -23,7 +23,7 @@
  * list of songs is true at every width; a grid would be a lie in the narrow one.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
@@ -109,6 +109,49 @@ export function SongList({
 }: SongListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  /**
+   * Width of the list's scrollbar, reserved on the header so the two agree.
+   *
+   * The header is a sibling *above* the scroll container, not inside it — it has
+   * to be, because the virtualizer positions rows from the scroll element's own
+   * origin, and a header sharing that box would offset every row by its height.
+   * The cost of staying outside is that the scrollbar narrows the rows and not
+   * the header, so at four thousand songs every column sat ~10px left of the
+   * label naming it.
+   *
+   * Measured rather than assumed: `scrollbar-slim` asks for `thin`, and what
+   * that resolves to is the platform's business — 10px in Chromium via the
+   * `::-webkit-scrollbar` rule, something else in Firefox, nothing at all where
+   * scrollbars overlay. Zero when the list doesn't overflow, which is correct:
+   * there is no scrollbar to leave room for.
+   *
+   * Taken off the two boxes' rects rather than `offsetWidth - clientWidth`,
+   * because both of those are rounded to whole pixels. At anything but 100%
+   * zoom the real gutter has a fraction — 10.4px at 80% — and rounding it away
+   * put the whole row back out by that fraction, which is the same bug again
+   * one order of magnitude down.
+   */
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [scrollbarWidth, setScrollbarWidth] = useState(0)
+
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current
+    const content = contentRef.current
+    if (scroller === null || content === null) return
+
+    const measure = () =>
+      setScrollbarWidth(
+        scroller.getBoundingClientRect().width - content.getBoundingClientRect().width,
+      )
+    measure()
+
+    // The content box is exactly what a scrollbar appearing narrows, so
+    // filtering a long list down to three rows re-measures too.
+    const observer = new ResizeObserver(measure)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [])
+
   const virtualizer = useVirtualizer({
     count: songs.length,
     getScrollElement: () => scrollRef.current,
@@ -154,7 +197,12 @@ export function SongList({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <SortHeader sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} />
+      <SortHeader
+        sortKey={sortKey}
+        sortDirection={sortDirection}
+        onSort={onSort}
+        scrollbarWidth={scrollbarWidth}
+      />
 
       <div
         ref={scrollRef}
@@ -168,6 +216,7 @@ export function SongList({
         className="scrollbar-slim yarg-focusable min-h-0 flex-1 overflow-y-auto"
       >
         <div
+          ref={contentRef}
           className="relative w-full"
           // Transparent to assistive tech: the spacer only exists to give the
           // scrollbar the full height, and it must not sit between the list and
@@ -208,15 +257,37 @@ export function SongList({
   )
 }
 
+/**
+ * The column labels.
+ *
+ * Everything about this element's horizontal box has to match `SongRow`'s, or
+ * the labels stop naming the thing underneath them. Two of those measurements
+ * are not in the class list and are easy to lose:
+ *
+ *   The 2px side borders are the row's, not the header's — `SongRow` reserves
+ *   them for the white border the playing row wears, so its columns live in a
+ *   box 4px narrower than this one and 2px to the right. Repeating them
+ *   transparent here costs nothing and lines the two boxes up.
+ *
+ *   The scrollbar takes its width out of the rows and not out of this, since
+ *   the scroll container is below. `scrollbarWidth` is what it actually took.
+ */
 function SortHeader({
   sortKey,
   sortDirection,
   onSort,
-}: Pick<SongListProps, 'sortKey' | 'sortDirection' | 'onSort'>) {
+  scrollbarWidth,
+}: Pick<SongListProps, 'sortKey' | 'sortDirection' | 'onSort'> & { scrollbarWidth: number }) {
   return (
     <div
       className="yarg-wash-header hidden items-center gap-[15px] px-[25px] py-[10px] @2xl/list:flex"
-      style={{ borderBottom: '1px solid var(--color-border-strong)' }}
+      style={{
+        borderBottom: '1px solid var(--color-border-strong)',
+        borderLeft: '2px solid transparent',
+        borderRight: '2px solid transparent',
+        // Overrides the right half of `px-[25px]`; the left half stands.
+        paddingRight: `calc(25px + ${scrollbarWidth}px)`,
+      }}
     >
       {COLUMNS.map((column) => {
         const active = column.key === sortKey
@@ -374,7 +445,10 @@ function SongRow({
           <span className="sr-only">Length </span>
           {formatDuration(song.lengthSeconds)}
         </div>
-        <InstrumentStrip song={song} className="hidden w-28 @4xl/list:flex" />
+        {/* `shrink-0` to match the header's `parts` column, which has it. Without
+            it this is the one cell that gives up width under pressure, and the
+            five slots stop lining up with the label above them. */}
+        <InstrumentStrip song={song} className="hidden w-28 shrink-0 @4xl/list:flex" />
         <div className="flex w-20 shrink-0 justify-end">
           <DifficultyCapsule tier={song.bandDifficulty} />
         </div>
