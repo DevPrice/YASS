@@ -571,7 +571,22 @@ function SongRow({
         />
       </div>
 
-      {/* Narrow layout: title over a metadata line. */}
+      {/*
+       * Narrow layout: source, then title over a metadata line.
+       *
+       * The icon leads the row rather than sitting in the metadata cluster on
+       * the right. It is the one field on a phone row that is a picture rather
+       * than a number, so it reads at a glance from a fixed column down the
+       * left edge — where the eye already is when it starts each row — instead
+       * of shuffling left and right with the width of the time beside it.
+       */}
+      <SourceBadge
+        source={song.source}
+        size={24}
+        showName={false}
+        className="shrink-0 @2xl/list:hidden"
+      />
+
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px] @2xl/list:hidden">
         <span dir="auto" className="truncate-tight text-[17px] leading-none font-semibold text-white">
           {song.name}
@@ -584,8 +599,6 @@ function SongRow({
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-[10px] @2xl/list:hidden">
-        {/* The icon alone here: the name would cost the title its width. */}
-        <SourceBadge source={song.source} size={24} showName={false} />
         <span className="font-numeric text-[14px] tabular-nums text-count-muted">
           <span className="sr-only">Length </span>
           {formatDuration(song.lengthSeconds)}

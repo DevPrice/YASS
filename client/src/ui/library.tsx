@@ -256,27 +256,46 @@ export function PartsGrid({ song }: { song: Song }) {
  * this component; the detail view says so in words, where a phone can read it.
  */
 export function DifficultyCapsule({ tier, size = 32 }: { tier: number | null; size?: number }) {
-  if (tier === null) {
-    return (
-      <span className="text-[15px] text-content-faint">
-        <span className="sr-only">Difficulty unrated</span>
-        <span aria-hidden>—</span>
-      </span>
-    )
-  }
+  const rated = tier !== null
 
+  /*
+   * One footprint for every value, rated or not.
+   *
+   * The unrated case used to be a bare dash with no capsule and no padding —
+   * a third of the width of the pill beside it — so a phone row with an
+   * untiered chart pulled its whole metadata line sideways. The two states
+   * are the same box now and differ only in fill and colour.
+   *
+   * `tabular-nums` and `w-[1ch]` are what hold the rest of it still: Inter's
+   * proportional figures give 1 and 4 different advances, and the em dash is
+   * wider than either. Fixing the character cell to one digit makes all eight
+   * possible values the same width, and the dash simply overhangs its cell
+   * into padding that has 13px to spare.
+   */
   return (
     <span
-      title={tier === 0 ? 'Difficulty 0 — YARG also writes 0 for untiered charts' : undefined}
-      className="font-numeric inline-flex items-center px-[13px] text-[16px] font-semibold text-white"
+      title={
+        tier === 0 ? 'Difficulty 0 — YARG also writes 0 for untiered charts' : undefined
+      }
+      className={cx(
+        'font-numeric inline-flex items-center justify-center px-[13px]',
+        'text-[16px] font-semibold tabular-nums',
+        rated ? 'text-white' : 'text-content-faint',
+      )}
       style={{
         height: size,
         borderRadius: 'var(--radius-round)',
-        background: 'var(--yarg-surface-sunken)',
+        background: rated ? 'var(--yarg-surface-sunken)' : undefined,
       }}
     >
-      <span className="sr-only">Band difficulty </span>
-      {tier}
+      <span className="sr-only">{rated ? 'Band difficulty ' : 'Difficulty unrated'}</span>
+      {rated ? (
+        <span className="inline-block w-[1ch] text-center">{tier}</span>
+      ) : (
+        <span aria-hidden className="inline-block w-[1ch] text-center">
+          —
+        </span>
+      )}
     </span>
   )
 }
