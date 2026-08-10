@@ -33,10 +33,35 @@ with no code change.
 Until then, YASS uses the token layer only, and any component needing bitmap art either
 falls back to text or is left out.
 
-**Components** — upstream's `components/` are inline-styled `.jsx`. They aren't vendored
-yet; YASS currently applies the token layer to its own components. When components are
-adopted, copy them **verbatim** (inline styles and all) rather than porting them to
-Tailwind — porting forks them from the authority and breaks re-syncing.
+**Components** — upstream's `components/` are inline-styled `.jsx` and are **not** copied
+here. See the porting policy below.
+
+## Component policy: port to Tailwind
+
+Upstream components are **ported to Tailwind**, not vendored verbatim. The codebase keeps
+one styling idiom, at the cost of the port being manual.
+
+The tradeoff to stay honest about: a ported component is a fork. Upstream changes do not
+flow in automatically, and drift is silent — nothing fails a build when a colour or a
+radius changes upstream. Two habits keep that manageable:
+
+1. **Port through the tokens, never through literals.** If a port reaches for `#45D8FE`
+   instead of `var(--yarg-vivid-sky-blue)`, an upstream palette change silently stops
+   reaching it. Re-vendoring tokens should be enough to pick up most upstream changes.
+2. **Record what each port came from**, in the table below, so a drift check is a diff
+   against a known upstream path rather than an archaeology exercise.
+
+### Ported components
+
+| YASS | Upstream source | Ported | Notes |
+|---|---|---|---|
+| `ui/Button` | `components/core/Button.jsx` | 2026-08-10 | Tones `confirm`/`accent`/`danger`/`neutral`; adds a `quiet` variant for toolbars |
+| `ui/HelperBar` | `components/core/HelperBar.jsx` | 2026-08-10 | 52px instead of 75px — a browser footer, not a 1080p game bar |
+| `features/library/SongList` `SongRow` | `components/music/LibraryRow.jsx` | 2026-08-10 | Track variant only. Source tile, instrument glyph and stars omitted pending assets |
+| `ui/TextField`, `ui/Select`, `ui/ToggleChip` | no upstream equivalent | 2026-08-10 | Browser controls the game has no analogue for; built from the system's recipes |
+
+**Drift check:** read the upstream path with DesignSync and compare against the port. Worth
+doing when re-vendoring tokens, since the two usually change together.
 
 ## Fonts
 

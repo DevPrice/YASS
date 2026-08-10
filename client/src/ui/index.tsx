@@ -1,14 +1,13 @@
 /**
  * Presentational primitives, following the YARG design system's recipes.
  *
- * The upstream project is the authority. These are YASS-side implementations of
- * its patterns for the handful of controls a browser app needs that the game
- * doesn't (a real text input, a select, filter chips) — written against the
- * vendored tokens so they inherit brand changes automatically.
+ * Upstream components are ported to Tailwind rather than vendored verbatim, so
+ * the codebase keeps one styling idiom. `design/README.md` records which
+ * upstream file each port came from and how to check for drift.
  *
- * When upstream components are vendored, copy them verbatim (inline styles and
- * all) rather than rewriting them here — porting to Tailwind forks them from
- * the authority and breaks re-syncing.
+ * Because a port is a fork, style through the vendored tokens and never through
+ * literal values — that way re-vendoring tokens still picks up most upstream
+ * changes without touching these files.
  *
  * Recipes followed:
  *   - Display type is UPPERCASE; label strings are authored lowercase.
