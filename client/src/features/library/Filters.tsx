@@ -322,10 +322,14 @@ export function FiltersPanel({
           <ToggleChip
             active={filters.masterOnly}
             onClick={() => update('masterOnly', !filters.masterOnly)}
-            title="Master recordings only (exclude covers)"
-            label="Master recordings only, excluding covers"
+            // `Master only` was the game's word for it, and the chip was the
+            // last place the app still spoke it. This is the same filter said
+            // as the rows say it: it hides everything marked `as made famous
+            // by` somebody else.
+            title="Original recordings only, no covers"
+            label="Original recordings only, hiding covers"
           >
-            Master only
+            Originals only
           </ToggleChip>
         </div>
 

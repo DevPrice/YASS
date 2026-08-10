@@ -9,6 +9,7 @@ import type { InstrumentGroup, InstrumentKey, Song } from '@shared/types'
 import { INSTRUMENT_GROUPS, INSTRUMENTS } from '@shared/types'
 
 import { GROUP_ART } from '../design/assets'
+import { artistCredit } from '../lib/format'
 import { resolveSource } from '../lib/sources'
 import { cx } from './index'
 
@@ -100,6 +101,116 @@ export function SourceBadge({
       ) : (
         <span className="sr-only">{resolved.name}</span>
       )}
+    </span>
+  )
+}
+
+/**
+ * The artist, said the way a karaoke book says it.
+ *
+ * Half a real library is somebody else's recording, and the app used to file
+ * that under a `recording: Cover version` line at the bottom of the detail
+ * pane — a fact you had to open a song and read to the end to learn, written
+ * in the game's word for it. It belongs on the name it qualifies, everywhere
+ * the name appears: `as made famous by Fleetwood Mac` is the same sentence in
+ * a row, a banner and a pane.
+ *
+ * Emits no wrapper. The five places that show an artist each set their own
+ * size, colour and truncation on the element around it, and a `<span>` here
+ * would be one more thing for `truncate` to have to reach through.
+ */
+export function ArtistName({
+  song,
+  credit = 'inline',
+}: {
+  song: { artist: string; isMaster: boolean }
+  /**
+   * How the preamble is set.
+   *
+   * `inline` is the sentence, for the places built to hold one: the detail
+   * pane, the banner, the art plate. `label` is YARG's own treatment of it in
+   * the song browser — see `CoverCredit` — and belongs in the list, where the
+   * artist is a column rather than a line of prose.
+   */
+  credit?: 'inline' | 'label'
+}) {
+  const { name, madeFamousBy } = artistCredit(song)
+
+  if (credit === 'label') {
+    /*
+     * `min-h` is the height of the two-line credit, held whether or not there
+     * is one. The phone row stacks title over artist, so an artist line that
+     * grew for covers lifted its title 2px against every original around it —
+     * small, and visible as a wobble down the one column being scanned.
+     */
+    return (
+      <span className="flex min-h-[1.32em] min-w-0 items-center gap-[0.5em]">
+        {madeFamousBy ? <CoverCredit /> : null}
+        {/*
+         * `<bdi>` here rather than `dir="auto"` on the cell: the cell now holds
+         * the English preamble too, and auto-direction reads the first strong
+         * character it finds, which would be the `a` of `as`. Isolating the
+         * name gives Hebrew and Arabic artists their own direction back.
+         */}
+        <bdi className="min-w-0 truncate-tight">{name}</bdi>
+      </span>
+    )
+  }
+
+  // The bare name, unchanged: every housing sets `dir="auto"`, which reads the
+  // first strong character of its own text, and returning anything wrapped here
+  // would take that reading away from Hebrew and Arabic artists.
+  if (!madeFamousBy) return <>{name}</>
+
+  return (
+    <>
+      {/*
+       * Upright and quiet against the italic name: this is the frame around the
+       * credit, not part of it, and at full weight it out-shouted the artist in
+       * a 4,000-row column where the artist is what you scan for.
+       */}
+      <span className="text-[0.82em] font-normal text-content-muted not-italic">
+        as made famous by{' '}
+      </span>
+      {/*
+       * `<bdi>`, because the English preamble has now decided the line is
+       * left-to-right, and an RTL name dropped into it unisolated drags the
+       * neighbouring punctuation around with it. This gives the name its own
+       * direction back without touching the line's.
+       */}
+      <bdi>{name}</bdi>
+    </>
+  )
+}
+
+/**
+ * The credit as YARG sets it in its own song browser: two short lines of small
+ * italic capitals, ragged left, tucked against the artist's name.
+ *
+ * Two lines is what makes it affordable. Set as one line the phrase is 17
+ * characters of leading text in a column that has ~200px for the artist, and
+ * it was taking more of that column than the name it introduces. Broken over
+ * `AS MADE / FAMOUS BY` it costs the width of its longer half.
+ *
+ * It sits in the flow rather than above the line, and the row centres it
+ * against the name — so the names still share one baseline all the way down
+ * the column, which is what a scanning eye is following.
+ *
+ * Sized in `em` so one component serves an 18px table cell and a 14px phone
+ * row. Capitals come from CSS, not from the text, so a screen reader still
+ * reads the words rather than spelling them.
+ */
+function CoverCredit() {
+  return (
+    <span
+      className={cx(
+        'shrink-0 text-right text-[0.56em] leading-[1.16] font-semibold tracking-[0.04em] uppercase',
+        'text-content-muted',
+      )}
+    >
+      as made
+      <br />
+      famous by
     </span>
   )
 }

@@ -16,9 +16,9 @@ import type { CSSProperties, ReactNode } from 'react'
 
 import type { NowPlaying } from '@shared/types'
 import { Badge, ChevronRight, cx } from '../../ui'
-import { SourceBadge } from '../../ui/library'
+import { ArtistName, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
-import { formatDuration, formatVocalParts } from '../../lib/format'
+import { formatArtistCredit, formatDuration, formatVocalParts } from '../../lib/format'
 import { useVenue } from '../../lib/useVenue'
 import { useVenueWash } from './venueWash'
 import type { VenueWash } from './venueWash'
@@ -92,7 +92,7 @@ export function NowPlayingBar({
            */}
           <Content
             onSelect={onSelect}
-            label={`Show details for ${song.name} by ${song.artist}`}
+            label={`Show details for ${song.name} ${formatArtistCredit(song)}`}
           >
             <div className="mb-[5px] flex items-center gap-[10px]">
               <Badge tone="accent">Now playing</Badge>
@@ -122,7 +122,7 @@ export function NowPlayingBar({
               dir="auto"
               className="mt-[5px] truncate-tight text-[17px] leading-none font-medium text-content-secondary italic"
             >
-              {song.artist}
+              <ArtistName song={song} />
               {song.album ? (
                 <span className="text-content-muted not-italic"> — {song.album}</span>
               ) : null}

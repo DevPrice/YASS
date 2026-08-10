@@ -7,7 +7,7 @@
 
 import type { InstrumentGroup, Song } from '@shared/types'
 import { INSTRUMENTS } from '@shared/types'
-import { foldForSearch } from '../../lib/format'
+import { artistCredit, foldForSearch } from '../../lib/format'
 
 export type SortKey =
   | 'name'
@@ -32,6 +32,7 @@ export interface Filters {
   /** Inclusive band-difficulty bounds; null means unbounded. */
   minDifficulty: number | null
   maxDifficulty: number | null
+  /** Drop the covers — everything the rows introduce with `as made famous by`. */
   masterOnly: boolean
 }
 
@@ -125,7 +126,10 @@ export function filterSongs(songs: readonly Song[], filters: Filters): Song[] {
     if (sources.size > 0 && !sources.has(song.source)) return false
     if (genres.size > 0 && !genres.has(song.genre)) return false
     if (formats.size > 0 && !formats.has(song.format)) return false
-    if (filters.masterOnly && !song.isMaster) return false
+    // The same judgment the rows show, not the raw `Master` column: a chart
+    // credited to `Blondie (WaveGroup)` reads `as made famous by` whatever that
+    // column says, and `Originals only` has to hide exactly what it marks.
+    if (filters.masterOnly && artistCredit(song).madeFamousBy) return false
 
     if (filters.minDifficulty !== null) {
       if (song.bandDifficulty === null || song.bandDifficulty < filters.minDifficulty) return false
@@ -223,7 +227,10 @@ function sortTextFor(song: Song): SortText {
 
   const text: SortText = {
     name: normalizeForSort(song.name),
-    artist: normalizeForSort(song.artist),
+    // The displayed artist, not the raw field: a cover filed as
+    // `Blondie (WaveGroup)` sorts into Blondie's run, where the name the row
+    // shows says it belongs — and where the artist headers can then find it.
+    artist: normalizeForSort(artistCredit(song).name),
     album: normalizeForSort(song.album),
   }
 

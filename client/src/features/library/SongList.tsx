@@ -28,7 +28,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
 import { EmptyState, SortArrow, cx } from '../../ui'
-import { DifficultyCapsule, InstrumentStrip, SourceBadge } from '../../ui/library'
+import { ArtistName, DifficultyCapsule, InstrumentStrip, SourceBadge } from '../../ui/library'
 import { formatDuration, formatYear } from '../../lib/format'
 import { groupSongs } from './grouping'
 import type { SortDirection, SortKey } from './filtering'
@@ -613,11 +613,13 @@ function SongRow({
         >
           {song.name}
         </div>
-        <div
-          dir="auto"
-          className="min-w-0 flex-[2] truncate-tight text-[18px] leading-none font-medium text-content-secondary italic"
-        >
-          {song.artist}
+        {/*
+         * Unclipped, and the truncation moved onto the name inside: the cover
+         * credit is a second element in this cell now, and `overflow: hidden`
+         * out here would cut the top and bottom off its two lines.
+         */}
+        <div className="flex min-w-0 flex-[2] text-[18px] leading-none font-medium text-content-secondary italic">
+          <ArtistName song={song} credit="label" />
         </div>
         <div className="hidden min-w-0 flex-[2] truncate text-[16px] text-content-muted @6xl/list:block">
           {song.album || '—'}
@@ -667,11 +669,8 @@ function SongRow({
         <span dir="auto" className="truncate-tight text-[17px] leading-none font-semibold text-white">
           {song.name}
         </span>
-        <span
-          dir="auto"
-          className="truncate-tight text-[14px] leading-none font-medium text-content-secondary italic"
-        >
-          {song.artist}
+        <span className="min-w-0 text-[14px] leading-none font-medium text-content-secondary italic">
+          <ArtistName song={song} credit="label" />
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-[10px] @2xl/list:hidden">

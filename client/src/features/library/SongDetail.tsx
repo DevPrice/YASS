@@ -21,7 +21,7 @@ import type { ReactNode } from 'react'
 
 import type { Song, SongFormat } from '@shared/types'
 import { Badge, Button, cx } from '../../ui'
-import { DifficultyCapsule, PartsGrid, SourceBadge } from '../../ui/library'
+import { ArtistName, DifficultyCapsule, PartsGrid, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
 import { formatDuration, formatVocalParts, formatYear } from '../../lib/format'
 
@@ -90,7 +90,7 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
           dir="auto"
           className="text-[19px] leading-tight font-medium break-words text-content-secondary italic"
         >
-          {song.artist}
+          <ArtistName song={song} />
         </p>
         {song.album ? (
           <p dir="auto" className="text-[15px] leading-tight break-words text-content-muted">
@@ -142,7 +142,14 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
           />
           <Fact label="charter" value={song.charter || '—'} />
           {song.playlist ? <Fact label="playlist" value={song.playlist} /> : null}
-          <Fact label="recording" value={song.isMaster ? 'Master' : 'Cover version'} />
+          {/*
+           * No `recording: Master / Cover version` row.
+           *
+           * It answered a question about the artist line eleven rows above it,
+           * in YARG's word for the answer — and it was the row a reader had to
+           * hold in their head on the way back up. The artist line says it
+           * itself now: `as made famous by`.
+           */}
           <Fact label="rating" value={song.ageRating || '—'} />
           <Fact label="format" value={FORMAT_LABELS[song.format]} />
         </dl>
@@ -297,7 +304,7 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
             dir="auto"
             className="truncate-tight text-[15px] leading-none font-medium text-content-secondary italic"
           >
-            {song.artist}
+            <ArtistName song={song} />
           </p>
         </div>
       )}

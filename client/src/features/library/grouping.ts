@@ -32,7 +32,7 @@
  */
 
 import type { Song } from '@shared/types'
-import { foldForSearch } from '../../lib/format'
+import { artistCredit, foldForSearch } from '../../lib/format'
 import { sourceName } from '../../lib/sources'
 import { normalizeForSort } from './filtering'
 import type { SortKey } from './filtering'
@@ -141,7 +141,9 @@ function sourceGroup(song: Song): Group {
 
 const GROUPERS: Partial<Record<SortKey, (song: Song) => Group>> = {
   name: (song) => initialGroup(song.name, UNTITLED),
-  artist: (song) => valueGroup(song.artist, 'Unknown artist'),
+  // Headed by the artist the rows name, which is the one without the cover
+  // house's parenthetical on it — and the one the sort put the run in order by.
+  artist: (song) => valueGroup(artistCredit(song).name, 'Unknown artist'),
   album: (song) => valueGroup(song.album, 'No album'),
   genre: (song) => valueGroup(song.genre, 'No genre'),
   source: sourceGroup,
@@ -167,7 +169,7 @@ export function groupSongs(
   // so that the table stays readable as "what a header means for this key".
   const grouper =
     key === 'artist' && width === 'narrow'
-      ? (song: Song) => initialGroup(song.artist, UNKNOWN_ARTIST)
+      ? (song: Song) => initialGroup(artistCredit(song).name, UNKNOWN_ARTIST)
       : GROUPERS[key]
 
   if (grouper === undefined) {
