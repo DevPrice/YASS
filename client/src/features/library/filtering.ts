@@ -251,6 +251,40 @@ function compareStrings(a: string, b: string, direction: SortDirection): number 
   return direction === 'asc' ? result : -result
 }
 
+/**
+ * How one artist's songs order among themselves: year, then album, then title.
+ *
+ * Alphabetical-by-title was the wrong shape for the one place the list is read
+ * as a body of work. Somebody scrolling to an artist is looking at what that
+ * artist made, and the order that answers it is the order they made it in —
+ * early records first, an album's songs together rather than scattered through
+ * the alphabet by their opening letter.
+ *
+ * **Track number belongs in this chain and is not in the data.** The CSV export
+ * has no column for it — `shared/types.ts` carries `albumTrack` only on
+ * `NowPlayingSong`, which YARG writes one song at a time into
+ * `currentSong.json`. So an album's songs land in title order rather than
+ * running order, and the step slots in here without reshuffling anything else
+ * if a future export ever carries it.
+ *
+ * Always ascending, whichever way the artist column points, for the same reason
+ * every other tiebreak here is: flipping the direction should reverse the
+ * artists, not shuffle each artist's songs into reverse-chronological order.
+ * A song with no year sorts after the dated ones and an untitled album after
+ * the named ones — unknown last, the rule the whole file uses — and title
+ * settles whatever is left, so the two songs that share everything still land
+ * in a fixed order rather than wherever the sort happened to leave them.
+ */
+function compareWithinArtist(a: Song, b: Song): number {
+  const byYear = compareNullableNumbers(a.yearNumber, b.yearNumber, 'asc')
+  if (byYear !== 0) return byYear
+
+  const byAlbum = compareStrings(sortTextFor(a).album, sortTextFor(b).album, 'asc')
+  if (byAlbum !== 0) return byAlbum
+
+  return collator.compare(sortTextFor(a).name, sortTextFor(b).name)
+}
+
 export function sortSongs(songs: Song[], key: SortKey, direction: SortDirection): Song[] {
   const sorted = [...songs]
 
@@ -292,14 +326,15 @@ export function sortSongs(songs: Song[], key: SortKey, direction: SortDirection)
 
     if (primary !== 0) return primary
 
+    // Under one artist, a discography rather than an alphabet.
+    if (key === 'artist') return compareWithinArtist(a, b)
+
     // Stable, predictable tiebreak: artist → name, always ascending, so equal
     // keys don't reshuffle when the direction flips. Normalized too — a
     // tiebreak that filed The Beatles somewhere the artist column wouldn't
     // would undo the rule one level down.
-    if (key !== 'artist') {
-      const byArtist = collator.compare(sortTextFor(a).artist, sortTextFor(b).artist)
-      if (byArtist !== 0) return byArtist
-    }
+    const byArtist = collator.compare(sortTextFor(a).artist, sortTextFor(b).artist)
+    if (byArtist !== 0) return byArtist
 
     return collator.compare(sortTextFor(a).name, sortTextFor(b).name)
   })
