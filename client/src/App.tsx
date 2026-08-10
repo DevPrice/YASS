@@ -217,14 +217,35 @@ export function App() {
        * layout rather than two things next to each other: pick one song and
        * the rest of the library is a keypress away, no pointer involved.
        *
-       * Only once something is selected — otherwise these are the keys that
-       * scroll the list, and taking them would be worse than not having them.
+       * Once something is selected, or whenever focus is inside the list. The
+       * second half is what makes the first discoverable: rows stopped being
+       * tab stops when the list became one, so Tab now lands on the library
+       * itself, and the key a person tries there has to be the key that walks
+       * it. Gating on a selection meant the affordance only appeared once you
+       * had already found it some other way.
+       *
+       * Anywhere else with nothing selected they stay the keys that scroll the
+       * page, which is what they should be when the list is not what has focus.
        */
-      if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !typing && selection !== null) {
-        const index = visible.findIndex((song) => song.id === selection.id)
-        if (index === -1) return
+      const inList = target?.closest('[role="list"]') != null
 
-        const next = visible[index + (event.key === 'ArrowDown' ? 1 : -1)]
+      if (
+        (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
+        !typing &&
+        (selection !== null || inList)
+      ) {
+        const step = event.key === 'ArrowDown' ? 1 : -1
+
+        // From nothing selected, the first press takes the end of the list the
+        // key points at rather than counting from a position that doesn't exist.
+        const next =
+          selection === null
+            ? visible[step === 1 ? 0 : visible.length - 1]
+            : (() => {
+                const index = visible.findIndex((song) => song.id === selection.id)
+                return index === -1 ? undefined : visible[index + step]
+              })()
+
         if (next === undefined) return
 
         event.preventDefault()

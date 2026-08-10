@@ -554,6 +554,18 @@ function SongRow({
     <button
       type="button"
       onClick={() => onSelect(song)}
+      /*
+       * Not a tab stop. The list is one.
+       *
+       * Every row being tabbable made Tab a tunnel with 4,168 stops and no
+       * forward exit — reaching whatever follows the library meant holding the
+       * key down through the entire song list, and the only way out was
+       * backwards. The roving pattern instead: Tab reaches the scroll container
+       * once, arrows walk the selection from there, and Tab from a row skips
+       * the other 4,167 because `-1` takes them out of the sequence without
+       * taking them away from a pointer, a screen reader, or `focus()`.
+       */
+      tabIndex={-1}
       // "The current item within a set" is exactly what a master-detail
       // selection is, and unlike `aria-selected` it needs no listbox around it —
       // which this cannot be, since a virtualized listbox has to manage its own
