@@ -1,4 +1,4 @@
-# YASS — YARG Song Search
+# YASS — Yet Another Song Selector
 
 A web app that runs alongside a [YARG](https://yarg.in) install and shows your song
 library as a sortable, filterable, searchable list, plus whatever is currently
