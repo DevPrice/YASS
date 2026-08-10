@@ -1,0 +1,37 @@
+/* Spacing, radii, shadows. The file works on a 5px base: 5 / 10 / 15 / 25 / 35 / 50 / 100. */
+:root{
+--space-1:5px;
+--space-2:10px;
+--space-3:15px;
+--space-4:25px;
+--space-5:35px;
+--space-6:50px;
+--space-7:100px;
+
+/* Radii, exactly as authored */
+--radius-sm:5px;    /* button group */
+--radius-md:10px;   /* source tile, toast */
+--radius-lg:20px;   /* information card */
+--radius-pill:50px; /* disclaimer pill, helper-bar button */
+--radius-chip:24px; /* 2X-kick indicator */
+--radius-round:78px;/* difficulty capsule */
+
+/* Strokes */
+--stroke-hairline:1px;
+--stroke:2px;
+--stroke-heavy:3px;
+
+/* Shadows */
+--shadow-bar:0 0 150px 0 rgb(0,0,0);        /* helper bar / footer lift */
+--shadow-toast:0 10px 25px 0 rgba(0,0,0,0.25);
+--shadow-card:inset 0 0 0 2px var(--yarg-border-card);
+--shadow-focus:inset 0 0 0 2px rgba(255,255,255,0.75);
+
+/* Motion — the game favours instant state swaps with a short colour fade. */
+--ease-standard:cubic-bezier(0.2,0,0,1); /* @kind other */
+--duration-fast:90ms; /* @kind other */
+--duration-base:160ms; /* @kind other */
+
+/* The single Figma Variable in the file */
+--web-radius:10px;
+}

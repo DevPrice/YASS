@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react'
+import type { Ref } from 'react'
 
 import type { InstrumentGroup, SongFacets } from '@shared/types'
 import { INSTRUMENT_GROUPS } from '@shared/types'
@@ -31,6 +32,8 @@ interface FiltersPanelProps {
   facets: SongFacets
   resultCount: number
   totalCount: number
+  /** Lets the `/` shortcut in the helper bar focus the search field. */
+  searchRef?: Ref<HTMLInputElement>
 }
 
 export function FiltersPanel({
@@ -39,6 +42,7 @@ export function FiltersPanel({
   facets,
   resultCount,
   totalCount,
+  searchRef,
 }: FiltersPanelProps) {
   const [expanded, setExpanded] = useState(false)
 
@@ -62,9 +66,10 @@ export function FiltersPanel({
   const active = hasActiveFilters(filters)
 
   return (
-    <div className="flex flex-col gap-3 border-b border-border px-4 py-3">
-      <div className="flex items-center gap-2">
+    <div className="flex shrink-0 flex-col gap-[15px] bg-surface-app px-[25px] py-[15px]">
+      <div className="flex items-center gap-[10px]">
         <TextField
+          inputRef={searchRef}
           className="flex-1"
           type="search"
           inputMode="search"
@@ -76,36 +81,39 @@ export function FiltersPanel({
         />
 
         <Button
-          variant={expanded ? 'primary' : 'secondary'}
+          tone={expanded ? 'accent' : 'neutral'}
           onClick={() => setExpanded((previous) => !previous)}
           aria-expanded={expanded}
         >
-          Filters
-          {active ? <span className="ml-1 text-xs">•</span> : null}
+          filters
+          {active ? <span aria-hidden>•</span> : null}
         </Button>
       </div>
 
-      <div className="flex items-center justify-between gap-3 text-xs text-content-faint">
-        <span aria-live="polite">
-          {resultCount === totalCount
-            ? `${totalCount.toLocaleString()} songs`
-            : `${resultCount.toLocaleString()} of ${totalCount.toLocaleString()} songs`}
+      {/* Numbers are shown, not described: bright count, dim unit. */}
+      <div className="flex items-center justify-between gap-[15px]">
+        <span aria-live="polite" className="font-numeric flex items-baseline gap-[5px] text-[15px]">
+          <span className="font-bold text-count">{resultCount.toLocaleString()}</span>
+          {resultCount !== totalCount ? (
+            <span className="text-count-muted">of {totalCount.toLocaleString()}</span>
+          ) : null}
+          <span className="text-count-muted uppercase">songs</span>
         </span>
 
         {active ? (
           <button
             type="button"
             onClick={() => onChange(EMPTY_FILTERS)}
-            className="text-accent hover:underline"
+            className="yarg-label cursor-pointer text-[11px] text-accent hover:text-white"
           >
-            Clear filters
+            clear filters
           </button>
         ) : null}
       </div>
 
-      <div className={cx('flex flex-col gap-3', !expanded && 'hidden')}>
-        <div className="flex flex-wrap gap-2">
-          <span className="self-center text-xs text-content-faint">Has parts:</span>
+      <div className={cx('flex flex-col gap-[15px]', !expanded && 'hidden')}>
+        <div className="flex flex-wrap gap-[10px]">
+          <span className="yarg-label self-center text-[11px] text-count-muted">has parts</span>
           {INSTRUMENT_GROUPS.map((group) => (
             <ToggleChip
               key={group}
@@ -124,30 +132,30 @@ export function FiltersPanel({
           </ToggleChip>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-[15px] sm:grid-cols-2 lg:grid-cols-4">
           <FacetSelect
-            label="Source"
+            label="source"
             value={filters.sources[0] ?? ''}
             options={facets.sources}
             format={formatSource}
             onChange={(value) => singleSelect('sources', value)}
           />
           <FacetSelect
-            label="Genre"
+            label="genre"
             value={filters.genres[0] ?? ''}
             options={facets.genres}
             onChange={(value) => singleSelect('genres', value)}
           />
           <FacetSelect
-            label="Format"
+            label="format"
             value={filters.formats[0] ?? ''}
             options={facets.formats}
             onChange={(value) => singleSelect('formats', value)}
           />
 
-          <div className="flex gap-2">
+          <div className="flex gap-[10px]">
             <Select
-              label="Min diff"
+              label="min diff"
               value={filters.minDifficulty ?? ''}
               onChange={(event) =>
                 update('minDifficulty', event.target.value === '' ? null : Number(event.target.value))
@@ -161,7 +169,7 @@ export function FiltersPanel({
               ))}
             </Select>
             <Select
-              label="Max diff"
+              label="max diff"
               value={filters.maxDifficulty ?? ''}
               onChange={(event) =>
                 update('maxDifficulty', event.target.value === '' ? null : Number(event.target.value))

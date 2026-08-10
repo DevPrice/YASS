@@ -6,9 +6,10 @@
  * doesn't fight the page.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Ref } from 'react'
 
-import { Button, EmptyState, cx } from './ui'
+import { Button, EmptyState, HelperBar, cx } from './ui'
 import { formatRelativeTime } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { useNowPlaying } from './lib/useNowPlaying'
@@ -40,6 +41,37 @@ export function App() {
     [filtered, sortKey, sortDirection],
   )
 
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  // The helper bar advertises these, so they have to actually work.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+
+      if (event.key === '/' && !typing) {
+        event.preventDefault()
+        searchRef.current?.focus()
+        return
+      }
+
+      if (event.key === 'Escape') {
+        // Inside the search field, clear it and step back out; elsewhere,
+        // reset every filter at once.
+        if (target === searchRef.current) {
+          searchRef.current?.blur()
+        }
+        setFilters(EMPTY_FILTERS)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
       setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'))
@@ -53,31 +85,33 @@ export function App() {
     <div className="flex h-full flex-col bg-surface">
       <NowPlayingBar nowPlaying={nowPlaying} connected={connected} />
 
-      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold tracking-tight text-content">YASS</span>
+      <header className="flex shrink-0 items-center justify-between gap-[15px] bg-surface-app px-[25px] py-[10px]">
+        <div className="flex items-baseline gap-[15px]">
+          <span className="yarg-label text-[24px] text-white">yass</span>
           {library ? (
-            <span className="hidden text-xs text-content-faint sm:inline">
+            <span className="hidden text-[13px] text-content-faint sm:inline">
               list exported {formatRelativeTime(library.meta.generatedAt)}
             </span>
           ) : null}
         </div>
 
-        <nav className="flex items-center gap-1">
+        <nav className="flex items-center gap-[5px]">
           <Button
-            variant={view === 'library' ? 'primary' : 'ghost'}
+            tone="accent"
+            quiet={view !== 'library'}
             onClick={() => setView('library')}
           >
-            Library
+            library
           </Button>
           <Button
-            variant={view === 'settings' ? 'primary' : 'ghost'}
+            tone="accent"
+            quiet={view !== 'settings'}
             onClick={() => setView('settings')}
           >
-            Settings
+            settings
           </Button>
-          <Button variant="ghost" onClick={() => void reload()} disabled={loading}>
-            {loading ? 'Loading…' : 'Reload'}
+          <Button quiet onClick={() => void reload()} disabled={loading}>
+            {loading ? 'loading' : 'reload'}
           </Button>
         </nav>
       </header>
@@ -101,9 +135,42 @@ export function App() {
           onSort={handleSort}
           playingId={nowPlaying.song?.libraryId ?? null}
           onOpenSettings={() => setView('settings')}
+          searchRef={searchRef}
         />
       )}
+
+      {/*
+       * The helper bar is the strongest identity cue in YARG's chrome, so the
+       * design system keeps it on the companion app even though a browser has
+       * no gamepad. It's branding with a shortcut function, not a control bar.
+       */}
+      <HelperBar>
+        <HelperHint keyLabel="/" action="search" />
+        <HelperHint keyLabel="esc" action="clear filters" />
+        <span className="ml-auto text-[12px] text-content-faint">
+          {nowPlaying.playing ? 'yarg is playing' : 'yarg is idle'}
+        </span>
+      </HelperBar>
     </div>
+  )
+}
+
+/** Keyboard analogue of the game's gamepad hint. */
+function HelperHint({ keyLabel, action }: { keyLabel: string; action: string }) {
+  return (
+    <span className="flex items-center gap-[10px]">
+      <kbd
+        className="font-numeric flex h-[24px] min-w-[24px] items-center justify-center px-[7px] text-[12px] font-semibold text-white"
+        style={{
+          borderRadius: 'var(--radius-sm)',
+          background: 'var(--yarg-surface-sunken)',
+          boxShadow: 'inset 0 0 0 2px var(--yarg-border-card)',
+        }}
+      >
+        {keyLabel}
+      </kbd>
+      <span className="yarg-label text-[12px] text-content-muted">{action}</span>
+    </span>
   )
 }
 
@@ -119,6 +186,7 @@ function LibraryView({
   onSort,
   playingId,
   onOpenSettings,
+  searchRef,
 }: {
   error: string | null
   loading: boolean
@@ -131,6 +199,7 @@ function LibraryView({
   onSort: (key: SortKey) => void
   playingId: string | null
   onOpenSettings: () => void
+  searchRef: Ref<HTMLInputElement>
 }) {
   if (error) {
     return (
@@ -153,12 +222,12 @@ function LibraryView({
   if (library.meta.count === 0) {
     return (
       <EmptyState title="No songs loaded">
-        <p className="mb-4">
+        <p className="mb-[25px]">
           {library.meta.warnings[0] ??
             'Export your song list from YARG (Settings → Export Songs List → CSV), then point YASS at the file.'}
         </p>
-        <Button variant="primary" onClick={onOpenSettings}>
-          Open settings
+        <Button tone="accent" onClick={onOpenSettings}>
+          open settings
         </Button>
       </EmptyState>
     )
@@ -172,6 +241,7 @@ function LibraryView({
         facets={library.facets}
         resultCount={visible.length}
         totalCount={library.meta.count}
+        searchRef={searchRef}
       />
       <SongList
         songs={visible}

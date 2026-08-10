@@ -1,34 +1,38 @@
 /**
  * The song list.
  *
- * Virtualized because the library runs to thousands of rows — rendering them
- * all would stall the phone this is most likely being browsed on.
+ * Row anatomy follows the design system's `LibraryRow`: an 80px row, Barlow 25px
+ * title in the chart's own casing, italic cyan artist, and a rounded capsule for
+ * the difficulty. The selected row swaps to the cyan fill washed out to card
+ * colour and grows a hard white border — the design's signature treatment.
  *
- * One component serves both layouts: a column-aligned table on wide screens and
- * a stacked card on narrow ones, chosen with CSS rather than a JS breakpoint so
- * there's no layout flash on load.
+ * Virtualized because the library runs to thousands of rows.
+ *
+ * Not yet implemented, pending the bitmap assets: source tiles, instrument
+ * glyphs and star ratings. `LibraryRow` places those at the row's edges; there
+ * is room reserved for them here.
  */
 
 import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
-import { Badge, EmptyState, cx } from '../../ui'
+import { EmptyState, cx } from '../../ui'
 import { formatDuration, formatSource, formatYear } from '../../lib/format'
 import type { SortDirection, SortKey } from './filtering'
 
-const ROW_HEIGHT = 56
+/** The design system's list-item height. */
+const ROW_HEIGHT = 80
 
-/** Columns shown on wide screens, in order. */
 const COLUMNS: Array<{ key: SortKey; label: string; className: string }> = [
-  { key: 'name', label: 'Title', className: 'flex-[3] min-w-0' },
-  { key: 'artist', label: 'Artist', className: 'flex-[2] min-w-0' },
-  { key: 'album', label: 'Album', className: 'flex-[2] min-w-0 hidden xl:block' },
-  { key: 'genre', label: 'Genre', className: 'w-32 shrink-0 hidden 2xl:block' },
-  { key: 'year', label: 'Year', className: 'w-16 shrink-0 text-right' },
-  { key: 'length', label: 'Time', className: 'w-16 shrink-0 text-right' },
-  { key: 'bandDifficulty', label: 'Diff', className: 'w-14 shrink-0 text-right' },
-  { key: 'source', label: 'Source', className: 'w-28 shrink-0 hidden lg:block' },
+  { key: 'name', label: 'title', className: 'flex-[3] min-w-0' },
+  { key: 'artist', label: 'artist', className: 'flex-[2] min-w-0' },
+  { key: 'album', label: 'album', className: 'flex-[2] min-w-0 hidden xl:block' },
+  { key: 'genre', label: 'genre', className: 'w-32 shrink-0 hidden 2xl:block' },
+  { key: 'year', label: 'year', className: 'w-16 shrink-0 text-right' },
+  { key: 'length', label: 'time', className: 'w-16 shrink-0 text-right' },
+  { key: 'bandDifficulty', label: 'diff', className: 'w-20 shrink-0 text-right' },
+  { key: 'source', label: 'source', className: 'w-28 shrink-0 hidden lg:block' },
 ]
 
 interface SongListProps {
@@ -36,7 +40,6 @@ interface SongListProps {
   sortKey: SortKey
   sortDirection: SortDirection
   onSort: (key: SortKey) => void
-  /** Library id of the song YARG is currently playing, for highlighting. */
   playingId: string | null
 }
 
@@ -47,11 +50,11 @@ export function SongList({ songs, sortKey, sortDirection, onSort, playingId }: S
     count: songs.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 12,
+    overscan: 10,
   })
 
-  // Jump back to the top whenever the result set changes identity, or the user
-  // is left scrolled into empty space after narrowing a filter.
+  // Return to the top when the result set changes, so narrowing a filter doesn't
+  // leave the user scrolled into empty space.
   useEffect(() => {
     virtualizer.scrollToOffset(0)
   }, [songs, virtualizer])
@@ -100,10 +103,8 @@ function SortHeader({
 }: Pick<SongListProps, 'sortKey' | 'sortDirection' | 'onSort'>) {
   return (
     <div
-      className={cx(
-        'hidden items-center gap-3 border-b border-border px-4 py-2 md:flex',
-        'text-xs font-medium tracking-wide text-content-faint uppercase',
-      )}
+      className="yarg-wash-header hidden items-center gap-[15px] px-[25px] py-[10px] md:flex"
+      style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
     >
       {COLUMNS.map((column) => {
         const active = column.key === sortKey
@@ -116,12 +117,13 @@ function SortHeader({
             aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
             className={cx(
               column.className,
-              'flex items-center gap-1 transition-colors hover:text-content',
-              active && 'text-accent',
+              'yarg-label flex cursor-pointer items-center gap-[5px] text-[13px] transition-colors duration-160',
+              active ? 'text-white' : 'text-content-header opacity-70 hover:opacity-100',
               column.className.includes('text-right') && 'justify-end',
             )}
           >
             <span className="truncate">{column.label}</span>
+            {/* The file uses ▲ as its one unicode chevron; no icon font, no emoji. */}
             {active ? <span aria-hidden>{sortDirection === 'asc' ? '▲' : '▼'}</span> : null}
           </button>
         )
@@ -134,52 +136,80 @@ function SongRow({ song, isPlaying }: { song: Song; isPlaying: boolean }) {
   return (
     <div
       className={cx(
-        'flex h-full items-center gap-3 border-b border-border/50 px-4',
-        'transition-colors hover:bg-surface-hover',
-        isPlaying && 'bg-accent/10',
+        'flex h-full items-center gap-[15px] px-[25px] transition-[background] duration-160',
+        isPlaying ? 'yarg-wash-selected' : 'bg-surface-card hover:bg-surface-hover',
       )}
+      style={{
+        borderTop: isPlaying ? '3px solid #fff' : '1px solid rgba(255,255,255,0.08)',
+        borderBottom: isPlaying ? '3px solid #fff' : '1px solid rgba(255,255,255,0.08)',
+        borderLeft: `2px solid ${isPlaying ? '#fff' : 'transparent'}`,
+        borderRight: `2px solid ${isPlaying ? '#fff' : 'transparent'}`,
+      }}
     >
       {/* Wide layout: aligned columns. */}
-      <div className="hidden w-full items-center gap-3 text-sm md:flex">
-        <div className="flex-[3] min-w-0">
-          <div className="flex items-center gap-2">
-            {isPlaying ? <Badge tone="accent">Now</Badge> : null}
-            <span className="truncate font-medium text-content">{song.name}</span>
-          </div>
+      <div className="hidden w-full items-center gap-[15px] md:flex">
+        <div className="min-w-0 flex-[3] truncate text-[22px] leading-none font-semibold text-white">
+          {song.name}
         </div>
-        <div className="flex-[2] min-w-0 truncate text-content-muted">{song.artist}</div>
-        <div className="hidden flex-[2] min-w-0 truncate text-content-muted xl:block">
+        <div className="min-w-0 flex-[2] truncate text-[18px] leading-none font-medium text-content-secondary italic">
+          {song.artist}
+        </div>
+        <div className="hidden min-w-0 flex-[2] truncate text-[16px] text-content-muted xl:block">
           {song.album || '—'}
         </div>
-        <div className="hidden w-32 shrink-0 truncate text-content-muted 2xl:block">
+        <div className="hidden w-32 shrink-0 truncate text-[15px] text-content-muted 2xl:block">
           {song.genre || '—'}
         </div>
-        <div className="w-16 shrink-0 text-right tabular-nums text-content-muted">
+        <div className="font-numeric w-16 shrink-0 text-right text-[16px] tabular-nums text-count">
           {formatYear(song.yearNumber)}
         </div>
-        <div className="w-16 shrink-0 text-right tabular-nums text-content-muted">
+        <div className="font-numeric w-16 shrink-0 text-right text-[16px] tabular-nums text-count">
           {formatDuration(song.lengthSeconds)}
         </div>
-        <div className="w-14 shrink-0 text-right tabular-nums text-content-muted">
-          {song.bandDifficulty === null ? '—' : song.bandDifficulty}
+        <div className="flex w-20 shrink-0 justify-end">
+          <DifficultyCapsule tier={song.bandDifficulty} />
         </div>
-        <div className="hidden w-28 shrink-0 truncate text-content-faint lg:block">
+        <div className="hidden w-28 shrink-0 truncate text-[14px] text-count-muted uppercase lg:block">
           {formatSource(song.source)}
         </div>
       </div>
 
-      {/* Narrow layout: two stacked lines. */}
-      <div className="flex min-w-0 flex-1 flex-col justify-center md:hidden">
-        <div className="flex items-center gap-2">
-          {isPlaying ? <Badge tone="accent">Now</Badge> : null}
-          <span className="truncate text-sm font-medium text-content">{song.name}</span>
-        </div>
-        <div className="truncate text-xs text-content-muted">
+      {/* Narrow layout: title over a metadata line. */}
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px] md:hidden">
+        <span className="truncate text-[17px] leading-none font-semibold text-white">
+          {song.name}
+        </span>
+        <span className="truncate text-[14px] leading-none font-medium text-content-secondary italic">
           {song.artist}
-          {song.yearNumber !== null ? ` · ${song.yearNumber}` : ''}
-          {song.lengthSeconds !== null ? ` · ${formatDuration(song.lengthSeconds)}` : ''}
-        </div>
+        </span>
+      </div>
+      <div className="flex shrink-0 items-center gap-[10px] md:hidden">
+        <span className="font-numeric text-[14px] tabular-nums text-count-muted">
+          {formatDuration(song.lengthSeconds)}
+        </span>
+        <DifficultyCapsule tier={song.bandDifficulty} />
       </div>
     </div>
+  )
+}
+
+/**
+ * Band difficulty in the design's rounded capsule.
+ *
+ * `LibraryRow` overlaps an instrument glyph on the capsule's left edge; that
+ * arrives with the bitmap assets.
+ */
+function DifficultyCapsule({ tier }: { tier: number | null }) {
+  if (tier === null) {
+    return <span className="text-[15px] text-content-faint">—</span>
+  }
+
+  return (
+    <span
+      className="font-numeric inline-flex h-[32px] items-center px-[13px] text-[16px] font-semibold text-white"
+      style={{ borderRadius: 'var(--radius-round)', background: 'var(--yarg-surface-sunken)' }}
+    >
+      {tier}
+    </span>
   )
 }

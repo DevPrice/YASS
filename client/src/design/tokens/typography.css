@@ -1,0 +1,45 @@
+/* Type tokens. Roles come from the "Fonts — …" specimen frames in the .fig;
+   sizes are the ones actually used in the game screens. */
+:root{
+--font-display:"Red Hat Display",system-ui,sans-serif; /* menu items, screen headers, buttons, notifications */
+--font-ui:Barlow,system-ui,sans-serif;                 /* list rows, toasts, most in-game body copy */
+--font-data:Inter,system-ui,sans-serif;                /* counts, stats, tabular numbers */
+--font-web:"Open Sans",system-ui,sans-serif;           /* website + launcher body copy */
+--font-lyrics:"Noto Sans",system-ui,sans-serif;        /* vocals / lyrics rendering */
+--font-poster:"Big Shoulders Text",system-ui,sans-serif; /* website headers, social posts */
+--font-poster-alt:"Archivo Black",system-ui,sans-serif;  /* social posts */
+
+/* Weights actually shipped in the file */
+--weight-black:900;
+--weight-extrabold:800;
+--weight-bold:700;
+--weight-semibold:600;
+--weight-medium:500;
+--weight-regular:400;
+
+/* Display scale (Red Hat Display, uppercase, line-height 100%) */
+--text-menu:70px;      /* main-menu options */
+--text-display-1:50px;
+--text-display-2:40px;
+--text-screen-title:30px;
+--text-eyebrow:20px;   /* tags, "NEW"/"BETA" */
+--text-button:16px;    /* helper-bar button labels */
+
+/* UI scale (Barlow) */
+--text-row-title:40px;   /* RB3-style song title */
+--text-row-artist:30px;  /* italic artist */
+--text-track:25px;       /* reworked list-item title */
+--text-body:20px;
+--text-artist-sm:20px;
+--text-meta:15px;
+--text-caption:14px;
+
+/* Data scale (Inter) */
+--text-count:25px;
+--text-stat:16px;
+--text-stat-sm:12px;
+
+--leading-tight:100%;
+--leading-body:1.35;
+--tracking-caps:0;
+}

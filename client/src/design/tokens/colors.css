@@ -1,0 +1,80 @@
+/* YARG colour tokens — values transcribed from "YARG - Design System (Original).fig"
+   (Overall Branding › Colors / Colors - Primary) and from measured game-UI surfaces. */
+:root{
+/* Primary — the three colours the brand sheet calls "Primary" */
+--yarg-night:#090A0B;
+--yarg-vivid-sky-blue:#45D8FE;
+--yarg-white:#FFFFFF;
+
+/* Brand palette (YARG) */
+--yarg-rich-black:#0C0F1E;
+--yarg-imperial-red:#F32B37;
+
+/* Complementary / status */
+--yarg-emerald:#2BE18D;
+--yarg-error-red:#EF3438;
+--yarg-mustard:#FCD548;
+--yarg-veronica:#9746F5;
+
+/* Action colours */
+--yarg-action-confirm:#2BE18D;
+--yarg-action-return:#F32B37;
+--yarg-action-3:#FCD548;
+--yarg-brandeis-blue:#0066FF;
+--yarg-ut-orange:#FF8413;
+--yarg-silver:#B8B8B8;
+
+/* Dark ramp (Dark #1 → #7) */
+--yarg-dark-1:#090A0B; /* Night */
+--yarg-dark-2:#01040A; /* Black */
+--yarg-dark-3:#0C0F1E; /* Rich Black */
+--yarg-dark-4:#151A30; /* Oxford Blue */
+--yarg-dark-5:#1E253E; /* Space Cadet #1 */
+--yarg-dark-6:#2F344D; /* Space Cadet #2 */
+--yarg-dark-7:#7B7F9A; /* Cool Gray */
+
+/* Light ramp (Light #1 → #5) */
+--yarg-light-1:#FFFFFF;
+--yarg-light-2:#F5F5F5; /* White Smoke */
+--yarg-light-3:#B8B8B8; /* Silver */
+--yarg-light-4:#7A7A7A; /* Gray */
+--yarg-light-5:#333333; /* Jet */
+
+/* In-product surfaces measured off the game screens */
+--yarg-surface-app:#05060B;      /* main-menu backdrop under the artwork */
+--yarg-surface-card:#070810;     /* More-Information card, track panels */
+--yarg-surface-sunken:#030307;   /* pills, source tiles, inset chrome */
+--yarg-surface-bar:#01040A;      /* helper bar, footers */
+--yarg-surface-row:#000911;      /* song row */
+--yarg-surface-toast:#000206;    /* toast body */
+--yarg-border-card:#12152D;      /* 2px inset stroke on cards */
+--yarg-border-row:#002549;       /* song-row rules */
+--yarg-row-selected:#0082BA;     /* selected track fill (fades right) */
+
+/* Text on dark */
+--yarg-text-primary:#FFFFFF;
+--yarg-text-cyan:#31E4F1;        /* song title in RB3-style rows */
+--yarg-text-cyan-soft:#A5EFFF;   /* artist / "AS MADE FAMOUS BY" */
+--yarg-text-header:#C7E0FF;      /* category header label */
+--yarg-text-count:#B2CDED;       /* numeric count */
+--yarg-text-count-muted:#5D7EA6; /* unit after the count */
+--yarg-text-muted:#8D9799;
+--yarg-text-dim:#5C6070;
+
+/* Semantic aliases — prefer these in product code */
+--surface-app:var(--yarg-surface-app);
+--surface-card:var(--yarg-surface-card);
+--surface-sunken:var(--yarg-surface-sunken);
+--surface-bar:var(--yarg-surface-bar);
+--border-card:var(--yarg-border-card);
+--border-row:var(--yarg-border-row);
+--accent:var(--yarg-vivid-sky-blue);
+--accent-confirm:var(--yarg-emerald);
+--accent-danger:var(--yarg-imperial-red);
+--accent-warning:var(--yarg-mustard);
+--accent-streaming:var(--yarg-veronica);
+--text-body:var(--yarg-text-primary);
+--text-secondary:var(--yarg-text-cyan-soft);
+--text-muted:var(--yarg-text-muted);
+--focus-ring:var(--yarg-white);
+}

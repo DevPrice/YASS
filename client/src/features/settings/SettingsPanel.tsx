@@ -100,11 +100,11 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Button variant="primary" onClick={() => void save()} disabled={status.kind === 'saving'}>
-          {status.kind === 'saving' ? 'Saving…' : 'Save settings'}
+        <Button tone="confirm" onClick={() => void save()} disabled={status.kind === 'saving'}>
+          {status.kind === 'saving' ? 'saving' : 'save settings'}
         </Button>
         {status.kind === 'error' ? (
-          <span className="text-xs text-danger">{status.message}</span>
+          <span className="text-[13px] text-danger">{status.message}</span>
         ) : null}
       </div>
     </Panel>

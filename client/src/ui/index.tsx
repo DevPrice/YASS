@@ -1,14 +1,20 @@
 /**
- * Presentational primitives.
+ * Presentational primitives, following the YARG design system's recipes.
  *
- * PLACEHOLDER — these exist so feature code can be written against a stable
- * component API before the YARG design system lands. When that repo becomes the
- * authority, replace the implementations here (or re-export from it) and the
- * feature components should not need to change.
+ * The upstream project is the authority. These are YASS-side implementations of
+ * its patterns for the handful of controls a browser app needs that the game
+ * doesn't (a real text input, a select, filter chips) — written against the
+ * vendored tokens so they inherit brand changes automatically.
  *
- * Rules for anything in this file:
- *   - No app logic, no data fetching, no knowledge of songs.
- *   - Colours come from the tokens in `index.css`, never hardcoded.
+ * When upstream components are vendored, copy them verbatim (inline styles and
+ * all) rather than rewriting them here — porting to Tailwind forks them from
+ * the authority and breaks re-syncing.
+ *
+ * Recipes followed:
+ *   - Display type is UPPERCASE; label strings are authored lowercase.
+ *   - Buttons are pills: tinted fill at 75% plus a 2px inset ring.
+ *   - Cards are a flat fill plus a 2px inset stroke. No drop shadows.
+ *   - Hover lifts brightness or fills a 20% tint. Never scale, never bounce.
  */
 
 import type {
@@ -16,6 +22,7 @@ import type {
   InputHTMLAttributes,
   PropsWithChildren,
   ReactNode,
+  Ref,
   SelectHTMLAttributes,
 } from 'react'
 
@@ -28,56 +35,83 @@ const FOCUS_RING =
 
 // --- Button -----------------------------------------------------------------
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost'
+/** Tones as authored in the design system's Button (fill at 75%, brighter ring). */
+type ButtonTone = 'confirm' | 'accent' | 'danger' | 'neutral'
 
-const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-accent-content hover:bg-accent-hover',
-  secondary:
-    'bg-surface-overlay text-content border border-border hover:bg-surface-hover hover:border-border-strong',
-  ghost: 'text-content-muted hover:text-content hover:bg-surface-hover',
+const BUTTON_TONES: Record<ButtonTone, { fill: string; ring: string }> = {
+  confirm: { fill: 'rgba(23,226,137,0.75)', ring: '#43FFAD' },
+  accent: { fill: 'rgba(69,216,254,0.75)', ring: '#A5EFFF' },
+  danger: { fill: 'rgba(243,43,55,0.75)', ring: '#FF7B84' },
+  neutral: { fill: 'rgba(47,52,77,0.75)', ring: '#7B7F9A' },
 }
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant
+  tone?: ButtonTone
+  /** Quieter variant for toolbar actions — no fill until hovered. */
+  quiet?: boolean
+  icon?: ReactNode
 }
 
-export function Button({ variant = 'secondary', className, ...props }: ButtonProps) {
+export function Button({
+  tone = 'neutral',
+  quiet = false,
+  icon,
+  className,
+  children,
+  style,
+  ...props
+}: ButtonProps) {
+  const { fill, ring } = BUTTON_TONES[tone]
+
   return (
     <button
       type="button"
       className={cx(
-        'inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium',
-        'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-        BUTTON_VARIANTS[variant],
+        'yarg-label inline-flex items-center justify-center gap-[10px] px-[20px] text-[13px] text-white',
+        'h-[38px] cursor-pointer transition-[filter,background] duration-160',
+        'hover:brightness-115 disabled:cursor-default disabled:opacity-30 disabled:hover:brightness-100',
         FOCUS_RING,
         className,
       )}
+      style={{
+        borderRadius: 'var(--radius-round)',
+        background: quiet ? 'transparent' : fill,
+        boxShadow: quiet ? 'none' : `inset 0 0 0 2px ${ring}`,
+        ...style,
+      }}
       {...props}
-    />
+    >
+      {icon}
+      {children}
+    </button>
   )
 }
 
 // --- Text field --------------------------------------------------------------
 
 export interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
-  /** Rendered inside the field, before the input — e.g. a search glyph. */
   leading?: ReactNode
-  /** Rendered inside the field, after the input — e.g. a clear button. */
   trailing?: ReactNode
+  /** Explicit rather than `ref`, so it lands on the input and not the wrapper. */
+  inputRef?: Ref<HTMLInputElement>
 }
 
-export function TextField({ leading, trailing, className, ...props }: TextFieldProps) {
+/** Inset pill on the sunken surface, matching the game's search field. */
+export function TextField({ leading, trailing, className, inputRef, ...props }: TextFieldProps) {
   return (
     <div
       className={cx(
-        'flex items-center gap-2 rounded-lg border border-border bg-surface-overlay px-3',
-        'focus-within:border-border-strong focus-within:ring-2 focus-within:ring-accent/40',
+        'flex items-center gap-[10px] bg-surface-sunken px-[15px]',
+        'focus-within:shadow-[inset_0_0_0_2px_rgba(69,216,254,0.5)]',
+        'shadow-[inset_0_0_0_2px_var(--yarg-border-card)] transition-shadow duration-160',
         className,
       )}
+      style={{ borderRadius: 'var(--radius-pill)' }}
     >
       {leading ? <span className="shrink-0 text-content-faint">{leading}</span> : null}
       <input
-        className="min-w-0 flex-1 bg-transparent py-2 text-sm text-content placeholder:text-content-faint focus:outline-none"
+        ref={inputRef}
+        className="min-w-0 flex-1 bg-transparent py-[9px] text-[15px] text-content placeholder:text-content-faint focus:outline-none"
         {...props}
       />
       {trailing ? <span className="shrink-0">{trailing}</span> : null}
@@ -95,11 +129,13 @@ export function Select({ label, className, children, ...props }: SelectProps) {
   const select = (
     <select
       className={cx(
-        'w-full appearance-none rounded-lg border border-border bg-surface-overlay px-3 py-2',
-        'text-sm text-content hover:border-border-strong',
+        'w-full appearance-none bg-surface-sunken px-[15px] py-[9px] text-[14px] text-content',
+        'shadow-[inset_0_0_0_2px_var(--yarg-border-card)] transition-shadow duration-160',
+        'hover:shadow-[inset_0_0_0_2px_var(--yarg-dark-6)]',
         FOCUS_RING,
         className,
       )}
+      style={{ borderRadius: 'var(--radius-md)' }}
       {...props}
     >
       {children}
@@ -109,10 +145,8 @@ export function Select({ label, className, children, ...props }: SelectProps) {
   if (!label) return select
 
   return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium tracking-wide text-content-faint uppercase">
-        {label}
-      </span>
+    <label className="flex flex-col gap-[5px]">
+      <span className="yarg-label text-[11px] text-count-muted">{label}</span>
       {select}
     </label>
   )
@@ -129,11 +163,16 @@ export function Badge({
     <span
       title={title}
       className={cx(
-        'inline-flex items-center rounded px-1.5 py-0.5 text-[11px] leading-none font-medium',
-        tone === 'accent'
-          ? 'bg-accent/15 text-accent'
-          : 'bg-surface-hover text-content-muted',
+        'yarg-label inline-flex items-center px-[8px] py-[3px] text-[10px]',
+        tone === 'accent' ? 'text-accent' : 'text-count-muted',
       )}
+      style={{
+        borderRadius: 'var(--radius-sm)',
+        background:
+          tone === 'accent'
+            ? 'linear-gradient(90deg, rgba(69,216,254,0.5) 0%, transparent 100%)'
+            : 'var(--yarg-surface-sunken)',
+      }}
     >
       {children}
     </span>
@@ -142,6 +181,7 @@ export function Badge({
 
 // --- Toggle chip -------------------------------------------------------------
 
+/** Filter chip. Inactive chips sit dimmed and rise to full on hover. */
 export function ToggleChip({
   active,
   onClick,
@@ -155,12 +195,17 @@ export function ToggleChip({
       title={title}
       aria-pressed={active}
       className={cx(
-        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-        active
-          ? 'border-accent bg-accent/15 text-accent'
-          : 'border-border bg-surface-overlay text-content-muted hover:border-border-strong hover:text-content',
+        'yarg-label cursor-pointer px-[15px] py-[6px] text-[11px] transition-all duration-160',
+        active ? 'text-white' : 'text-content-muted opacity-60 hover:opacity-100',
         FOCUS_RING,
       )}
+      style={{
+        borderRadius: 'var(--radius-pill)',
+        background: active ? 'rgba(69,216,254,0.2)' : 'transparent',
+        boxShadow: active
+          ? 'inset 0 0 0 2px rgba(69,216,254,0.5)'
+          : 'inset 0 0 0 2px var(--yarg-border-card)',
+      }}
     >
       {children}
     </button>
@@ -170,26 +215,31 @@ export function ToggleChip({
 // --- Layout helpers -----------------------------------------------------------
 
 export function Panel({ children, className }: PropsWithChildren<{ className?: string }>) {
+  return <div className={cx('yarg-card', className)}>{children}</div>
+}
+
+/**
+ * The helper bar.
+ *
+ * Kept from the game even though a browser has no gamepad — it's the strongest
+ * identity cue in YARG's chrome. Treat it as branding, not a control surface.
+ */
+export function HelperBar({ children }: PropsWithChildren) {
   return (
     <div
-      className={cx(
-        'rounded-card border border-border bg-surface-raised',
-        className,
-      )}
+      className="flex h-[52px] shrink-0 items-center gap-[25px] bg-surface-bar px-[15px]"
+      style={{ boxShadow: 'var(--shadow-bar)' }}
     >
       {children}
     </div>
   )
 }
 
-export function EmptyState({
-  title,
-  children,
-}: PropsWithChildren<{ title: string }>) {
+export function EmptyState({ title, children }: PropsWithChildren<{ title: string }>) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-      <p className="text-base font-medium text-content">{title}</p>
-      <div className="max-w-md text-sm text-content-muted">{children}</div>
+    <div className="flex flex-col items-center justify-center gap-[15px] px-[25px] py-[100px] text-center">
+      <p className="yarg-label text-[20px] text-content">{title}</p>
+      <div className="max-w-md text-[15px] text-content-muted">{children}</div>
     </div>
   )
 }

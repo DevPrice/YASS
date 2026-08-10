@@ -1,0 +1,6 @@
+/* Minimal element defaults so specimens and kits inherit the brand without extra setup. */
+:root{color-scheme:dark}
+body{background:var(--surface-app);color:var(--text-body);font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
+a{color:var(--yarg-vivid-sky-blue);text-decoration:none}
+a:hover{color:var(--yarg-white)}
+::selection{background:rgba(69,216,254,0.35);color:#fff}

@@ -1,71 +1,133 @@
+/*
+ * The YARG design system is the authority for every value below.
+ *
+ * `design/` holds verbatim copies of the upstream token files. This file does
+ * one job: expose those tokens to Tailwind so utility classes resolve to real
+ * brand values. Add a mapping here rather than hardcoding a colour anywhere.
+ */
+/*
+ * The token files are imported individually rather than through the vendored
+ * `design/styles.css`. That file is upstream's entry point and uses relative
+ * `@import`s, which PostCSS resolves against this file's directory rather than
+ * its own — so going through it looks for `client/tokens/…` and fails. Keeping
+ * the copy intact and listing the imports here preserves fidelity either way.
+ *
+ * Font imports must stay first: remote @imports have to precede other rules.
+ */
+@import './design/tokens/fonts.css';
+@import './design/tokens/colors.css';
+@import './design/tokens/typography.css';
+@import './design/tokens/layout.css';
+@import './design/tokens/base.css';
 @import 'tailwindcss';
 
-/*
- * Design tokens.
- *
- * PLACEHOLDER — the YARG design system (authored in Claude Design) will become
- * the authority for these values and for the primitives in `src/ui/`. Keeping
- * every colour, radius, and font decision here means adopting it is a swap of
- * this block plus `src/ui/`, not a sweep through feature components.
- *
- * Nothing outside this file and `src/ui/` should hardcode a colour.
- */
 @theme {
-  --color-surface: #0b0b0f;
-  --color-surface-raised: #14141b;
-  --color-surface-overlay: #1c1c26;
-  --color-surface-hover: #23232f;
+  /*
+   * Surfaces — the game's measured in-product values.
+   *
+   * Names mirror the design system's own vocabulary (`app`, `card`, `sunken`,
+   * `bar`, `row`) so a token in the upstream docs maps to an obvious utility
+   * here. `--color-surface` is kept as the plain alias for the app background.
+   */
+  --color-surface: var(--yarg-surface-app);
+  --color-surface-app: var(--yarg-surface-app);
+  --color-surface-card: var(--yarg-surface-card);
+  --color-surface-sunken: var(--yarg-surface-sunken);
+  --color-surface-bar: var(--yarg-surface-bar);
+  --color-surface-row: var(--yarg-surface-row);
+  --color-surface-hover: var(--yarg-dark-4);
 
-  --color-border: #2a2a38;
-  --color-border-strong: #3a3a4d;
+  --color-border: var(--yarg-border-card);
+  --color-border-row: var(--yarg-border-row);
+  --color-border-strong: var(--yarg-dark-6);
 
-  --color-content: #e8e8f0;
-  --color-content-muted: #9a9ab0;
-  --color-content-faint: #6a6a80;
+  /* Text roles. `secondary` is the cyan used for artists and "as made famous by". */
+  --color-content: var(--yarg-text-primary);
+  --color-content-secondary: var(--yarg-text-cyan-soft);
+  --color-content-muted: var(--yarg-text-muted);
+  --color-content-faint: var(--yarg-text-dim);
+  --color-content-header: var(--yarg-text-header);
+  --color-count: var(--yarg-text-count);
+  --color-count-muted: var(--yarg-text-count-muted);
 
-  --color-accent: #f0a500;
-  --color-accent-hover: #ffb92e;
-  --color-accent-content: #1a1200;
+  /* Vivid Sky Blue is the brand accent — not a warm colour. */
+  --color-accent: var(--yarg-vivid-sky-blue);
+  --color-accent-strong: var(--yarg-row-selected);
+  --color-accent-content: var(--yarg-night);
+  --color-title: var(--yarg-text-cyan);
 
-  --color-danger: #ff5c5c;
-  --color-success: #4ade80;
+  --color-danger: var(--yarg-imperial-red);
+  --color-success: var(--yarg-emerald);
+  --color-warning: var(--yarg-mustard);
 
-  --radius-card: 0.75rem;
+  /*
+   * Type. Red Hat Display shouts, Barlow is read in motion, Inter is numbers.
+   *
+   * These aliases are deliberately NOT named `--font-display` / `--font-data`:
+   * the design system already owns those names, so reusing them here would
+   * produce `--font-display: var(--font-display)` — a circular reference that
+   * resolves to nothing. Same reasoning for the radius aliases below.
+   */
+  --font-sans: var(--font-ui);
+  --font-heading: var(--font-display);
+  --font-numeric: var(--font-data);
 
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --radius-card: var(--radius-lg);
+  --radius-capsule: var(--radius-pill);
 }
 
 @layer base {
   html {
-    color-scheme: dark;
-    /* The virtualized list owns scrolling; don't let iOS rubber-band the page. */
+    /* The list owns scrolling; don't let iOS rubber-band the page. */
     overscroll-behavior-y: none;
   }
 
-  body {
-    background-color: var(--color-surface);
-    color: var(--color-content);
-    font-family: var(--font-sans);
-    -webkit-font-smoothing: antialiased;
-  }
-
-  /* Respect the notch when this is opened fullscreen on a phone. */
+  /* Respect the notch when opened fullscreen on a phone. */
   #root {
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
+}
 
-  ::selection {
-    background-color: var(--color-accent);
-    color: var(--color-accent-content);
+@layer components {
+  /*
+   * The signature move: wash colour in from one edge rather than filling a
+   * shape. Used on the selected row and on category headers.
+   */
+  .yarg-wash-selected {
+    background:
+      linear-gradient(90deg, rgba(7, 8, 16, 0) -10.08%, #070810 99.98%),
+      var(--yarg-row-selected);
+  }
+
+  .yarg-wash-header {
+    background:
+      linear-gradient(90deg, rgba(7, 8, 16, 0) -10%, #070810 100%), #001b33;
+  }
+
+  /* Cards are a flat fill plus a 2px inset stroke — depth without shadow. */
+  .yarg-card {
+    background: var(--yarg-surface-card);
+    box-shadow: var(--shadow-card);
+    border-radius: var(--radius-lg);
+  }
+
+  /*
+   * Display type is uppercase almost everywhere. Label strings are authored
+   * lowercase and uppercased here, matching how the Figma layers are written.
+   */
+  .yarg-label {
+    font-family: var(--font-display);
+    font-weight: var(--weight-extrabold);
+    text-transform: uppercase;
+    line-height: 100%;
   }
 }
 
 @layer utilities {
   .scrollbar-slim {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-border-strong) transparent;
+    scrollbar-color: var(--yarg-dark-6) transparent;
   }
 
   .scrollbar-slim::-webkit-scrollbar {
@@ -74,7 +136,7 @@
   }
 
   .scrollbar-slim::-webkit-scrollbar-thumb {
-    background-color: var(--color-border-strong);
+    background-color: var(--yarg-dark-6);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: content-box;
