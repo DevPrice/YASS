@@ -10,8 +10,8 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { InstrumentGroup, InstrumentKey, Song } from '@shared/types'
 import { INSTRUMENT_GROUPS, INSTRUMENTS } from '@shared/types'
 
-import { GROUP_ART } from '../design/assets'
-import { artistCredit } from '../lib/format'
+import { GROUP_ART, INSTRUMENT_ART } from '../design/assets'
+import { artistCredit, formatVocalParts } from '../lib/format'
 import { resolveSource } from '../lib/sources'
 import { cx } from './index'
 
@@ -27,6 +27,51 @@ const GROUP_LABELS: Record<InstrumentGroup, string> = {
 const GROUP_OF = new Map<string, InstrumentGroup>(
   INSTRUMENTS.map((instrument) => [instrument.key, instrument.group]),
 )
+
+/**
+ * The vocals glyph, which is the only one that counts.
+ *
+ * The design system draws one microphone, two, or three, and YARG's export says
+ * which — `Vocal Parts` is `0` instrumental, `1` solo, `2`–`3` harmonies. The
+ * app used to answer that in words, in a `vocal parts: 3-part harmony` row of
+ * the detail pane and a `vocals Solo vocals` stat in the banner, while drawing
+ * a solo microphone next to both. The picture says it in the place the eye is
+ * already looking, and the rows are gone.
+ *
+ * Falls back to the solo glyph rather than throwing if an export ever carries a
+ * count nothing was drawn for. A song with four vocal parts should show a
+ * microphone, not a broken image.
+ */
+function vocalsArt(parts: number): string {
+  if (parts >= 3) return INSTRUMENT_ART['vocals-3harmony'] ?? GROUP_ART.vocals
+  if (parts === 2) return INSTRUMENT_ART['vocals-2harmony'] ?? GROUP_ART.vocals
+
+  return GROUP_ART.vocals
+}
+
+/** The glyph for a family, which is a fixed answer for four of the five. */
+function groupArt(group: InstrumentGroup, song: Song): string {
+  return group === 'vocals' ? vocalsArt(song.vocalParts) : GROUP_ART[group]
+}
+
+/**
+ * What to call a part out loud.
+ *
+ * The harmony count is drawn and nowhere written, so this is the only place it
+ * survives for anything that cannot see the glyph — which makes it load-bearing
+ * rather than decorative. Parenthesised rather than comma'd because both
+ * callers put this inside a list of other parts.
+ *
+ * Through `formatVocalParts` rather than interpolating a count, so the words
+ * are still the ones the detail pane used to print. That function is why it
+ * outlived the row it was written for.
+ */
+function partName(group: InstrumentGroup, song: Song): string {
+  const label = GROUP_LABELS[group]
+  if (group !== 'vocals' || song.vocalParts < 2) return label
+
+  return `${label} (${formatVocalParts(song.vocalParts)})`
+}
 
 /** Which instrument groups this chart actually has parts for. */
 function chartedGroups(song: Song): Set<InstrumentGroup> {
@@ -238,8 +283,8 @@ export function InstrumentStrip({
   className?: string
 }) {
   const present = chartedGroups(song)
-  const names = INSTRUMENT_GROUPS.filter((group) => present.has(group)).map(
-    (group) => GROUP_LABELS[group],
+  const names = INSTRUMENT_GROUPS.filter((group) => present.has(group)).map((group) =>
+    partName(group, song),
   )
 
   return (
@@ -251,7 +296,7 @@ export function InstrumentStrip({
       {INSTRUMENT_GROUPS.map((group) => (
         <img
           key={group}
-          src={GROUP_ART[group]}
+          src={groupArt(group, song)}
           alt=""
           aria-hidden
           width={size}
@@ -573,27 +618,37 @@ export function DifficultyRing({
  * one surface with room for it. A band asks "how hard are the drums", and until
  * now the app could not answer.
  *
- * The tier used to be a numeral under the glyph, which made a cell three
- * stacked things — picture, word, number — read top to bottom before it meant
- * anything. The ring is the game's own answer and it is a better one here:
- * drawn *around* the glyph, the part and its difficulty become one mark, and
- * five of them read as a row of shapes instead of five columns of digits.
+ * A cell is one mark now, and it used to be three stacked things — picture,
+ * word, number — that had to be read top to bottom before any of them meant
+ * anything. The number became the ring drawn *around* the glyph, so the part
+ * and its difficulty are one shape; then the word went too. `GUITAR` under a
+ * picture of a guitar is a caption on a photograph of itself, and five of them
+ * set in uppercase extrabold were the loudest type in a pane whose headline is
+ * the song title. The names survive in the accessible name of each cell, which
+ * is where they were doing real work all along.
  *
  * Absent parts hold their slot rather than collapsing, so five songs read as a
- * matrix rather than five differently-shaped rows.
+ * matrix rather than five differently-shaped rows — and with the labels gone
+ * that fixed order is the only thing saying which cell is which, which makes it
+ * load-bearing rather than tidy.
  */
 export function PartsGrid({ song }: { song: Song }) {
   return (
-    <ul className="grid grid-cols-5 gap-[10px]">
+    /*
+     * Named for a screen reader, because nothing on screen names it any more.
+     * The heading that used to sit over this — `PARTS`, in the design system's
+     * uppercase label — is gone along with the five words under the glyphs.
+     */
+    <ul aria-label="Parts" className="grid grid-cols-5 gap-[10px]">
       {INSTRUMENT_GROUPS.map((group) => {
         const tier = groupTier(song, group)
-        const label = GROUP_LABELS[group]
+        const name = partName(group, song)
 
         return (
           <li
             key={group}
-            aria-label={tier === null ? `${label}, not charted` : `${label}, difficulty ${tier}`}
-            className="flex flex-col items-center gap-[10px]"
+            aria-label={tier === null ? `${name}, not charted` : `${name}, difficulty ${tier}`}
+            className="flex justify-center"
           >
             {/*
              * 42px, which the narrowest cell this grid ever gets — 47.5px, in
@@ -603,7 +658,7 @@ export function PartsGrid({ song }: { song: Song }) {
              */}
             <DifficultyRing tier={tier} size={42}>
               <img
-                src={GROUP_ART[group]}
+                src={groupArt(group, song)}
                 alt=""
                 aria-hidden
                 loading="lazy"
@@ -611,16 +666,6 @@ export function PartsGrid({ song }: { song: Song }) {
                 className={cx('size-full object-contain', tier === null ? 'opacity-20' : null)}
               />
             </DifficultyRing>
-            {/*
-             * 12px, which is `--text-stat-sm` — the smallest size the type
-             * tokens actually offer. This was 10px, below the scale's own floor,
-             * uppercase Red Hat Display extrabold, read on a phone in a dark
-             * room. `VOCALS` sets to ~45px at 12px and the narrowest cell this
-             * grid ever gets is 47.5px.
-             */}
-            <span aria-hidden className="yarg-label text-[12px] text-count-muted">
-              {label}
-            </span>
           </li>
         )
       })}

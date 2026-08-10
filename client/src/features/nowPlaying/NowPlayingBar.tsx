@@ -18,7 +18,7 @@ import type { NowPlaying } from '@shared/types'
 import { Badge, ChevronRight, cx } from '../../ui'
 import { ArtistName, BandDifficulty, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
-import { formatArtistCredit, formatDuration, formatVocalParts } from '../../lib/format'
+import { formatArtistCredit, formatDuration } from '../../lib/format'
 import { useVenue } from '../../lib/useVenue'
 import { useVenueWash } from './venueWash'
 import type { VenueWash } from './venueWash'
@@ -136,7 +136,13 @@ export function NowPlayingBar({
                 size at which it occupies the line box the other two stats set,
                 so the row of three still has one top edge. */}
             <Detail label="band" value={<BandDifficulty tier={song.bandDifficulty} size={26} />} />
-            <Detail label="vocals" value={formatVocalParts(song.vocalsCount)} />
+            {/*
+             * `vocals Solo vocals` used to sit here. The count is drawn now —
+             * one microphone, two or three — and the banner has no instrument
+             * glyphs to draw it on, so the fact leaves the banner rather than
+             * being the last place in the app still spelling it out. It is a
+             * click away: the banner opens the song.
+             */}
           </dl>
         </>
       ) : (

@@ -31,6 +31,11 @@ export function formatDifficulty(tier: number | null): string {
 
 const VOCAL_PART_LABELS = ['No vocals', 'Solo vocals', '2-part harmony', '3-part harmony']
 
+/**
+ * Nothing prints this any more — the count is a picture now, one microphone or
+ * two or three. It survives because the picture needs words for anything that
+ * cannot see it, and `partName` in `ui/library` speaks these ones.
+ */
 export function formatVocalParts(count: number): string {
   return VOCAL_PART_LABELS[count] ?? `${count} parts`
 }

@@ -41,12 +41,14 @@
  *      This is the question the surface exists to answer, and it is the only
  *      thing on the page that is drawn rather than set: five instrument glyphs
  *      inside five difficulty rings, and a sixth ring for the band. Everything
- *      above and below it is type.
- *   3. **The six short facts** — year, length, genre, vocal parts, charter,
- *      rating — as label-over-value cells in two columns. `2006` does not need
- *      380px of ruled row to itself, and putting its label directly above it
- *      rather than 380px to its left is what stopped the eye having to traverse
- *      the gap nine times.
+ *      above and below it is type, and the group carries exactly one word —
+ *      `band` — because that ring is the only one whose subject isn't a picture
+ *      of itself.
+ *   3. **The five short facts** — year, length, genre, charter, rating — as
+ *      label-over-value cells in two columns. `2006` does not need 380px of
+ *      ruled row to itself, and putting its label directly above it rather than
+ *      380px to its left is what stopped the eye having to traverse the gap
+ *      nine times.
  *
  * **There are no rules left in this component.** The last one fenced off a
  * separate provenance block, and once `playlist` and `format` were cut that
@@ -62,7 +64,7 @@ import type { Song } from '@shared/types'
 import { Badge, Button, cx } from '../../ui'
 import { ArtistName, BandDifficulty, PartsGrid, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
-import { formatDuration, formatVocalParts, formatYear } from '../../lib/format'
+import { formatDuration, formatYear } from '../../lib/format'
 
 /*
  * `FORMAT_LABELS` used to live here — the map that turned YARG's `EntryType`
@@ -175,12 +177,16 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * recognisably the same number.
        */}
       <section className="mt-[10px] flex flex-col gap-[15px]">
-        <div className="flex items-center justify-between gap-[15px]">
-          <SectionLabel>parts</SectionLabel>
-          <span className="flex items-center gap-[10px]">
-            <SectionLabel>band</SectionLabel>
-            <BandDifficulty tier={song.bandDifficulty} />
-          </span>
+        {/*
+         * `band` is the only label left here. `parts` went with the five words
+         * under the glyphs: it named a row of instrument pictures, which name
+         * themselves. This one still earns its place, because the ring beside
+         * it is the same ring the five parts wear and nothing else would say
+         * that this one stands for all of them.
+         */}
+        <div className="flex items-center justify-end gap-[10px]">
+          <SectionLabel>band</SectionLabel>
+          <BandDifficulty tier={song.bandDifficulty} />
         </div>
 
         <PartsGrid song={song} />
@@ -198,9 +204,9 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
       </section>
 
       {/*
-       * Six short answers in two columns, rather than six full-width rows.
+       * Five short answers in two columns, rather than five full-width rows.
        *
-       * `2006`, `7:22`, `Rock`, `Solo vocals` — none of them needs 380px of
+       * `2006`, `7:22`, `Rock`, `Harmonix` — none of them needs 380px of
        * ruled row, and each label sits directly above the value it names
        * instead of across a gap from it. Row-major order puts the song's own
        * facts first and the chart's last, which is the order they are wanted
@@ -228,9 +234,14 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * about the artist line eleven rows above it, in YARG's word for the
        * answer. The artist line says it itself now: `as made famous by`.
        *
-       * `vocal parts` rather than `vocals`, because the grid immediately above
-       * has a column called VOCALS and it means the difficulty of the vocal
-       * chart. Two different answers under one word, forty pixels apart.
+       * **A `vocal parts` row.** The count is a picture now — the vocals glyph
+       * is one microphone, two or three, drawn by `vocalsArt` — so the grid
+       * above answers it in the place the eye is already looking. The row also
+       * had to be called `vocal parts` rather than `vocals` to keep it apart
+       * from the grid's own VOCALS label, which meant the difficulty of the
+       * vocal chart: two different answers under one word, forty pixels apart.
+       * Both the row and that label are gone. `formatVocalParts` still exists
+       * and still says these words, in the accessible name of the glyph.
        *
        * `charted by` last and left-aligned rather than in a ruled block of its
        * own. It is the field that tells two charts of the same song apart —
@@ -241,7 +252,6 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
         <Fact label="year" value={song.year || formatYear(song.yearNumber)} />
         <Fact label="length" value={formatDuration(song.lengthSeconds)} />
         <Fact label="genre" value={genre || '—'} />
-        <Fact label="vocal parts" value={formatVocalParts(song.vocalParts)} />
         <Fact label="charted by" value={song.charter || '—'} />
         <Fact label="rating" value={song.ageRating || '—'} />
       </dl>

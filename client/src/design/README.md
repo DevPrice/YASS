@@ -18,7 +18,7 @@ silently reverts the change.
 styles.css        entry point — imports every token file
 tokens/           fonts, colors, typography, layout, base  (verbatim copies)
 assets/icons/     the eight line icons that exist as real vector geometry
-assets/instruments/  11 instrument glyphs        500×500 PNG   (5 in use)
+assets/instruments/  13 instrument glyphs   500×500 / 512×512 PNG   (7 in use)
 assets/difficulty/   24 difficulty rings         500×500 PNG   (blocked, below)
 assets/sources/      46 source badges            300×300 PNG   (superseded, below)
 assets/index.ts   slug → URL lookups; only for globs actually rendered
@@ -74,6 +74,23 @@ predicted:
   *groups*. The five families the filters already speak in — guitar, bass, drums, keys,
   vocals — each have a glyph under their own name, so the mapping is exact and nothing
   has to decide what elite drums look like. See `GROUP_ART` in `assets/index.ts`.
+
+  Vocals is the one family whose glyph is not a constant: `vocals-2harmony.png` and
+  `vocals-3harmony.png` stand in for `vocals.png` when the CSV's `Vocal Parts` says 2 or
+  3. `vocalsArt` in `ui/library.tsx` picks, and falls back to the solo microphone for any
+  count nothing was drawn for. These two are the whole reason the app no longer prints a
+  `vocal parts` row or a `vocals` stat.
+
+  **They are 512×512, and everything else here is 500×500.** They came from
+  `GET /v1/files/:key/images` — the image-fill endpoint — because `/v1/images` was rate
+  limiting and would not render. That is normally the wrong door: the note under
+  *Re-vendoring* says to render the component, since a source badge layers two bitmaps
+  and only a render composes them. It is safe here specifically because each of these
+  four vocals rectangles carries exactly one `IMAGE` fill and no effects, so the fill *is*
+  the render — verified by pulling `vocals-solo` the same way and finding the art
+  identical to the vendored `vocals.png`. 512 is the native size; the 500s are scale-1
+  renders of 500px rectangles, i.e. downsampled. Nothing renders differently, since CSS
+  sizes all of them. Re-export at scale 1 if you want the set uniform.
 - **CSV `source` → badge** is not these 46 badges at all. It resolves through the
   `vendor/opensource` submodule — 240 sources, 293 id spellings, 212 icons, keyed by the
   ids the CSV actually contains. Against a real 4,168-song library that covers 85% of
