@@ -326,7 +326,11 @@ export function PartsGrid({ song }: { song: Song }) {
           <li
             key={group}
             aria-label={tier === null ? `${label}, not charted` : `${label}, difficulty ${tier}`}
-            className="flex flex-col items-center gap-[8px]"
+            // 10px between the glyph and the pair beneath it, 5px inside the
+            // pair: the name and the number are one answer, and spacing is what
+            // says so. At an even 8px all three floated apart and five cells
+            // read as fifteen things.
+            className="flex flex-col items-center gap-[10px]"
           >
             <img
               src={GROUP_ART[group]}
@@ -338,17 +342,28 @@ export function PartsGrid({ song }: { song: Song }) {
               decoding="async"
               className={cx('size-[32px] object-contain', tier === null ? 'opacity-20' : null)}
             />
-            <span aria-hidden className="yarg-label text-[10px] text-count-muted">
-              {label}
-            </span>
-            <span
-              aria-hidden
-              className={cx(
-                'font-numeric text-[17px] font-semibold tabular-nums',
-                tier === null ? 'text-content-faint' : 'text-count',
-              )}
-            >
-              {tier === null ? '—' : tier}
+            <span aria-hidden className="flex flex-col items-center gap-[5px]">
+              {/*
+               * 12px, which is `--text-stat-sm` — the smallest size the type
+               * tokens actually offer. This was 10px, below the scale's own
+               * floor, uppercase Red Hat Display extrabold, read on a phone in
+               * a dark room. `VOCALS` sets to ~45px at 12px and the narrowest
+               * cell this grid ever gets is 47.5px, in the detail pane at a
+               * 1024px window.
+               */}
+              <span className="yarg-label text-[12px] text-count-muted">{label}</span>
+              <span
+                className={cx(
+                  // 16px is `--text-stat`, and it is deliberately the same size
+                  // the band capsule sets — a part's tier and the band's tier
+                  // are the same kind of number, so the capsule's fill is what
+                  // separates them rather than a size nobody chose.
+                  'font-numeric text-[16px] font-semibold tabular-nums',
+                  tier === null ? 'text-content-faint' : 'text-count',
+                )}
+              >
+                {tier === null ? '—' : tier}
+              </span>
             </span>
           </li>
         )
