@@ -5,7 +5,7 @@
  * and behind a reverse proxy on a custom domain.
  */
 
-import type { NowPlaying, Settings, SettingsView, SongLibrary } from '@shared/types'
+import type { NowPlaying, SongLibrary } from '@shared/types'
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { Accept: 'application/json' } })
@@ -29,33 +29,14 @@ export function fetchNowPlaying(): Promise<NowPlaying> {
   return getJson<NowPlaying>('/api/now-playing')
 }
 
-/** What this client is allowed to do. Settings are host-only. */
-export interface Capabilities {
-  settings: boolean
-}
-
-export function fetchCapabilities(): Promise<Capabilities> {
-  return getJson<Capabilities>('/api/capabilities')
-}
-
-export function fetchSettings(): Promise<SettingsView> {
-  return getJson<SettingsView>('/api/settings')
-}
-
-export async function saveSettings(patch: Partial<Settings>): Promise<SettingsView> {
-  const response = await fetch('/api/settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  })
-
-  if (!response.ok) {
-    const detail = await response.json().catch(() => ({}) as { error?: string })
-    throw new Error(detail.error ?? `Save failed: ${response.status}`)
-  }
-
-  return (await response.json()) as SettingsView
-}
+// No binding for `/api/settings` or `/api/capabilities`, on purpose.
+//
+// This app is opened by a room full of guests, and configuration is not
+// something they should be able to find, let alone reach — the host-only check
+// on those routes was the last line of that argument rather than the whole of
+// it. The endpoints stay for the tray process, which is where configuration is
+// going. Until it exists, the host edits settings.json or sets the environment
+// variables; both are in the README.
 
 /**
  * Album art URL for the current song.

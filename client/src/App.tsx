@@ -9,38 +9,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 
-import { Button, EmptyState, HelperBar, cx } from './ui'
-import { fetchCapabilities } from './lib/api'
-import { formatRelativeTime } from './lib/format'
+import { EmptyState, HelperBar, cx } from './ui'
 import { useLibrary } from './lib/useLibrary'
 import { useNowPlaying } from './lib/useNowPlaying'
 import { FiltersPanel } from './features/library/Filters'
 import type { OpenPanel } from './features/library/Filters'
 import { SongList } from './features/library/SongList'
-import { EMPTY_FILTERS, filterSongs, sortSongs } from './features/library/filtering'
+import {
+  EMPTY_FILTERS,
+  filterSongs,
+  hasActiveFilters,
+  sortSongs,
+} from './features/library/filtering'
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
 import { NowPlayingBar } from './features/nowPlaying/NowPlayingBar'
-import { SettingsPanel } from './features/settings/SettingsPanel'
-
-type View = 'library' | 'settings'
 
 export function App() {
-  const { library, loading, error, refresh } = useLibrary()
+  const { library, loading, error } = useLibrary()
   const { nowPlaying, connected, settled } = useNowPlaying()
 
-  /**
-   * Settings are host-only, so the tab only exists when the server says this
-   * client is the host. Guests browsing from a phone never see it.
-   */
-  const [canConfigure, setCanConfigure] = useState(false)
-
-  useEffect(() => {
-    void fetchCapabilities()
-      .then((capabilities) => setCanConfigure(capabilities.settings))
-      .catch(() => setCanConfigure(false))
-  }, [])
-
-  const [view, setView] = useState<View>('library')
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [sortKey, setSortKey] = useState<SortKey>('artist')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
@@ -82,6 +69,23 @@ export function App() {
    */
   const queryKey = JSON.stringify([filters, sortKey, sortDirection])
 
+  /**
+   * What Escape does *right now* — or null, when it would do nothing.
+   *
+   * The hint used to read "close, then clear", which is the implementation
+   * described to someone who already knows it. A hint bar is read at a glance
+   * mid-task, and at any given moment the key has exactly one effect; naming
+   * that one is the whole job. The slot disappears rather than greying out
+   * when there is nothing to close and nothing to clear, because a permanent
+   * label for a key that does nothing is how a helper bar becomes furniture.
+   */
+  const escapeAction =
+    openPanel !== 'none'
+      ? `close ${openPanel}`
+      : hasActiveFilters(filters)
+        ? 'clear filters'
+        : null
+
   // The helper bar advertises these, so they have to actually work.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -107,8 +111,9 @@ export function App() {
           return
         }
 
-        // Inside the search field, clear it and step back out; elsewhere,
-        // reset every filter at once.
+        // Otherwise it resets every filter, search included. From inside the
+        // search field it also steps back out, so the second Escape isn't
+        // swallowed by a field that has already been emptied.
         if (target === searchRef.current) {
           searchRef.current?.blur()
         }
@@ -141,39 +146,24 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col bg-surface">
+      {/*
+       * The heading is real but not drawn.
+       *
+       * There was a "yass" wordmark and a settings button in a bar of their
+       * own here. The wordmark told a room full of people the name of the app
+       * they were already looking at, once per phone, forever — and the header
+       * was the only thing between the now-playing banner and the list, so
+       * deleting it hands ~44px straight to song rows on the device that has
+       * the least of them.
+       *
+       * A heading still has to exist, though: it is how screen-reader users
+       * establish what a page is before they start moving through it, and the
+       * page had none at all before this. `sr-only` keeps that without
+       * spending a pixel.
+       */}
+      <h1 className="sr-only">Yet Another Song Selector</h1>
+
       <NowPlayingBar nowPlaying={nowPlaying} connected={connected} settled={settled} />
-
-      <header className="flex shrink-0 items-center justify-between gap-[15px] bg-surface-app px-[25px] py-[10px]">
-        <div className="flex items-baseline gap-[15px]">
-          {/* The app had no heading at all, so heading navigation did nothing. */}
-          <h1 className="yarg-label text-[24px] text-white">yass</h1>
-          {library ? (
-            <span className="hidden text-[13px] text-content-faint sm:inline">
-              list exported {formatRelativeTime(library.meta.generatedAt)}
-            </span>
-          ) : null}
-        </div>
-
-        {/*
-         * Host-only, and the only thing in the header besides the wordmark.
-         *
-         * There used to be a `library` tab, which was permanently active and
-         * did nothing, and a `reload` button — the one control a guest had that
-         * acted on the host's machine, next to a stale list nobody could tell
-         * was stale. The server watches the CSV now, so re-exporting from YARG
-         * updates every phone in the room on its own.
-         */}
-        {canConfigure ? (
-          <Button
-            tone="accent"
-            quiet={view !== 'settings'}
-            aria-pressed={view === 'settings'}
-            onClick={() => setView(view === 'settings' ? 'library' : 'settings')}
-          >
-            settings
-          </Button>
-        ) : null}
-      </header>
 
       {/*
        * `main` is itself the flex column, not a wrapper around one: the filter
@@ -181,13 +171,6 @@ export function App() {
        * resolved against the immediate flex parent.
        */}
       <main className="flex min-h-0 flex-1 flex-col">
-      {view === 'settings' && canConfigure ? (
-        <div className="scrollbar-slim flex-1 overflow-y-auto p-4">
-          <div className="mx-auto max-w-2xl">
-            <SettingsPanel onSaved={() => void refresh()} />
-          </div>
-        </div>
-      ) : (
         <LibraryView
           error={error}
           loading={loading}
@@ -199,7 +182,6 @@ export function App() {
           sortDirection={sortDirection}
           onSort={handleSort}
           playingId={nowPlaying.song?.libraryId ?? null}
-          onOpenSettings={canConfigure ? () => setView('settings') : null}
           searchRef={searchRef}
           openPanel={openPanel}
           onOpenPanelChange={setOpenPanel}
@@ -207,7 +189,6 @@ export function App() {
           onRandom={handleRandom}
           pickedId={pickedId}
         />
-      )}
       </main>
 
       {/*
@@ -224,7 +205,7 @@ export function App() {
        */}
       <HelperBar className="hidden md:flex">
         <HelperHint keyLabel="/" action="search" />
-        <HelperHint keyLabel="esc" action="close, then clear" />
+        {escapeAction ? <HelperHint keyLabel="esc" action={escapeAction} /> : null}
         <span className="ml-auto text-[12px] text-content-faint">
           {nowPlaying.playing ? 'yarg is playing' : 'yarg is idle'}
         </span>
@@ -263,7 +244,6 @@ function LibraryView({
   sortDirection,
   onSort,
   playingId,
-  onOpenSettings,
   searchRef,
   openPanel,
   onOpenPanelChange,
@@ -281,8 +261,6 @@ function LibraryView({
   sortDirection: SortDirection
   onSort: (key: SortKey) => void
   playingId: string | null
-  /** Null for guests — configuration is host-only. */
-  onOpenSettings: (() => void) | null
   searchRef: Ref<HTMLInputElement>
   openPanel: OpenPanel
   onOpenPanelChange: (panel: OpenPanel) => void
@@ -306,28 +284,21 @@ function LibraryView({
     )
   }
 
-  // No CSV configured yet — send the user straight to the fix rather than
-  // showing an empty table.
+  /*
+   * No CSV yet.
+   *
+   * One message for everyone, because the client no longer knows who it is
+   * talking to — and shouldn't. This used to branch on the settings
+   * capability and show the host `meta.warnings[0]`, which can carry the
+   * absolute path to the CSV. That was safe only as long as the capability
+   * check stood between it and the room. The warnings still reach the host,
+   * on the terminal the server is running in, which is where a path belongs.
+   */
   if (library.meta.count === 0) {
-    // Guests can't fix this, so don't hand them a dead end — tell them whose
-    // problem it is instead of showing a settings button that isn't there.
-    if (!onOpenSettings) {
-      return (
-        <EmptyState title="No songs loaded">
-          The song list hasn&apos;t been set up yet. Ask whoever is running YARG to export it.
-        </EmptyState>
-      )
-    }
-
     return (
       <EmptyState title="No songs loaded">
-        <p className="mb-[25px]">
-          {library.meta.warnings[0] ??
-            'Export your song list from YARG (Settings → Export Songs List → CSV), then point YASS at the file.'}
-        </p>
-        <Button tone="accent" onClick={onOpenSettings}>
-          open settings
-        </Button>
+        Nobody has exported the song list yet. In YARG: Settings → Export Songs List → CSV.
+        Whoever is running it points YASS at the file once, and it keeps up from there.
       </EmptyState>
     )
   }

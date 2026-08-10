@@ -271,7 +271,11 @@ export function parseCsvLibrary(text: string): ParseCsvLibraryResult {
 /** Read and parse the configured CSV export. */
 export async function loadLibraryFromCsv(csvPath: string): Promise<SongLibrary> {
   if (!csvPath) {
-    return emptyLibrary(['No song list configured. Point YASS at a CSV export in Settings.'])
+    // This is read off the terminal the server is running in, not in a browser
+    // — there is no settings screen to send anyone to.
+    return emptyLibrary([
+      'No song list configured. Set songListCsvPath in settings.json, or YASS_SONG_LIST_CSV.',
+    ])
   }
 
   let text: string

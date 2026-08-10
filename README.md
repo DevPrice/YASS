@@ -27,8 +27,8 @@ step.
 It is a build-time dependency only. Nothing reads it at runtime, and the song list itself
 still comes from the YARG CSV export and nothing else.
 
-Then open <http://localhost:5173> **on the machine running the server**, go to
-**Settings**, and fill in the two paths described below.
+Set the two paths described under [Configuration](#configuration) before the first run —
+there is no settings screen, deliberately — then open <http://localhost:5173>.
 
 For a production run:
 
@@ -39,27 +39,25 @@ npm start            # single process, single port
 
 ## Configuration
 
-**Settings are host-only.** The settings screen and `/api/settings` are available only
-to a browser on the machine running the server; everyone else gets a 404 and never sees
-the tab. Two reasons: the responses carry absolute filesystem paths that name your user
-account, and nobody wants a guest repointing the app mid-party.
+**There is no settings screen.** Edit the file or set the environment variables below.
 
-A reverse proxy connects over loopback, so any request carrying proxy headers
-(`X-Forwarded-For` and friends) counts as remote. That means reaching YASS through your
-own domain also hides settings — deliberately, since the alternative fails open and
-exposes configuration to the whole LAN.
+The app is opened by a room full of guests, and configuration is not something they
+should be able to find. It was host-only before — `/api/settings` 404s for anyone whose
+request didn't arrive over loopback without proxy headers, and it still does — but that
+check was the last line of the argument rather than the whole of it, and it put the one
+control that acts on the host's machine into the same UI as the song list. Configuration
+belongs to the tray app, and until that exists it belongs to a text editor.
 
-Configuration will move to the tray app when that exists. Until then, use the settings
-screen on the host, edit the file directly, or set environment variables.
+The endpoints remain for the tray process to use. Nothing in the browser calls them.
 
 Settings live in `%APPDATA%/yass/settings.json` (Windows), `~/Library/Application
 Support/yass` (macOS), or `$XDG_CONFIG_HOME/yass` (Linux) — outside the repo, so a
-packaged build behaves like a dev run. The path is printed at startup.
+packaged build behaves like a dev run. The path is printed at startup, along with any
+complaint about what it found there.
 
 Every field has an environment override. Overrides apply to the running process only and
 are **never written to the settings file**, so starting once with `YASS_PORT=9999` won't
-bake that port into your configuration the next time anything saves. The settings screen
-flags any field an environment variable is currently forcing.
+bake that port into your configuration the next time anything saves.
 
 | Setting | Env var | Notes |
 |---|---|---|
@@ -91,9 +89,9 @@ set it here manually.
 CSV is the only export format carrying the song hash, which is what links a library
 row to the currently playing song.
 
-This is a **snapshot**. YARG never publishes the library on its own, so the list goes
-stale when you add songs — re-export and hit **Reload**. The header shows when the
-file was last written.
+It is a snapshot, but not a stale one: the server watches the file and re-reads it
+within half a second of a re-export, then pushes the new list to every connected phone.
+Adding songs to YARG means exporting again and nothing else.
 
 ## Architecture
 
@@ -116,8 +114,11 @@ proxy needs a single upstream. All client URLs are relative.
 | `GET /api/now-playing` | Current state, one shot |
 | `GET /api/events` | SSE stream: `now-playing`, `library`, `ping` |
 | `GET /api/art/current` | Album art for the playing song |
-| `GET /api/capabilities` | What this caller may do (drives whether a settings tab renders) |
+| `GET /api/capabilities` | Whether this caller is the host — no browser consumer, kept for the tray |
 | `GET /api/settings` · `PUT /api/settings` | Read/write configuration — **host-only**, 404 otherwise |
+
+The last three exist for the tray process. The browser client binds none of them: it
+reads the library, the now-playing state and the event stream, and nothing else.
 
 ### The song list reloads itself
 

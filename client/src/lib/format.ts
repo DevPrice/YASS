@@ -43,20 +43,6 @@ export function foldForSearch(value: string): string {
   return value.normalize('NFD').replace(COMBINING_MARKS, '').toLowerCase()
 }
 
-export function formatRelativeTime(epochMs: number | null): string {
-  if (epochMs === null) return 'unknown'
-
-  const deltaMs = Date.now() - epochMs
-  const minutes = Math.round(deltaMs / 60_000)
-
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-
-  const days = Math.round(hours / 24)
-  if (days < 30) return `${days}d ago`
-
-  return new Date(epochMs).toLocaleDateString()
-}
+// `formatRelativeTime` lived here to render "list exported 4h ago" in the
+// header. Nothing displays `meta.generatedAt` now that the server watches the
+// CSV — the stamp answered a question the app answers by staying current.
