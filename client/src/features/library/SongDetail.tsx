@@ -173,11 +173,11 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * **Band difficulty is deliberately not here.** It was the header of this
        * group — a `band` label and the same ring, set to the right — and it is
        * a summary of the five rings directly beneath it. A summary earns its
-       * place where the detail won't fit: the song row, which has one slot for
-       * difficulty, and the banner, which has two stats. On a surface that
-       * shows every part, the one number that stands for all of them is the
-       * least informative thing on it. It is still on `Song` and still drawn by
-       * `BandDifficulty` in both those places.
+       * place where the detail won't fit, and that is now exactly one surface:
+       * the song row, which has a single slot for difficulty and four thousand
+       * rows to scan. On a surface that shows every part, the one number that
+       * stands for all of them is the least informative thing on it. It is
+       * still on `Song` and still drawn by `BandDifficulty` in the list.
        *
        * That leaves the group with no label at all, and it needs none. Five
        * instruments in rings are self-evident, and `PartsGrid` names itself for

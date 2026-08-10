@@ -16,7 +16,7 @@ import type { CSSProperties, ReactNode } from 'react'
 
 import type { NowPlaying } from '@shared/types'
 import { Badge, ChevronRight, cx } from '../../ui'
-import { ArtistName, BandDifficulty, SourceBadge } from '../../ui/library'
+import { ArtistName, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
 import { formatArtistCredit, formatDuration } from '../../lib/format'
 import { useVenue } from '../../lib/useVenue'
@@ -129,20 +129,23 @@ export function NowPlayingBar({
             </p>
           </Content>
 
+          {/*
+           * Length, and nothing else.
+           *
+           * This was three stats — `length`, `band`, `vocals`. The other two
+           * left for the same reason, one commit apart: the banner is a strip
+           * that says what is playing, and a chart's difficulty and its harmony
+           * count are things you read when you are *choosing* a song, which is
+           * what the list and the detail pane are for. Neither was worth the
+           * width here, and band difficulty was a summary of five numbers this
+           * surface never shows.
+           *
+           * Length survives because it answers a question about the song that
+           * is playing rather than about a song you might play: how long until
+           * this one ends.
+           */}
           <dl className="hidden shrink-0 gap-[25px] text-right sm:flex">
             <Detail label="length" value={formatDuration(song.lengthSeconds)} />
-            {/* The ring rather than the digit, so band difficulty is the same
-                mark here, in the song row and in the detail pane. 26px is the
-                size at which it occupies the line box the other two stats set,
-                so the row of three still has one top edge. */}
-            <Detail label="band" value={<BandDifficulty tier={song.bandDifficulty} size={26} />} />
-            {/*
-             * `vocals Solo vocals` used to sit here. The count is drawn now —
-             * one microphone, two or three — and the banner has no instrument
-             * glyphs to draw it on, so the fact leaves the banner rather than
-             * being the last place in the app still spelling it out. It is a
-             * click away: the banner opens the song.
-             */}
           </dl>
         </>
       ) : (
@@ -243,11 +246,12 @@ function Shell({
 /**
  * Numbers are shown, not described: bright value, dim unit label.
  *
- * `ReactNode` rather than `string` since band difficulty became a ring. The
- * numeric styling stays on the `dd` for the two stats that are still text, and
- * costs the ring nothing.
+ * Back to `string` — it took `ReactNode` for as long as one of these held a
+ * difficulty ring. Kept as a component rather than inlined at its one call
+ * site, since it is the shape the banner's stats take and there were three of
+ * them a moment ago.
  */
-function Detail({ label, value }: { label: string; value: ReactNode }) {
+function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <dt className="yarg-label text-[10px] text-count-muted">{label}</dt>

@@ -692,14 +692,22 @@ export function PartsGrid({ song }: { song: Song }) {
  * Band difficulty, wearing the same ring every part wears — around YARG's own
  * BAND mark.
  *
+ * **The song list is the only thing that renders this.** It was on three
+ * surfaces and lost two of them for the same reason: the detail pane shows all
+ * five per-part rings, which is what this number summarises, and the banner is
+ * a strip that says what is playing rather than a place anybody chooses from.
+ * A row is where a summary earns its keep — one slot for difficulty, four
+ * thousand rows to scan.
+ *
  * The middle used to be empty, which is what an empty ring looks like: a
  * loading spinner. Every other ring in the app has an instrument in it, so a
  * bare one read as a ring that had failed to load its glyph rather than as a
  * ring whose subject is the whole band. YARG draws that subject itself, in the
  * same disc-inside-a-ring style as the five instruments — see
  * `design/README.md` for where it came from — so the mark is now the same kind
- * of object as its neighbours, and the row is legible without a column header
- * to tell you what it is.
+ * of object as its neighbours. That matters more now than it did: on a phone
+ * row there is no column header, and the mark is the only thing saying what the
+ * ring is counting.
  *
  * A glyph in the middle also puts an over-6 tier on the badge at the bottom
  * edge rather than in the centre, which is the same place the parts grid puts
