@@ -13,6 +13,8 @@
  * renders them, not buried in an asset index.
  */
 
+import type { InstrumentGroup } from '@shared/types'
+
 const load = (glob: Record<string, unknown>): Readonly<Record<string, string>> => {
   const out: Record<string, string> = {}
 
@@ -28,32 +30,47 @@ const load = (glob: Record<string, unknown>): Readonly<Record<string, string>> =
  * Instrument glyphs, keyed by the design system's own name.
  *
  * Not keyed by `InstrumentKey`: the design system draws 11 glyphs and YASS
- * models 20 instruments, so a mapping has to decide what a 6-fret guitar, a
- * rhythm part, or elite drums looks like when no glyph exists for it.
+ * models 20 instruments, so a per-key mapping has to decide what a 6-fret
+ * guitar, a rhythm part, or elite drums looks like when no glyph exists.
+ * `GROUP_ART` below sidesteps that question rather than answering it.
  */
 export const INSTRUMENT_ART = load(
   import.meta.glob('./instruments/*.png', { eager: true, query: '?url', import: 'default' }),
 )
 
 /**
- * Difficulty rings, keyed `unknown`, `no-part`, `0`…`20`, `21-plus`.
+ * Glyph per instrument *group* — the five families the filters already speak in.
  *
- * The scale is unresolved. The CSV export gives per-instrument difficulties in
- * 0–6, and these rings run to 21+, so the two are not the same axis and must
- * not be indexed against each other until we know what the rings measure.
+ * This mapping is exact, which is the whole reason to work at group level: each
+ * of the five has a glyph drawn for it under its own name, so nothing has to be
+ * approximated. The unresolved 20-key problem only exists if you insist on a
+ * glyph per `InstrumentKey`, and nothing in the UI asks for one — the question
+ * a room actually has is "can we play this", not "which of the four drum
+ * encodings is this chart".
  */
-export const DIFFICULTY_ART = load(
-  import.meta.glob('./difficulty/*.png', { eager: true, query: '?url', import: 'default' }),
-)
+export const GROUP_ART: Readonly<Record<InstrumentGroup, string>> = Object.freeze({
+  guitar: INSTRUMENT_ART['guitar'] ?? '',
+  bass: INSTRUMENT_ART['bass'] ?? '',
+  drums: INSTRUMENT_ART['drums'] ?? '',
+  keys: INSTRUMENT_ART['keys'] ?? '',
+  vocals: INSTRUMENT_ART['vocals'] ?? '',
+})
 
-/**
- * Source badges, keyed by a slug of the design system's display name
- * (`rock-band-3`, `guitar-hero-ii`, `yarg`).
+/*
+ * `difficulty/` and `sources/` are on disk but deliberately not globbed here.
  *
- * The CSV `source` column holds YARG's raw ids (`rb3dlc`, `$DEFAULT$`), which
- * these slugs do not match. That translation table is a separate piece of work
- * and needs YARG's source list to do properly.
+ * A glob emits every file it matches as soon as this module is imported, and
+ * this module is now imported — so exporting them would ship 70 PNGs (~1.5 MB)
+ * that nothing can render.
+ *
+ * **`sources/` is superseded.** Source art comes from the OpenSource submodule
+ * now (`lib/sources.ts`): 212 icons against these 46, keyed by the same ids the
+ * CSV actually contains rather than by slugs of display names. These 46 are
+ * safe to delete — kept only so the decision is reversible with a git checkout
+ * rather than a re-export from Figma.
+ *
+ * **`difficulty/` is still blocked.** The rings run `0`…`20`, `21-plus`,
+ * `no-part`, `unknown`; the CSV's per-instrument difficulties are `0`–`6`.
+ * Those are not the same axis and must not be indexed against each other until
+ * we know what the rings measure.
  */
-export const SOURCE_ART = load(
-  import.meta.glob('./sources/*.png', { eager: true, query: '?url', import: 'default' }),
-)

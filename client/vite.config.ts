@@ -13,10 +13,19 @@ export default defineConfig({
   resolve: {
     alias: {
       '@shared': fileURLToPath(new URL('../shared/src', import.meta.url)),
+      // The OpenSource submodule: YARG's own registry of song-source ids,
+      // display names and icons. Aliased so the import path says what it is
+      // instead of counting `../`s out of the client workspace.
+      '@opensource': fileURLToPath(new URL('../vendor/opensource', import.meta.url)),
     },
   },
   server: {
     port: 5173,
+    fs: {
+      // The submodule lives above the client workspace root, so dev has to be
+      // told it's allowed to serve from there. Build doesn't care.
+      allow: [fileURLToPath(new URL('..', import.meta.url))],
+    },
     proxy: {
       '/api': {
         target: API_TARGET,

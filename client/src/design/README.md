@@ -9,6 +9,7 @@ silently reverts the change.
 | Source project | `YARG Design System` (Claude Design) |
 | Project id | `ed057d66-45e9-4387-bf0d-1e2a6dc94e9a` |
 | Figma file | `YARG - Design System (Original)`, key `v2uJdQ03SKjIL18slAA1wD` |
+| Source art | `vendor/opensource` submodule — YARG's own registry, public domain |
 | Vendored | 2026-08-10 |
 
 ## What's here
@@ -17,10 +18,10 @@ silently reverts the change.
 styles.css        entry point — imports every token file
 tokens/           fonts, colors, typography, layout, base  (verbatim copies)
 assets/icons/     the eight line icons that exist as real vector geometry
-assets/instruments/  11 instrument glyphs        500×500 PNG
-assets/difficulty/   24 difficulty rings         500×500 PNG
-assets/sources/      46 source badges            300×300 PNG
-assets/index.ts   slug → URL lookups for the three PNG directories
+assets/instruments/  11 instrument glyphs        500×500 PNG   (5 in use)
+assets/difficulty/   24 difficulty rings         500×500 PNG   (blocked, below)
+assets/sources/      46 source badges            300×300 PNG   (superseded, below)
+assets/index.ts   slug → URL lookups; only for globs actually rendered
 ```
 
 Token files are byte-for-byte copies of the upstream paths of the same name, so
@@ -60,16 +61,31 @@ with a one-year `immutable` cache — only safe because the names carry a conten
 verbatim `public/` copy would be cached for a year under a stable name, so re-exporting
 an icon would never reach a browser that had already loaded it.
 
-Nothing imports `assets/index.ts` yet, so the PNGs are tree-shaken out and cost the
-bundle nothing until something renders them.
+A glob emits every file it matches the moment the module is imported, and this module is
+imported now — so `index.ts` only globs `instruments/`. Adding a glob back for
+`difficulty/` or `sources/` would ship 70 PNGs nothing can render.
 
-Two mappings are deliberately absent, because both are judgement calls rather than
-lookups, and both are documented at their export in `assets/index.ts`:
+Both mappings that used to block this are resolved, and neither the way this file
+predicted:
 
-- **`InstrumentKey` → glyph.** 20 instruments, 11 glyphs. Nothing is drawn for 6-fret or
-  elite drums, and whether rhythm and co-op borrow the guitar glyph is a decision.
-- **CSV `source` → badge.** The badges are slugs of display names (`rock-band-3`); the
-  CSV holds YARG's raw ids (`rb3dlc`, `$DEFAULT$`). Translating needs YARG's source list.
+- **`InstrumentKey` → glyph** stopped being a question once the UI worked in instrument
+  *groups*. The five families the filters already speak in — guitar, bass, drums, keys,
+  vocals — each have a glyph under their own name, so the mapping is exact and nothing
+  has to decide what elite drums look like. See `GROUP_ART` in `assets/index.ts`.
+- **CSV `source` → badge** is not these 46 badges at all. It resolves through the
+  `vendor/opensource` submodule — 240 sources, 293 id spellings, 212 icons, keyed by the
+  ids the CSV actually contains. Against a real 4,168-song library that covers 85% of
+  songs outright, with a short local override for what upstream lacks (Fortnite Festival
+  is 618 songs and has no upstream entry). See `lib/sources.ts`.
+
+**The 46 badges here are superseded** and no longer globbed. They match only 7 of
+OpenSource's icon slugs, and they are keyed by slugs of display names rather than by
+anything the CSV contains. Kept so the decision reverts with a `git checkout` instead of
+a Figma re-export — delete them once you're sure.
+
+**The 24 difficulty rings are still blocked.** They run `0`–`20`, `21-plus`, `no-part`,
+`unknown`; the CSV's per-instrument difficulties are `0`–`6`. Not the same axis, and they
+must not be indexed against each other until we know what the rings measure.
 
 Also not here: **stars, EX-mode medals, star slots, and Extra Stats** (25 components).
 They render score data, and the CSV export carries no scores, so there is nothing to

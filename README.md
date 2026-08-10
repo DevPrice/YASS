@@ -11,9 +11,21 @@ playing. Built to be opened from a phone on the LAN.
 ## Quick start
 
 ```bash
+git submodule update --init      # source icons — see below
 npm install
-npm run dev          # Vite on :5173, API on :4321
+npm run dev                      # Vite on :5173, API on :4321
 ```
+
+**The submodule is not optional.** `vendor/opensource` is
+[YARC-Official/OpenSource](https://github.com/YARC-Official/OpenSource), the public-domain
+registry YARG itself uses to turn a chart's internal source id into a name and an icon —
+`rb3dlc` into *Rock Band 3 DLC*. Without it the client build fails to resolve
+`@opensource/...`, which is deliberate: a silent fallback would mean every source in the
+library rendering as a raw id again. Clone with `--recurse-submodules` to skip the extra
+step.
+
+It is a build-time dependency only. Nothing reads it at runtime, and the song list itself
+still comes from the YARG CSV export and nothing else.
 
 Then open <http://localhost:5173> **on the machine running the server**, go to
 **Settings**, and fill in the two paths described below.
