@@ -1,10 +1,10 @@
 /**
  * The single connection to the server's event stream.
  *
- * Two hooks need server pushes — now-playing and the song library — and a
- * phone on LAN Wi-Fi should not hold two long-lived sockets to hear about two
- * small things. This module owns one `EventSource` and fans it out, opening on
- * the first subscriber and closing after the last one leaves.
+ * Several hooks need server pushes — now-playing, the song library, the venue
+ * lighting — and a phone on LAN Wi-Fi should not hold a long-lived socket per
+ * topic. This module owns one `EventSource` and fans it out, opening on the
+ * first subscriber and closing after the last one leaves.
  *
  * `EventSource` reconnects on its own, which is most of why the stream is SSE.
  * The polling fallback below only exists for the case where the stream can't be
@@ -58,7 +58,7 @@ function open(): void {
 
   // Every event type the server sends has to be registered explicitly;
   // `EventSource` only fires `message` for frames with no `event:` line.
-  for (const event of ['now-playing', 'library'] as const) {
+  for (const event of ['now-playing', 'library', 'venue'] as const) {
     stream.addEventListener(event, (raw) => {
       setConnected(true)
       dispatch(event, (raw as MessageEvent<string>).data)

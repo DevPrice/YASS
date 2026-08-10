@@ -186,6 +186,49 @@
     min-height: 44px;
   }
 
+  /*
+   * The venue wash: YARG's stage lighting, spilling into the now-playing
+   * banner from the left edge.
+   *
+   * Colour and opacity are set inline from the event stream; everything
+   * structural is here. `screen` lightens rather than covers, so the wash
+   * reads as light falling on the banner instead of a panel laid over it, and
+   * the mask keeps it off the right-hand side where the numbers live.
+   *
+   * The fade is the point of the whole thing. `--venue-fade` is set from the
+   * song's tempo and is exactly as long as the gap between colours, so the
+   * wash is permanently mid-transition — it drifts rather than switching, and
+   * there is no moment at which a colour arrives. `linear` for that reason
+   * too: an eased curve would put a visible settle at each end.
+   */
+  .venue-wash {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    mask-image: linear-gradient(90deg, #000 0%, transparent 72%);
+    -webkit-mask-image: linear-gradient(90deg, #000 0%, transparent 72%);
+    transition:
+      background-color var(--venue-fade, 4000ms) linear,
+      opacity 900ms ease;
+  }
+
+  /*
+   * Asked for less movement, get none of this.
+   *
+   * The honest reading is that a slow cross-fade is not vestibular motion and
+   * could stay. But this is decoration with no function behind it — nothing is
+   * lost by dropping it, and "the page changes colour on its own while you are
+   * trying to read a list" is exactly the class of thing the preference is
+   * asking us to stop doing. `!important` because the opacity it overrides is
+   * an inline style.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    .venue-wash {
+      opacity: 0 !important;
+    }
+  }
+
   .yarg-wash-header {
     background:
       linear-gradient(90deg, rgba(7, 8, 16, 0) -10%, #070810 100%), #001b33;

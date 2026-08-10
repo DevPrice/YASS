@@ -112,7 +112,7 @@ proxy needs a single upstream. All client URLs are relative.
 | `GET /api/songs` | Full library + facets + metadata (ETag-cached) |
 | `POST /api/songs/reload` | Force a re-read of the CSV — **host-only**, 404 otherwise |
 | `GET /api/now-playing` | Current state, one shot |
-| `GET /api/events` | SSE stream: `now-playing`, `library`, `ping` |
+| `GET /api/events` | SSE stream: `now-playing`, `library`, `venue`, `ping` |
 | `GET /api/art/current` | Album art for the playing song |
 | `GET /api/capabilities` | Whether this caller is the host — no browser consumer, kept for the tray |
 | `GET /api/settings` · `PUT /api/settings` | Read/write configuration — **host-only**, 404 otherwise |
@@ -134,6 +134,48 @@ against size and mtime, since a CSV write is not atomic and fires a burst.
 
 There is deliberately no reload button in the UI. Re-exporting from YARG is the whole
 gesture.
+
+### The banner picks up YARG's stage lighting
+
+**Optional, and off unless you turn it on in YARG:** *Settings → Experimental →
+Other → **Enable UDP data stream***. That is the feed [YALCY](https://github.com/YARC-Official/YALCY)
+consumes to drive real lights. We listen to the same broadcast and tint the
+now-playing banner to match the venue — warm when the stage goes warm, blue when
+it goes cool, nothing at all during a blackout.
+
+**A cue is a palette, not a colour.** `coolAutomatic` is a blue chase running
+against a green counter-chase; `harmony` rotates four. Cues also change slowly —
+measured against a live chart, roughly every ten seconds — so mapping each one to
+a single swatch left the banner sitting on one colour for a whole verse. Instead
+each cue maps to the set of colours lit during it, and the wash drifts between
+them every eight beats, at the song's own tempo. The fade is exactly as long as
+the gap, so the colour is always moving and never switches.
+
+It is a real broadcast to `255.255.255.255:36107`, not a unicast, so binding with
+`SO_REUSEADDR` means YASS and YALCY can both receive it. Running one does not
+cost you the other.
+
+Three deliberate reductions, because the source is a firehose aimed at hardware
+and the destination is a phone in someone's hand:
+
+- **88 packets a second become at most two.** The server decodes each datagram
+  but publishes only on a real change, and never more than twice a second. In
+  practice a song produces a couple of events every twenty seconds.
+- **Only five fields cross the wire.** Cue, colour grade, song section, tempo,
+  and whether the stream is alive. The packet also carries note bitfields, vocal
+  pitch, camera cuts and star power; none of that is any of a song browser's
+  business. Tempo gets a deadband on the way out — YARG derives it from note
+  timing, so it wanders several BPM packet to packet, and untreated it would peg
+  the publisher at its ceiling all song.
+- **The strobe field is read and dropped.** Nothing in this app flashes. The
+  twice-a-second publish ceiling makes that structural rather than a promise —
+  a change rate that could reach the three-per-second threshold in WCAG 2.3.1 is
+  not expressible. Under `prefers-reduced-motion` the tint doesn't render at all.
+
+Every field we read sits below byte 36, which is the part of the layout that has
+not moved since datagram version 3, so v3/v4/v5 senders all parse with one set of
+offsets. A version byte above 5 is refused rather than guessed at. If YARG never
+broadcasts, `streaming` stays false and the UI is exactly what it was before.
 
 ### Reading `currentSong.json` safely
 

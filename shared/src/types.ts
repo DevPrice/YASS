@@ -198,3 +198,128 @@ export interface SettingsView {
     songListCsvExists: boolean
   }
 }
+
+// --- Venue lighting ---------------------------------------------------------
+
+/**
+ * YARG's venue lighting cues, indexed by the byte the data stream sends.
+ *
+ * Position is the wire value, so this array *is* the decode table — do not
+ * reorder it. Taken from `LightingEvent.cs` in the YARG source; YALCY reads the
+ * same byte from the same offset.
+ *
+ * `chorus` and `verse` never appear here in practice: YARG diverts them into
+ * the song-section field instead. Neither do the `strobe*` values, which are
+ * only ever written to the strobe field. They are listed because the byte is a
+ * single enum and an index has to line up.
+ */
+export const LIGHTING_CUES = [
+  'default',
+  'dischord',
+  'chorus',
+  'coolManual',
+  'stomp',
+  'verse',
+  'warmManual',
+  'bigRockEnding',
+  'blackoutFast',
+  'blackoutSlow',
+  'blackoutSpotlight',
+  'coolAutomatic',
+  'flareFast',
+  'flareSlow',
+  'frenzy',
+  'intro',
+  'harmony',
+  'silhouettes',
+  'silhouettesSpotlight',
+  'searchlights',
+  'strobeFastest',
+  'strobeFast',
+  'strobeMedium',
+  'strobeSlow',
+  'strobeOff',
+  'sweep',
+  'warmAutomatic',
+  'keyframeFirst',
+  'keyframeNext',
+  'keyframePrevious',
+  'menu',
+  'score',
+  'noCue',
+] as const
+
+export type LightingCue = (typeof LIGHTING_CUES)[number]
+
+/**
+ * YARG's camera colour grades, indexed by the byte the data stream sends.
+ *
+ * Same rule as above: position is the wire value. From `PostProcessingEvent.cs`.
+ * These are real screen filters in the game — `contrastRed` tints the venue red,
+ * `blackAndWhite` drains it — which makes this the most literal answer to "what
+ * colour is the stage right now".
+ */
+export const POST_PROCESSING = [
+  'default',
+  'bloom',
+  'bright',
+  'contrast',
+  'posterize',
+  'photoNegative',
+  'mirror',
+  'blackAndWhite',
+  'sepiaTone',
+  'silverTone',
+  'choppyBlackAndWhite',
+  'photoNegativeRedAndBlack',
+  'polarizedBlackAndWhite',
+  'polarizedRedAndBlue',
+  'desaturatedBlue',
+  'desaturatedRed',
+  'contrastRed',
+  'contrastGreen',
+  'contrastBlue',
+  'grainyFilm',
+  'grainyChromaticAbberation',
+  'scanlines',
+  'scanlinesBlackAndWhite',
+  'scanlinesBlue',
+  'scanlinesSecurity',
+  'trails',
+  'trailsLong',
+  'trailsDesaturated',
+  'trailsFlickery',
+  'trailsSpacey',
+] as const
+
+export type PostProcessing = (typeof POST_PROCESSING)[number]
+
+/**
+ * What YARG's venue is doing right now.
+ *
+ * Deliberately not the whole packet. The stream carries note bitfields, vocal
+ * pitches, camera cuts and star power at 88 Hz; none of that belongs on a phone
+ * browsing a song list, and forwarding it would turn a quiet SSE connection
+ * into a firehose. This is the subset that answers "what colour is the room".
+ *
+ * The strobe field is read and discarded on purpose. See `venueStream.ts`.
+ */
+export interface VenueState {
+  /** True while packets are arriving. False means YARG is closed, the setting is off, or the stream stopped. */
+  streaming: boolean
+  /** The active lighting cue, or null outside gameplay. */
+  cue: LightingCue | null
+  /** The active colour grade, or null outside gameplay. */
+  grade: PostProcessing | null
+  /** Which part of the song the chart's venue track says we're in. */
+  section: 'verse' | 'chorus' | null
+  /**
+   * Tempo, or null outside gameplay.
+   *
+   * Carried so the client can drift through a cue's colours at the song's
+   * pace rather than an arbitrary one. Rounded on the way out: it arrives as a
+   * float 88 times a second, and untouched float noise would publish a change
+   * every packet.
+   */
+  bpm: number | null
+}

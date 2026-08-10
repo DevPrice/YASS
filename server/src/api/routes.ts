@@ -77,13 +77,14 @@ export function createApiRoutes(state: AppState): Hono {
    * SSE rather than WebSockets: the data flows one way, it survives reverse
    * proxies with no upgrade handshake, and the browser reconnects on its own.
    *
-   * Two event types share one connection, because a phone on LAN Wi-Fi holding
-   * two long-lived sockets to say two small things is a worse trade than one
-   * stream with a discriminator:
+   * Several event types share one connection, because a phone on LAN Wi-Fi
+   * holding a socket per topic is a worse trade than one stream with a
+   * discriminator:
    *
    *   `now-playing`  full NowPlaying state, on every change
    *   `library`      just the metadata, when the CSV is re-exported; the
    *                  client refetches `/api/songs` conditionally
+   *   `venue`        YARG's stage lighting, at most twice a second
    *   `ping`         keepalive, so idle proxies don't hang up
    */
   api.get('/events', (c) => {
@@ -105,6 +106,7 @@ export function createApiRoutes(state: AppState): Hono {
       // Send current state immediately so a fresh client isn't blank until the
       // next song change.
       await send('now-playing', state.watcher.current)
+      await send('venue', state.venue.current)
 
       const unsubscribeNowPlaying = state.watcher.subscribe((next) => {
         void send('now-playing', next)
@@ -112,6 +114,10 @@ export function createApiRoutes(state: AppState): Hono {
 
       const unsubscribeLibrary = state.subscribeLibrary((meta) => {
         void send('library', meta)
+      })
+
+      const unsubscribeVenue = state.venue.subscribe((next) => {
+        void send('venue', next)
       })
 
       try {
@@ -123,6 +129,7 @@ export function createApiRoutes(state: AppState): Hono {
       } finally {
         unsubscribeNowPlaying()
         unsubscribeLibrary()
+        unsubscribeVenue()
       }
     })
   })

@@ -10,6 +10,7 @@ import type { LibraryMeta, Settings, SettingsView, SongLibrary } from '@shared/t
 import { CsvWatcher } from './core/csvWatcher.js'
 import { emptyLibrary, loadLibraryFromCsv } from './core/library.js'
 import { NowPlayingWatcher } from './core/nowPlaying.js'
+import { VenueStream } from './core/venueStream.js'
 import {
   applyEnvOverrides,
   describeSettings,
@@ -34,6 +35,13 @@ export class AppState {
   #byHash = new Map<string, string>()
   #watcher: NowPlayingWatcher
   #csvWatcher: CsvWatcher
+  /**
+   * Venue lighting, if YARG is broadcasting it.
+   *
+   * Not configurable and not required. It listens, and if nothing ever arrives
+   * the app behaves exactly as it did before this existed.
+   */
+  #venue = new VenueStream()
   #librarySubscribers = new Set<(meta: LibraryMeta) => void>()
 
   private constructor(stored: Settings) {
@@ -62,6 +70,7 @@ export class AppState {
     await state.reloadLibrary()
     state.#watcher.start()
     await state.#csvWatcher.start()
+    state.#venue.start()
     return state
   }
 
@@ -92,6 +101,10 @@ export class AppState {
 
   get watcher(): NowPlayingWatcher {
     return this.#watcher
+  }
+
+  get venue(): VenueStream {
+    return this.#venue
   }
 
   /** Re-read the song list from disk and rebuild the hash join index. */
@@ -154,5 +167,6 @@ export class AppState {
   stop(): void {
     this.#watcher.stop()
     this.#csvWatcher.stop()
+    this.#venue.stop()
   }
 }

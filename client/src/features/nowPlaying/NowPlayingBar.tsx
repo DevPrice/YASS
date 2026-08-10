@@ -12,13 +12,16 @@
  */
 
 import { useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 import type { NowPlaying } from '@shared/types'
 import { Badge } from '../../ui'
 import { SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
 import { formatDuration, formatVocalParts } from '../../lib/format'
+import { useVenue } from '../../lib/useVenue'
+import { useVenueWash } from './venueWash'
+import type { VenueWash } from './venueWash'
 
 /** Tall enough for the badge, title and artist stack without clipping. */
 const BANNER_HEIGHT = 92
@@ -40,8 +43,18 @@ export function NowPlayingBar({
   const song = nowPlaying.song
   const playing = nowPlaying.playing && song !== null
 
+  /*
+   * The venue hook lives here rather than in `App`, unlike the other two.
+   *
+   * Nothing else on the page has any use for stage lighting, and `events.ts`
+   * hands out one shared connection however many hooks subscribe — so lifting
+   * it would buy nothing and cost a prop through every render of the shell.
+   */
+  const wash = useVenueWash(useVenue())
+
   return (
     <Shell
+      wash={wash}
       backdrop={
         playing && song.hasArt ? (
           <div
@@ -116,13 +129,37 @@ export function NowPlayingBar({
 }
 
 /** Fixed-height frame shared by both states — the thing that stops the shift. */
-function Shell({ backdrop, children }: { backdrop: ReactNode; children: ReactNode }) {
+function Shell({
+  backdrop,
+  wash,
+  children,
+}: {
+  backdrop: ReactNode
+  wash: VenueWash
+  children: ReactNode
+}) {
   return (
+    /*
+     * `isolate` is load-bearing: the wash below blends with what is painted
+     * under it, and without a stacking context here that reaches past the
+     * banner and lifts the song list too.
+     */
     <div
-      className="relative shrink-0 overflow-hidden bg-surface-card"
+      className="relative isolate shrink-0 overflow-hidden bg-surface-card"
       style={{ height: BANNER_HEIGHT }}
     >
       {backdrop}
+      <div
+        aria-hidden
+        className="venue-wash"
+        style={{
+          backgroundColor: wash.color ?? 'transparent',
+          opacity: wash.opacity,
+          // The fade fills the whole gap between colours, so the wash is always
+          // mid-transition rather than resting and then switching.
+          '--venue-fade': `${wash.fadeMs}ms`,
+        } as CSSProperties}
+      />
       <div className="relative flex h-full items-center gap-[15px] px-[25px]">{children}</div>
     </div>
   )
