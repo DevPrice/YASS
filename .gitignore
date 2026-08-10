@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.local
+.env
+.env.*
+!.env.example
+
+# Runtime caches produced by the server
+.cache/
+art-cache/
+
+# OS noise
+Thumbs.db
+.DS_Store

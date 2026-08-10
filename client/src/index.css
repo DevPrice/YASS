@@ -1,0 +1,82 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens.
+ *
+ * PLACEHOLDER — the YARG design system (authored in Claude Design) will become
+ * the authority for these values and for the primitives in `src/ui/`. Keeping
+ * every colour, radius, and font decision here means adopting it is a swap of
+ * this block plus `src/ui/`, not a sweep through feature components.
+ *
+ * Nothing outside this file and `src/ui/` should hardcode a colour.
+ */
+@theme {
+  --color-surface: #0b0b0f;
+  --color-surface-raised: #14141b;
+  --color-surface-overlay: #1c1c26;
+  --color-surface-hover: #23232f;
+
+  --color-border: #2a2a38;
+  --color-border-strong: #3a3a4d;
+
+  --color-content: #e8e8f0;
+  --color-content-muted: #9a9ab0;
+  --color-content-faint: #6a6a80;
+
+  --color-accent: #f0a500;
+  --color-accent-hover: #ffb92e;
+  --color-accent-content: #1a1200;
+
+  --color-danger: #ff5c5c;
+  --color-success: #4ade80;
+
+  --radius-card: 0.75rem;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    /* The virtualized list owns scrolling; don't let iOS rubber-band the page. */
+    overscroll-behavior-y: none;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-content);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Respect the notch when this is opened fullscreen on a phone. */
+  #root {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  ::selection {
+    background-color: var(--color-accent);
+    color: var(--color-accent-content);
+  }
+}
+
+@layer utilities {
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background-color: var(--color-border-strong);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
