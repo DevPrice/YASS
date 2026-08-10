@@ -1,0 +1,163 @@
+/**
+ * Category headers over the sorted list.
+ *
+ * Four thousand rows scroll past as an undifferentiated stream, and the sort
+ * header names the *columns* rather than telling you where in the library you
+ * currently are. These break the run into the divisions the sort already
+ * implies: one per artist, per album, per source, per genre; one per decade of
+ * years; one per leading letter of a title.
+ *
+ * **Groups are found by walking the sorted list, never by bucketing it.** The
+ * songs arrive in order, so a header goes in wherever consecutive songs stop
+ * agreeing — which means the grouping cannot disagree with the ordering, and
+ * descending sorts get descending headers for free rather than through a second
+ * rule that has to be kept in step with the first.
+ *
+ * Only the keys where a division means something get headers. `length` and
+ * `diff` are continuous, and `charter` is a person rather than a category —
+ * a header per charter would be one header per row for most of a library.
+ */
+
+import type { Song } from '@shared/types'
+import { foldForSearch } from '../../lib/format'
+import { sourceName } from '../../lib/sources'
+import { normalizeForSort } from './filtering'
+import type { SortKey } from './filtering'
+
+/** A header, or a song, in the order they are rendered. */
+export type ListItem =
+  | { kind: 'header'; key: string; label: string }
+  /** `position` is the song's ordinal among songs, which headers must not shift. */
+  | { kind: 'song'; key: string; song: Song; position: number }
+
+/**
+ * What a group is called, and what makes two songs part of the same one.
+ *
+ * `id` is compared with `===` against the previous song's, so it has to be
+ * canonical — case and diacritics folded away for anything the collator sorts
+ * at base sensitivity, or `Beyoncé` and `Beyonce` would sort adjacent and then
+ * be given a header each.
+ */
+interface Group {
+  id: string
+  label: string
+}
+
+const DIGIT = /\p{Nd}/u
+const LETTER = /\p{L}/u
+
+/**
+ * Titles that are nothing but punctuation.
+ *
+ * `normalizeForSort` hands those back their original text rather than an empty
+ * string, so `!!!` stays `!!!` and sorts ahead of every letter — which puts the
+ * whole class of them in one run at the top of the list, wanting one header.
+ * `#` rather than a word because the neighbouring headers are single
+ * characters, and `0–9` already has the numbers.
+ */
+const SYMBOL: Group = { id: 'symbol', label: '#' }
+const NUMBER: Group = { id: 'number', label: '0–9' }
+
+/**
+ * One header for every digit, rather than ten.
+ *
+ * `1979`, `21 Guns` and `99 Problems` have nothing to do with each other beyond
+ * starting with a number, and nobody hunting for one of them scans for the
+ * digit it happens to begin with.
+ */
+function titleGroup(song: Song): Group {
+  const filed = normalizeForSort(song.name)
+
+  // Code points, not code units: an emoji or an astral-plane character would
+  // otherwise be split down the middle and tested as half of itself.
+  const first = [...filed][0]
+  if (first === undefined) return { id: 'untitled', label: '—' }
+
+  if (DIGIT.test(first)) return NUMBER
+  if (!LETTER.test(first)) return SYMBOL
+
+  // Folded, so É and E share a header rather than getting one each — they
+  // already sort together, since the collator compares at base sensitivity.
+  const folded = foldForSearch(first)
+  return { id: `letter:${folded}`, label: folded.toLocaleUpperCase() }
+}
+
+function yearGroup(song: Song): Group {
+  if (song.yearNumber === null) return { id: 'year:unknown', label: 'Unknown year' }
+
+  const decade = Math.floor(song.yearNumber / 10) * 10
+  return { id: `year:${decade}`, label: `${decade}s` }
+}
+
+/**
+ * A group per distinct value, labelled with the value as the CSV spells it.
+ *
+ * Identity is the *filed* form: `The Beatles` and `Beatles` sort as one run, so
+ * they are one group, and the label comes from whichever of them the sort put
+ * first rather than from a spelling nobody typed.
+ */
+function valueGroup(raw: string, missing: string): Group {
+  const value = raw.trim()
+  if (value === '') return { id: 'missing', label: missing }
+
+  return { id: `value:${foldForSearch(normalizeForSort(value))}`, label: value }
+}
+
+/**
+ * Source is the one key that groups on something other than what it shows.
+ *
+ * The list sorts on the CSV's raw id — `rb3dlc`, `gh2` — so that is what makes
+ * a run contiguous, but a header saying `rb3dlc` would be the internal token
+ * the rest of the app works to keep off the screen. Ids are matched
+ * case-insensitively for the same reason `resolveSource` does it: one library
+ * contains both `rb3dlc` and `RB4`.
+ */
+function sourceGroup(song: Song): Group {
+  const raw = song.source.trim()
+  if (raw === '') return { id: 'missing', label: 'Unknown source' }
+
+  return { id: `source:${raw.toLowerCase()}`, label: sourceName(raw) }
+}
+
+const GROUPERS: Partial<Record<SortKey, (song: Song) => Group>> = {
+  name: titleGroup,
+  artist: (song) => valueGroup(song.artist, 'Unknown artist'),
+  album: (song) => valueGroup(song.album, 'No album'),
+  genre: (song) => valueGroup(song.genre, 'No genre'),
+  source: sourceGroup,
+  year: yearGroup,
+}
+
+/**
+ * The sorted songs, with a header spliced in wherever the group changes.
+ *
+ * Takes songs already sorted by `key`; grouping an unsorted list would emit a
+ * header per row, which is the honest result of asking where the runs are in
+ * something that has none.
+ */
+export function groupSongs(songs: readonly Song[], key: SortKey): ListItem[] {
+  const grouper = GROUPERS[key]
+
+  if (grouper === undefined) {
+    return songs.map((song, position) => ({ kind: 'song', key: song.id, song, position }))
+  }
+
+  const items: ListItem[] = []
+  let current: string | null = null
+
+  songs.forEach((song, position) => {
+    const group = grouper(song)
+
+    if (group.id !== current) {
+      current = group.id
+      // The position is in the key because a group id is only unique among
+      // *consecutive* songs. Two runs of the same id would be a bug in the
+      // sort, but a duplicate React key would turn it into a crash.
+      items.push({ kind: 'header', key: `header:${group.id}:${position}`, label: group.label })
+    }
+
+    items.push({ kind: 'song', key: song.id, song, position })
+  })
+
+  return items
+}

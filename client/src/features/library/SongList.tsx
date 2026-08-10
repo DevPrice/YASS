@@ -23,17 +23,21 @@
  * list of songs is true at every width; a grid would be a lie in the narrow one.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
 import { EmptyState, SortArrow, cx } from '../../ui'
 import { DifficultyCapsule, InstrumentStrip, SourceBadge } from '../../ui/library'
 import { formatDuration, formatYear } from '../../lib/format'
+import { groupSongs } from './grouping'
 import type { SortDirection, SortKey } from './filtering'
 
 /** The design system's list-item height. */
 const ROW_HEIGHT = 80
+
+/** Enough to read as a division of the list without competing with a row. */
+const HEADER_HEIGHT = 40
 
 /**
  * The selected song, and how the list should bring it into view.
@@ -152,10 +156,31 @@ export function SongList({
     return () => observer.disconnect()
   }, [])
 
+  /** The songs with their category headers spliced in — what actually renders. */
+  const items = useMemo(() => groupSongs(songs, sortKey), [songs, sortKey])
+
+  /**
+   * Both memoized on `items`, and `getItemKey` is doing more than it looks.
+   *
+   * The virtualizer recomputes its measurements when one of a fixed set of
+   * options changes identity, and `estimateSize` is not in that set — so a
+   * grouping that changed without changing the item *count* would keep the old
+   * heights and lay headers out as 80px rows. `getItemKey` is in the set, so
+   * memoizing it on `items` makes it the signal: it changes exactly when the
+   * grouping does, and the fresh `estimateSize` gets read on the same pass.
+   */
+  const getItemKey = useCallback((index: number) => items[index]?.key ?? index, [items])
+
+  const estimateSize = useCallback(
+    (index: number) => (items[index]?.kind === 'header' ? HEADER_HEIGHT : ROW_HEIGHT),
+    [items],
+  )
+
   const virtualizer = useVirtualizer({
-    count: songs.length,
+    count: items.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize,
+    getItemKey,
     overscan: 10,
   })
 
@@ -177,13 +202,17 @@ export function SongList({
    * immediately undoing the scroll-to-top above, which runs from the same
    * commit. The selection changing is the only thing that should move the list.
    */
-  const songsRef = useRef(songs)
-  songsRef.current = songs
+  const itemsRef = useRef(items)
+  itemsRef.current = items
 
   useEffect(() => {
     if (selection === null) return
 
-    const index = songsRef.current.findIndex((song) => song.id === selection.id)
+    // The index is into the rendered items, headers included — the same units
+    // the virtualizer measures in.
+    const index = itemsRef.current.findIndex(
+      (item) => item.kind === 'song' && item.song.id === selection.id,
+    )
     if (index >= 0) virtualizer.scrollToIndex(index, { align: selection.align })
   }, [selection, virtualizer])
 
@@ -225,27 +254,53 @@ export function SongList({
           style={{ height: `${virtualizer.getTotalSize()}px` }}
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
-            const song = songs[virtualRow.index]
-            if (!song) return null
+            const item = items[virtualRow.index]
+            if (item === undefined) return null
+
+            const placement = {
+              height: `${virtualRow.size}px`,
+              transform: `translateY(${virtualRow.start}px)`,
+            }
+
+            if (item.kind === 'header') {
+              return (
+                <div
+                  key={item.key}
+                  /*
+                   * Presentational on purpose, twice over: a `list` owns
+                   * `listitem`s and nothing else, and every value these group
+                   * by is already on the row or in its detail — the artist, the
+                   * year, the letter the title starts with. Announcing each
+                   * header would put a second copy of that in the way of
+                   * someone moving through four thousand songs one at a time.
+                   */
+                  role="presentation"
+                  aria-hidden
+                  className="absolute top-0 left-0 w-full"
+                  style={placement}
+                >
+                  <CategoryHeader label={item.label} />
+                </div>
+              )
+            }
 
             return (
               <div
-                key={song.id}
+                key={item.key}
                 role="listitem"
                 // Only ~17 rows exist in the DOM at a time, so without these a
                 // screen reader reports a list of seventeen out of 4,168.
+                // Counted in songs, so the headers don't inflate the total or
+                // put gaps in the numbering.
                 aria-setsize={songs.length}
-                aria-posinset={virtualRow.index + 1}
+                aria-posinset={item.position + 1}
                 className="absolute top-0 left-0 w-full"
-                style={{
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
+                style={placement}
               >
                 <SongRow
-                  song={song}
-                  isPlaying={song.id === playingId}
-                  isSelected={song.id === selection?.id}
+                  song={item.song}
+                  isPlaying={item.song.id === playingId}
+                  isSelected={item.song.id === selection?.id}
                   onSelect={onSelect}
                 />
               </div>
@@ -253,6 +308,45 @@ export function SongList({
           })}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * A division of the list — an artist, a decade, a letter.
+ *
+ * Wears the same wash as the sort header above it, because they are the same
+ * kind of thing: a band that names what is under it rather than a row you can
+ * act on. It is shorter and quieter than that one, which is the difference
+ * between naming the whole table and naming the next twelve songs.
+ *
+ * Set in the value's own casing rather than uppercased like the rest of the
+ * display type. `MOTÖRHEAD` would be very much this design system, but the
+ * same rule renders the decades as `1980S`, and a header that looks like a
+ * typo costs more than the extra shout is worth.
+ */
+function CategoryHeader({ label }: { label: string }) {
+  return (
+    <div
+      dir="auto"
+      className={cx(
+        'yarg-wash-header flex h-full items-center truncate px-[25px]',
+        // Cyan rather than the sort header's pale blue, and 15px rather than
+        // its 13. The band behind the two is the same, so the label is the
+        // only thing distinguishing "this names the columns" from "this names
+        // the next twelve songs" — at the sort header's weight it read as a
+        // stray character sitting in an empty strip.
+        'font-heading text-[15px] font-extrabold text-title',
+      )}
+      // The row's 2px side borders again, so a header's text starts on the
+      // same pixel as the title of the song beneath it. See `SortHeader`.
+      style={{
+        borderLeft: '2px solid transparent',
+        borderRight: '2px solid transparent',
+        borderBottom: '1px solid var(--color-border-row)',
+      }}
+    >
+      {label}
     </div>
   )
 }
