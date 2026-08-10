@@ -5,7 +5,7 @@
  * now-playing banner need them, and neither owns the other.
  */
 
-import type { InstrumentGroup, Song } from '@shared/types'
+import type { InstrumentGroup, InstrumentKey, Song } from '@shared/types'
 import { INSTRUMENT_GROUPS, INSTRUMENTS } from '@shared/types'
 
 import { GROUP_ART } from '../design/assets'
@@ -50,12 +50,22 @@ export function SourceBadge({
   size = 20,
   showName = true,
   className,
+  nameClassName,
 }: {
   source: string
   size?: number
   /** False in tight columns where the icon alone has to carry it. */
   showName?: boolean
   className?: string
+  /**
+   * Overrides the name's own styling.
+   *
+   * The muted default is right in a table column, where the source is one of
+   * nine things competing and the least urgent of them. It is wrong in the
+   * detail view's fact list, where it is the answer to a question somebody
+   * asked and every other answer is set in plain white.
+   */
+  nameClassName?: string
 }) {
   const resolved = resolveSource(source)
 
@@ -79,7 +89,14 @@ export function SourceBadge({
         />
       ) : null}
       {showName ? (
-        <span className="truncate text-[13px] text-content-muted">{resolved.name}</span>
+        // Replaces the default rather than appending to it. Two utilities for
+        // the same property both land in the stylesheet and *its* order
+        // decides, not this string's — so passing `text-content` alongside
+        // `text-content-muted` left the source name grey while every other
+        // value beside it was white.
+        <span className={cx('truncate', nameClassName ?? 'text-[13px] text-content-muted')}>
+          {resolved.name}
+        </span>
       ) : (
         <span className="sr-only">{resolved.name}</span>
       )}
@@ -135,6 +152,131 @@ export function InstrumentStrip({
           style={{ width: size, height: size }}
         />
       ))}
+    </span>
+  )
+}
+
+/**
+ * The instrument a player is actually handed for each family.
+ *
+ * A group's difficulty is not one number — `guitar` spans 5-fret, 6-fret and
+ * two Pro Guitar charts, and Pro Guitar routinely tiers three above the
+ * standard one. Reporting the hardest would tell a guitarist a song is a 6 when
+ * the chart they'll play is a 3; reporting the easiest would do the reverse. So
+ * each family reports its standard chart, which is the one that gets picked
+ * unless somebody has brought a special controller.
+ */
+const PRIMARY_KEY: Record<InstrumentGroup, InstrumentKey> = {
+  guitar: 'guitar5',
+  bass: 'bass5',
+  drums: 'drums4',
+  keys: 'keys',
+  vocals: 'vocals',
+}
+
+/** The standard chart's tier, or the first alternate charted, or null. */
+function groupTier(song: Song, group: InstrumentGroup): number | null {
+  const primary = song.difficulties[PRIMARY_KEY[group]]
+  if (primary !== null) return primary
+
+  // Pro-only charts exist. A song with Pro Drums and no 4-lane still has drums,
+  // and saying "no drums" because the standard chart is missing would be worse
+  // than quoting the chart that does exist.
+  for (const instrument of INSTRUMENTS) {
+    if (instrument.group !== group) continue
+
+    const tier = song.difficulties[instrument.key]
+    if (tier !== null) return tier
+  }
+
+  return null
+}
+
+/**
+ * What each family plays, and how hard.
+ *
+ * The list row can only afford a lit-or-dim glyph: it answers "does this have
+ * drums". The wire has always carried the rest — twenty per-instrument tiers
+ * per song, used as a filter predicate and displayed nowhere — and this is the
+ * one surface with room for it. A band asks "how hard are the drums", and until
+ * now the app could not answer.
+ *
+ * Absent parts hold their slot rather than collapsing, so five songs read as a
+ * matrix rather than five differently-shaped rows.
+ */
+export function PartsGrid({ song }: { song: Song }) {
+  return (
+    <ul className="grid grid-cols-5 gap-[10px]">
+      {INSTRUMENT_GROUPS.map((group) => {
+        const tier = groupTier(song, group)
+        const label = GROUP_LABELS[group]
+
+        return (
+          <li
+            key={group}
+            aria-label={tier === null ? `${label}, not charted` : `${label}, difficulty ${tier}`}
+            className="flex flex-col items-center gap-[8px]"
+          >
+            <img
+              src={GROUP_ART[group]}
+              alt=""
+              aria-hidden
+              width={32}
+              height={32}
+              loading="lazy"
+              decoding="async"
+              className={cx('size-[32px] object-contain', tier === null ? 'opacity-20' : null)}
+            />
+            <span aria-hidden className="yarg-label text-[10px] text-count-muted">
+              {label}
+            </span>
+            <span
+              aria-hidden
+              className={cx(
+                'font-numeric text-[17px] font-semibold tabular-nums',
+                tier === null ? 'text-content-faint' : 'text-count',
+              )}
+            >
+              {tier === null ? '—' : tier}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/**
+ * Band difficulty in the design's rounded capsule.
+ *
+ * Zero is left as a number rather than reinterpreted. `Song` documents that `0`
+ * can mean "present but untiered" as well as "trivial", and 205 of the 4,168
+ * songs in the library this was built against carry it — too many to silently
+ * relabel on a guess. Deciding what YARG actually means needs the exporter, not
+ * this component; the detail view says so in words, where a phone can read it.
+ */
+export function DifficultyCapsule({ tier, size = 32 }: { tier: number | null; size?: number }) {
+  if (tier === null) {
+    return (
+      <span className="text-[15px] text-content-faint">
+        <span className="sr-only">Difficulty unrated</span>
+        <span aria-hidden>—</span>
+      </span>
+    )
+  }
+
+  return (
+    <span
+      title={tier === 0 ? 'Difficulty 0 — YARG also writes 0 for untiered charts' : undefined}
+      className="font-numeric inline-flex items-center px-[13px] text-[16px] font-semibold text-white"
+      style={{
+        height: size,
+        borderRadius: 'var(--radius-round)',
+        background: 'var(--yarg-surface-sunken)',
+      }}
+    >
+      <span className="sr-only">Band difficulty </span>
+      {tier}
     </span>
   )
 }

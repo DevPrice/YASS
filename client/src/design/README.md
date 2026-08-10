@@ -123,6 +123,7 @@ radius changes upstream. Two habits keep that manageable:
 | `ui/HelperBar` | `components/core/HelperBar.jsx` | 2026-08-10 | 52px instead of 75px — a browser footer, not a 1080p game bar. Desktop only: below `md` its space goes to the filter bar, since a phone can't press the keys it advertises |
 | `features/library/SongList` `SongRow` | `components/music/LibraryRow.jsx` | 2026-08-10 | Track variant only. Source tile and instrument glyphs now render (from OpenSource and `GROUP_ART`); stars omitted — the CSV carries no scores |
 | `ui/TextField`, `ui/Select`, `ui/ToggleChip` | no upstream equivalent | 2026-08-10 | Browser controls the game has no analogue for; built from the system's recipes |
+| `features/library/SongDetail` `SongDetailSheet` | no upstream equivalent | 2026-08-10 | Master-detail pane and its phone-sized sheet. The game has no "one song, everything about it" screen — it shows this on the track panel of a list it can afford to make 1080p tall. Built from the system's recipes: card fill plus inset stroke, the selected-row wash on the art plate, hairline rules between facts |
 
 **Drift check:** read the upstream path with DesignSync and compare against the port. Worth
 doing when re-vendoring tokens, since the two usually change together.

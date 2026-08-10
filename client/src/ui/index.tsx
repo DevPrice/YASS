@@ -368,6 +368,21 @@ export function SortArrow({ direction }: { direction: 'asc' | 'desc' }) {
   )
 }
 
+/** "There is more of this behind here." Same stroke and cap as `SortArrow`. */
+export function ChevronRight() {
+  return (
+    <svg width="6" height="9" viewBox="0 0 6 9" fill="none" aria-hidden className="shrink-0">
+      <path
+        d="M1 1L4.5 4.5L1 8"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export function EmptyState({ title, children }: PropsWithChildren<{ title: string }>) {
   return (
     <div className="flex flex-col items-center justify-center gap-[15px] px-[25px] py-[100px] text-center">

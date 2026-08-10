@@ -204,6 +204,11 @@ keep art inside the archive and fall back to a placeholder.
 
 Library-list art needs chart paths, which arrive with the YARG-side index below.
 
+Until then the song detail view fills the art slot with the song's own title, set large
+in the display face over the selected-row wash. Four thousand identical grey discs would
+have been the honest answer to "we don't have this" and the wrong one; a typographic
+plate is still a placeholder, but it is a placeholder that tells you what you tapped.
+
 ## Testing
 
 ```bash

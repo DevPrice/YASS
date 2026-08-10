@@ -15,7 +15,7 @@ import { useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import type { NowPlaying } from '@shared/types'
-import { Badge } from '../../ui'
+import { Badge, ChevronRight, cx } from '../../ui'
 import { SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
 import { formatDuration, formatVocalParts } from '../../lib/format'
@@ -34,11 +34,24 @@ export function NowPlayingBar({
   nowPlaying,
   connected,
   settled,
+  onSelect,
 }: {
   nowPlaying: NowPlaying
   connected: boolean
   /** False until the server has answered once, either way. */
   settled: boolean
+  /**
+   * Opens this song's details, or null when it can't be opened.
+   *
+   * Null whenever the playing song's hash doesn't join the library — the
+   * exported CSV is a snapshot, so YARG can be playing a chart added since the
+   * last export. The banner still names it; there is just nothing more to show.
+   *
+   * This is the only route to the playing song's details that doesn't involve
+   * finding it: it can be three thousand rows down, and nobody is going to
+   * scroll there to see what the drums are like.
+   */
+  onSelect: (() => void) | null
 }) {
   const song = nowPlaying.song
   const playing = nowPlaying.playing && song !== null
@@ -69,12 +82,37 @@ export function NowPlayingBar({
         <>
           <AlbumArt hash={song.hash} hasArt={song.hasArt} />
 
-          <div className="min-w-0 flex-1">
+          {/*
+           * The whole text block is the target when there is something to open.
+           * It renders as a plain `div` otherwise rather than a disabled button,
+           * because a control that is sometimes inert is worse than a display
+           * that is sometimes a control — and the "details" cue appears and
+           * disappears with it, so nothing ever invites a press that does
+           * nothing.
+           */}
+          <Content
+            onSelect={onSelect}
+            label={`Show details for ${song.name} by ${song.artist}`}
+          >
             <div className="mb-[5px] flex items-center gap-[10px]">
               <Badge tone="accent">Now playing</Badge>
               {/* Where the chart came from, as a mark rather than a word. */}
               <SourceBadge source={song.source} size={16} showName={false} />
               {!connected ? <Badge title="Live updates interrupted">offline</Badge> : null}
+              {onSelect ? (
+                <span
+                  aria-hidden
+                  // Beside the badges rather than pushed to the far edge: the
+                  // block is `flex-1`, so on a wide monitor `ml-auto` threw
+                  // this 900px away from the title it opens and parked it next
+                  // to the length/band/vocals stats, where it read as their
+                  // heading.
+                  className="yarg-label flex shrink-0 items-center gap-[5px] text-[10px] text-content-muted transition-colors duration-160 group-hover:text-white"
+                >
+                  details
+                  <ChevronRight />
+                </span>
+              ) : null}
             </div>
 
             <p dir="auto" className="truncate text-[22px] leading-none font-semibold text-white">
@@ -89,7 +127,7 @@ export function NowPlayingBar({
                 <span className="text-content-muted not-italic"> — {song.album}</span>
               ) : null}
             </p>
-          </div>
+          </Content>
 
           <dl className="hidden shrink-0 gap-[25px] text-right sm:flex">
             <Detail label="length" value={formatDuration(song.lengthSeconds)} />
@@ -125,6 +163,36 @@ export function NowPlayingBar({
         </>
       )}
     </Shell>
+  )
+}
+
+/** The banner's text block: a button when it opens something, a div when not. */
+function Content({
+  onSelect,
+  label,
+  children,
+}: {
+  onSelect: (() => void) | null
+  label: string
+  children: ReactNode
+}) {
+  if (onSelect === null) return <div className="min-w-0 flex-1">{children}</div>
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-label={label}
+      className={cx(
+        'yarg-focusable min-w-0 flex-1 cursor-pointer text-left',
+        // Nothing moves and nothing scales — the banner's whole job is holding
+        // still while someone is mid-scroll. The cue is the "details" chevron
+        // above brightening, which costs no layout at all.
+        'group transition-colors duration-160',
+      )}
+    >
+      {children}
+    </button>
   )
 }
 

@@ -17,8 +17,12 @@
  *     an overlay the list keeps its full height and simply sits behind. You can
  *     still watch rows and the count respond while you narrow.
  *
- * Sorting is here too, but only below `md`. Above it the table header owns
- * sorting — eight columns, in place, where the columns are.
+ * Sorting is here too, but only while the table header isn't showing. That is a
+ * *container* query, not a viewport one: the list shares the window with the
+ * detail pane from `lg` up, so a 1024px desktop leaves it 696px — narrow enough
+ * that the table header is gone. Asking the viewport would have hidden these
+ * chips at exactly the width where they became the only sort control on screen,
+ * which is how the app lost sorting on phones the first time.
  */
 
 import { useEffect, useState } from 'react'
@@ -49,21 +53,25 @@ const INSTRUMENT_LABELS: Record<InstrumentGroup, string> = {
 /**
  * The orderings a room actually asks for, and nothing else.
  *
- * The desktop table sorts on eight columns because the columns are right there
- * and cost nothing. Reproducing all eight as chips would be porting a desktop
- * metaphor onto a device that never asked for it — these four answer "who's
- * this by", "what's it called", "can we play it", and "how long till the next
- * one", which is the whole conversation.
+ * The table sorts on eight columns because the columns are right there and cost
+ * nothing. Reproducing all eight as chips would be porting a desktop metaphor
+ * onto a device that never asked for it — these five answer "who's this by",
+ * "what's it called", "is it old", "can we play it", and "how long till the next
+ * one", which is the whole conversation. Album, genre, charter and source are
+ * the four that never come up as an *ordering*; they come up as a filter, which
+ * the panel below already does, and as a fact about one song, which the detail
+ * view now shows.
  */
-const MOBILE_SORTS: ReadonlyArray<{ key: SortKey; label: string }> = [
+const COMPACT_SORTS: ReadonlyArray<{ key: SortKey; label: string }> = [
   { key: 'artist', label: 'Artist' },
   { key: 'name', label: 'Title' },
+  { key: 'year', label: 'Year' },
   { key: 'bandDifficulty', label: 'Difficulty' },
   { key: 'length', label: 'Length' },
 ]
 
 const SORT_LABELS: Partial<Record<SortKey, string>> = Object.fromEntries(
-  MOBILE_SORTS.map(({ key, label }) => [key, label]),
+  COMPACT_SORTS.map(({ key, label }) => [key, label]),
 )
 
 interface FiltersPanelProps {
@@ -139,11 +147,10 @@ export function FiltersPanel({
       {/*
        * One wrapping row, reordered per breakpoint rather than duplicated.
        *
-       *   desktop   [ search ····················· filters ]
-       *             [ count ······················· clear  ]
+       *   desktop   [ search ····· random  filters  count clear ]
        *
-       *   phone     [ count ········· clear  sort  filters ]
-       *             [ search ····························· ]
+       *   phone     [ count ················ clear  sort  filters ]
+       *             [ search ···························· random  ]
        *
        * Search gets the full width on a phone because typing is the common
        * case and sharing the row left it 144px wide — the placeholder cut off
@@ -155,7 +162,15 @@ export function FiltersPanel({
        */}
       <div
         role="search"
-        className="order-4 flex basis-full items-center gap-[10px] md:order-1 md:min-w-0 md:flex-1 md:basis-0"
+        className={cx(
+          'order-4 flex basis-full items-center gap-[10px] md:order-1 md:min-w-0 md:flex-1 md:basis-0',
+          // Past 1024px of list, the field stops growing and the controls go to
+          // the far edge instead. A search input is a target, not a canvas —
+          // stretched to 1,100px on a wide monitor it was the single clearest
+          // tell that this layout had been designed for a phone and then pulled
+          // apart.
+          '@5xl/list:max-w-[620px]',
+        )}
       >
         <TextField
           className="min-w-0 flex-1"
@@ -186,19 +201,21 @@ export function FiltersPanel({
          * control here that reads without a word attached.
          */}
         <Button
-          className="shrink-0 px-[14px]"
+          className="shrink-0 px-[14px] @4xl/list:px-[20px]"
+          icon={<RandomIcon />}
           onClick={onRandom}
           disabled={resultCount === 0}
           title="Pick a random song"
           aria-label="Pick a random song from the current results"
         >
-          <RandomIcon />
+          {/* The label is bought back the moment the list can spare 900px. */}
+          <span className="hidden @4xl/list:inline">random</span>
         </Button>
       </div>
 
       {/* Sorting is the table header's job wherever the table exists. */}
       <Button
-        className="order-2 shrink-0 max-md:px-[14px] md:hidden"
+        className="order-2 shrink-0 max-md:px-[14px] md:order-2 @2xl/list:hidden"
         tone={open === 'sort' ? 'accent' : 'neutral'}
         onClick={() => toggle('sort')}
         aria-expanded={open === 'sort'}
@@ -211,7 +228,7 @@ export function FiltersPanel({
       </Button>
 
       <Button
-        className="order-3 shrink-0 max-md:px-[14px] md:order-2"
+        className="order-3 shrink-0 max-md:px-[14px] md:order-2 @5xl/list:ml-auto"
         tone={open === 'filters' ? 'accent' : 'neutral'}
         onClick={() => toggle('filters')}
         aria-expanded={open === 'filters'}
@@ -222,8 +239,15 @@ export function FiltersPanel({
         ) : null}
       </Button>
 
-      {/* Numbers are shown, not described: bright count, dim unit. */}
-      <div className="order-1 flex min-w-0 flex-1 items-center justify-between gap-[15px] md:order-3 md:basis-full">
+      {/*
+       * Numbers are shown, not described: bright count, dim unit.
+       *
+       * On a phone this owns the top line of the bar and pushes `clear` to the
+       * far edge. On a desktop it joins the toolbar's one row instead of taking
+       * a second — the count sat alone on a line of its own, which cost 77px of
+       * height on every screen, which is a whole song row.
+       */}
+      <div className="order-1 flex min-w-0 flex-1 items-center justify-between gap-[15px] md:order-3 md:flex-none md:basis-auto md:justify-end">
         {/*
          * The visible count is not the live region.
          *
@@ -257,10 +281,10 @@ export function FiltersPanel({
         ) : null}
       </div>
 
-      <Disclosure open={open === 'sort'} className="md:hidden">
+      <Disclosure open={open === 'sort'} className="@2xl/list:hidden">
         <FieldLabel>sort by</FieldLabel>
         <div className="flex flex-wrap gap-[10px]">
-          {MOBILE_SORTS.map(({ key, label }) => {
+          {COMPACT_SORTS.map(({ key, label }) => {
             const isActive = key === sortKey
 
             return (

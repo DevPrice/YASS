@@ -234,6 +234,24 @@
       linear-gradient(90deg, rgba(7, 8, 16, 0) -10%, #070810 100%), #001b33;
   }
 
+  /*
+   * The album-art stand-in.
+   *
+   * Art exists only for the song YARG is playing — the CSV export carries no
+   * chart paths, so there is nothing on disk to read for the other four
+   * thousand. Four thousand identical grey squares is the obvious answer and
+   * the wrong one, so the plate carries the song's own title as type instead,
+   * on the same wash the selected row uses, angled down from the corner the
+   * type doesn't occupy. Selected-row cyan at 28% over the sunken surface lands
+   * around #00243A, which holds white well past 4.5:1 at every size the title
+   * clamps to.
+   */
+  .yarg-plate {
+    background:
+      linear-gradient(155deg, rgba(0, 130, 186, 0.35) 0%, rgba(3, 3, 7, 0) 62%),
+      var(--yarg-surface-sunken);
+  }
+
   /* Cards are a flat fill plus a 2px inset stroke — depth without shadow. */
   .yarg-card {
     background: var(--yarg-surface-card);

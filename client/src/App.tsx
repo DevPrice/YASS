@@ -1,20 +1,34 @@
 /**
  * App shell.
  *
- * Layout is a fixed now-playing banner and filter bar over a single scrolling
- * list, so the list keeps its own scroll position and the phone address bar
- * doesn't fight the page.
+ * A fixed now-playing banner over one scrolling list, so the list keeps its own
+ * scroll position and the phone address bar doesn't fight the page — and, from
+ * `lg` up, a second pane beside the list holding whatever song is selected.
+ *
+ * **The two panes are the layout, not a widescreen decoration.** The list was
+ * the entire app at every width, which meant a 27-inch monitor got the phone's
+ * design with the columns pulled apart: eight columns of 4,168 rows and nothing
+ * to do with the other half of the screen. Master-detail spends that width on
+ * the thing the list cannot hold — the twenty per-instrument difficulties, the
+ * charter, the source, the full untruncated title — and it does it without
+ * inventing a second interaction, because selecting a song is the same gesture
+ * on a phone, where the same component arrives as a sheet.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 
+import type { Song } from '@shared/types'
 import { EmptyState, HelperBar, cx } from './ui'
 import { useLibrary } from './lib/useLibrary'
+import { useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
 import { FiltersPanel } from './features/library/Filters'
 import type { OpenPanel } from './features/library/Filters'
 import { SongList } from './features/library/SongList'
+import type { Selection } from './features/library/SongList'
+import { SongDetail, SongDetailEmpty } from './features/library/SongDetail'
+import { SongDetailSheet } from './features/library/SongDetailSheet'
 import {
   EMPTY_FILTERS,
   filterSongs,
@@ -23,6 +37,18 @@ import {
 } from './features/library/filtering'
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
 import { NowPlayingBar } from './features/nowPlaying/NowPlayingBar'
+
+/**
+ * Where the detail stops being a sheet and becomes a pane.
+ *
+ * Tailwind's `lg`, kept as a string because JavaScript has to know it too: a
+ * modal `<dialog>` and a static pane are different elements with different
+ * semantics, so exactly one of them may exist at a time. Everything else about
+ * the layout stays in CSS — the list's columns are container queries against
+ * the list's own width, which is the only honest measure once the pane is
+ * taking a third of the window.
+ */
+const TWO_PANE_QUERY = '(min-width: 64rem)'
 
 export function App() {
   const { library, loading, error } = useLibrary()
@@ -39,13 +65,17 @@ export function App() {
   const [openPanel, setOpenPanel] = useState<OpenPanel>('none')
 
   /**
-   * The song the Random button landed on.
+   * The song being looked at, and how the list should reveal it.
    *
-   * The app has no queue and won't have one until the karaoke research lands,
-   * so "random" does the honest browser-side thing: it picks one, scrolls it
-   * into view, and marks it. That's enough to settle an argument in a room.
+   * This is also where the Random button lands. It used to have a mark of its
+   * own — scroll to a song, outline it, say nothing further — which answered
+   * "which one" and then dropped the question everybody actually asks next.
+   * Picking at random now selects, so the pick arrives with its parts, its
+   * difficulty and its charter attached.
    */
-  const [pickedId, setPickedId] = useState<string | null>(null)
+  const [selection, setSelection] = useState<Selection | null>(null)
+
+  const twoPane = useMediaQuery(TWO_PANE_QUERY)
 
   const songs = library?.songs ?? []
 
@@ -57,7 +87,45 @@ export function App() {
     [filtered, sortKey, sortDirection],
   )
 
+  /**
+   * Resolved against the whole library, not the filtered view.
+   *
+   * Narrowing the list to something the selected song falls outside of is not a
+   * reason to throw away what someone is reading — and clearing the selection
+   * from under them would make the filter controls feel destructive.
+   */
+  const selected = useMemo<Song | null>(
+    () => (selection === null ? null : (songs.find((song) => song.id === selection.id) ?? null)),
+    [songs, selection],
+  )
+
   const searchRef = useRef<HTMLInputElement>(null)
+
+  const playingSong = nowPlaying.playing ? nowPlaying.song : null
+  const playingId = playingSong?.libraryId ?? null
+
+  /** Only the playing song has art on disk we can reach. See `SongDetail`. */
+  const detailArtHash =
+    selected !== null && playingSong !== null && playingSong.libraryId === selected.id && playingSong.hasArt
+      ? playingSong.hash
+      : null
+
+  const select = useCallback((song: Song, align: Selection['align'] = 'auto') => {
+    setSelection({ id: song.id, align })
+    // The filter sheet and the detail sheet both come up from the bottom edge
+    // of a phone, and only one of them can have it.
+    setOpenPanel('none')
+  }, [])
+
+  /** The playing song, if the library knows it. Null disables both routes to it. */
+  const showPlaying = useMemo(() => {
+    if (playingId === null) return null
+
+    const song = songs.find((candidate) => candidate.id === playingId)
+    if (song === undefined) return null
+
+    return () => select(song, 'center')
+  }, [playingId, songs, select])
 
   /**
    * Identifies the *query*, not the result.
@@ -76,15 +144,17 @@ export function App() {
    * described to someone who already knows it. A hint bar is read at a glance
    * mid-task, and at any given moment the key has exactly one effect; naming
    * that one is the whole job. The slot disappears rather than greying out
-   * when there is nothing to close and nothing to clear, because a permanent
-   * label for a key that does nothing is how a helper bar becomes furniture.
+   * when there is nothing left to unwind, because a permanent label for a key
+   * that does nothing is how a helper bar becomes furniture.
    */
   const escapeAction =
     openPanel !== 'none'
       ? `close ${openPanel}`
-      : hasActiveFilters(filters)
-        ? 'clear filters'
-        : null
+      : selection !== null
+        ? 'close song'
+        : hasActiveFilters(filters)
+          ? 'clear filters'
+          : null
 
   // The helper bar advertises these, so they have to actually work.
   useEffect(() => {
@@ -101,13 +171,53 @@ export function App() {
         return
       }
 
+      /*
+       * Arrows walk the selection, which is what makes the pane a desktop
+       * layout rather than two things next to each other: pick one song and
+       * the rest of the library is a keypress away, no pointer involved.
+       *
+       * Only once something is selected — otherwise these are the keys that
+       * scroll the list, and taking them would be worse than not having them.
+       */
+      if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !typing && selection !== null) {
+        const index = visible.findIndex((song) => song.id === selection.id)
+        if (index === -1) return
+
+        const next = visible[index + (event.key === 'ArrowDown' ? 1 : -1)]
+        if (next === undefined) return
+
+        event.preventDefault()
+        setSelection({ id: next.id, align: 'auto' })
+        return
+      }
+
       if (event.key === 'Escape') {
         // Escape unwinds one layer at a time. With a sheet open it closes the
         // sheet and stops there — going straight to wiping every filter would
         // make the reflex that dismisses a panel also destroy the work that
         // panel was used for.
+        /*
+         * `preventDefault` on both of the branches that handle the key, because
+         * a browser clears an `input[type=search]` on Escape all by itself.
+         * Without this, closing a song from inside the search field silently
+         * threw the search away too — one press, two effects, and the helper
+         * bar promising only one of them.
+         */
         if (openPanel !== 'none') {
+          event.preventDefault()
           setOpenPanel('none')
+          return
+        }
+
+        /*
+         * Below `lg` the detail is a modal `<dialog>`, which takes Escape as a
+         * `cancel` event and stops it before it reaches this listener — so it
+         * gets its exit animation instead of being yanked out of the DOM. This
+         * branch is what closes the *pane*, where there is no dialog.
+         */
+        if (selection !== null) {
+          event.preventDefault()
+          setSelection(null)
           return
         }
 
@@ -123,16 +233,15 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [openPanel])
+  }, [openPanel, selection, visible])
 
   const handleRandom = () => {
     if (visible.length === 0) return
+
     const choice = visible[Math.floor(Math.random() * visible.length)]
-    if (choice !== undefined) {
-      setPickedId(choice.id)
-      // Close the sheet so the pick is actually visible on a phone.
-      setOpenPanel('none')
-    }
+    // Centred, so the songs either side of the pick are visible too — the pick
+    // is a suggestion, and the neighbours are the argument against it.
+    if (choice !== undefined) select(choice, 'center')
   }
 
   const handleSort = (key: SortKey) => {
@@ -163,32 +272,71 @@ export function App() {
        */}
       <h1 className="sr-only">Yet Another Song Selector</h1>
 
-      <NowPlayingBar nowPlaying={nowPlaying} connected={connected} settled={settled} />
+      <NowPlayingBar
+        nowPlaying={nowPlaying}
+        connected={connected}
+        settled={settled}
+        onSelect={showPlaying}
+      />
 
-      {/*
-       * `main` is itself the flex column, not a wrapper around one: the filter
-       * bar positions itself with `order-last` below `md`, and order is
-       * resolved against the immediate flex parent.
-       */}
-      <main className="flex min-h-0 flex-1 flex-col">
-        <LibraryView
-          error={error}
-          loading={loading}
-          library={library}
-          filters={filters}
-          onFiltersChange={setFilters}
-          visible={visible}
-          sortKey={sortKey}
-          sortDirection={sortDirection}
-          onSort={handleSort}
-          playingId={nowPlaying.song?.libraryId ?? null}
-          searchRef={searchRef}
-          openPanel={openPanel}
-          onOpenPanelChange={setOpenPanel}
-          queryKey={queryKey}
-          onRandom={handleRandom}
-          pickedId={pickedId}
-        />
+      <main className="flex min-h-0 flex-1">
+        {/*
+         * The list column names itself as a container, and everything inside
+         * it — the table's columns, the sort header, the compact sort chips —
+         * measures against this box rather than the window. That is what stops
+         * the two-pane layout from being a stretched phone: at 1280px the list
+         * has 870px and shows through `source`, at 1920px it has 1460px and
+         * shows all nine columns, and neither number is the viewport's.
+         *
+         * It is also the flex column the filter bar's `order-last` resolves
+         * against, which is why that bar is inside here and not a sibling.
+         */}
+        <div className="@container/list flex min-w-0 flex-1 flex-col">
+          <LibraryView
+            error={error}
+            loading={loading}
+            library={library}
+            filters={filters}
+            onFiltersChange={setFilters}
+            visible={visible}
+            sortKey={sortKey}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+            playingId={playingId}
+            searchRef={searchRef}
+            openPanel={openPanel}
+            onOpenPanelChange={setOpenPanel}
+            queryKey={queryKey}
+            onRandom={handleRandom}
+            selection={selection}
+            onSelect={select}
+          />
+        </div>
+
+        {twoPane ? (
+          <aside
+            aria-label="Song details"
+            className={cx(
+              'scrollbar-slim flex w-[clamp(320px,32%,460px)] shrink-0 flex-col',
+              'overflow-y-auto bg-surface-card',
+            )}
+            // Every surface in this palette sits within 1.15:1 of every other,
+            // so the seam between the panes has to be drawn rather than implied
+            // by the fill. Same rule the song rows are separated with.
+            style={{ borderLeft: '1px solid var(--color-border-row)' }}
+          >
+            {selected ? (
+              <SongDetail
+                song={selected}
+                isPlaying={selected.id === playingId}
+                artHash={detailArtHash}
+                className="p-[25px]"
+              />
+            ) : (
+              <SongDetailEmpty onShowPlaying={showPlaying} />
+            )}
+          </aside>
+        ) : null}
       </main>
 
       {/*
@@ -197,19 +345,39 @@ export function App() {
        * no gamepad. It's branding with a shortcut function, not a control bar.
        *
        * Which is exactly why it stops at `md`. On a phone it was spending the
-       * one screen region a thumb can comfortably reach on two shortcuts the
-       * device cannot produce; below `md` the filter bar takes that space and
-       * fills it with controls. Nothing is lost — the shortcuts don't apply
-       * without a keyboard, and the play state is already the subject of the
-       * now-playing banner at the top of the screen.
+       * one screen region a thumb can comfortably reach on shortcuts the device
+       * cannot produce; below `md` the filter bar takes that space and fills it
+       * with controls. Nothing is lost — the shortcuts don't apply without a
+       * keyboard, and the play state is already the subject of the now-playing
+       * banner at the top of the screen.
        */}
       <HelperBar className="hidden md:flex">
         <HelperHint keyLabel="/" action="search" />
+        {selection !== null ? <HelperHint keyLabel="↑↓" action="next song" /> : null}
         {escapeAction ? <HelperHint keyLabel="esc" action={escapeAction} /> : null}
         <span className="ml-auto text-[12px] text-content-faint">
           {nowPlaying.playing ? 'yarg is playing' : 'yarg is idle'}
         </span>
       </HelperBar>
+
+      {/*
+       * Below `lg` the same detail arrives as a modal sheet. Rendered instead of
+       * the pane, never alongside it: a `<dialog>` hidden with `display:none`
+       * is still a dialog waiting to trap focus.
+       */}
+      {!twoPane && selected ? (
+        <SongDetailSheet label={selected.name} onClose={() => setSelection(null)}>
+          <SongDetail
+            song={selected}
+            isPlaying={selected.id === playingId}
+            artHash={detailArtHash}
+            // Less of the sheet spent on the plate than the pane spends, so a
+            // phone shows the title, the album and the whole parts grid without
+            // anyone scrolling for them.
+            className="px-[25px] pt-[5px] [--plate-cap:30svh]"
+          />
+        </SongDetailSheet>
+      ) : null}
     </div>
   )
 }
@@ -249,7 +417,8 @@ function LibraryView({
   onOpenPanelChange,
   queryKey,
   onRandom,
-  pickedId,
+  selection,
+  onSelect,
 }: {
   error: string | null
   loading: boolean
@@ -266,7 +435,8 @@ function LibraryView({
   onOpenPanelChange: (panel: OpenPanel) => void
   queryKey: string
   onRandom: () => void
-  pickedId: string | null
+  selection: Selection | null
+  onSelect: (song: Song) => void
 }) {
   if (error) {
     return (
@@ -325,7 +495,8 @@ function LibraryView({
         sortDirection={sortDirection}
         onSort={onSort}
         playingId={playingId}
-        pickedId={pickedId}
+        selection={selection}
+        onSelect={onSelect}
         queryKey={queryKey}
       />
     </>
