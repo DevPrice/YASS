@@ -33,11 +33,36 @@ import { formatDuration, formatYear } from '../../lib/format'
 import { groupSongs } from './grouping'
 import type { SortDirection, SortKey } from './filtering'
 
-/** The design system's list-item height. */
-const ROW_HEIGHT = 80
+/**
+ * Row height, chosen by how much room the list actually has.
+ *
+ * 80px is the design system's list-item height and it is right for the wide
+ * layout — nine columns, a 22px title, and a window that can afford it. The
+ * narrow layout is a different row: a 17px title over a 14px artist, 35px of
+ * text and a 24px icon. Inheriting 80px there spent 45px a row on padding,
+ * which across a 615px phone list is the difference between six songs on
+ * screen and ten, on the device the whole product is for.
+ *
+ * 60px is still a 60px touch target, well clear of the 44px comfort floor.
+ */
+const ROW_HEIGHT_WIDE = 80
+const ROW_HEIGHT_NARROW = 60
 
 /** Enough to read as a division of the list without competing with a row. */
-const HEADER_HEIGHT = 40
+const HEADER_HEIGHT_WIDE = 40
+const HEADER_HEIGHT_NARROW = 35
+
+/**
+ * The list width the narrow row gives way at — Tailwind's `@2xl`, the same
+ * 672px every `@2xl/list:` class in this file switches on.
+ *
+ * Duplicated as a number because the virtualizer has to know a row's height
+ * before anything is laid out, and a container query has no answer to give
+ * JavaScript. Measured off the scroll container, which is exactly as wide as
+ * the `@container/list` column declared in `App` — so the two agree to the
+ * pixel, scrollbar included.
+ */
+const WIDE_AT = 672
 
 /**
  * The selected song, and how the list should bring it into view.
@@ -141,15 +166,27 @@ export function SongList({
   const contentRef = useRef<HTMLDivElement>(null)
   const [scrollbarWidth, setScrollbarWidth] = useState(0)
 
+  /**
+   * Which row the list is rendering, as a number the virtualizer can use.
+   *
+   * Taken in the same pass as the scrollbar, off the scroll container rather
+   * than the content box — the container query the rows themselves switch on
+   * measures the column, and the content box is that minus the scrollbar. Read
+   * in a layout effect, so the first paint is already at the right height
+   * rather than laying a phone out in 80px rows and correcting after.
+   */
+  const [isNarrow, setIsNarrow] = useState(false)
+
   useLayoutEffect(() => {
     const scroller = scrollRef.current
     const content = contentRef.current
     if (scroller === null || content === null) return
 
-    const measure = () =>
-      setScrollbarWidth(
-        scroller.getBoundingClientRect().width - content.getBoundingClientRect().width,
-      )
+    const measure = () => {
+      const outer = scroller.getBoundingClientRect().width
+      setScrollbarWidth(outer - content.getBoundingClientRect().width)
+      setIsNarrow(outer < WIDE_AT)
+    }
     measure()
 
     // The content box is exactly what a scrollbar appearing narrows, so
@@ -159,8 +196,17 @@ export function SongList({
     return () => observer.disconnect()
   }, [])
 
-  /** The songs with their category headers spliced in — what actually renders. */
-  const items = useMemo(() => groupSongs(songs, sortKey), [songs, sortKey])
+  /**
+   * The songs with their category headers spliced in — what actually renders.
+   *
+   * Width is an input because one key's headers depend on it: the wide row
+   * gives the artist its own column and a header dividing the table, the narrow
+   * row has the artist stacked under every title already. See `grouping.ts`.
+   */
+  const items = useMemo(
+    () => groupSongs(songs, sortKey, isNarrow ? 'narrow' : 'wide'),
+    [songs, sortKey, isNarrow],
+  )
 
   /**
    * Both memoized on `items`, and `getItemKey` is doing more than it looks.
@@ -174,9 +220,12 @@ export function SongList({
    */
   const getItemKey = useCallback((index: number) => items[index]?.key ?? index, [items])
 
+  const rowHeight = isNarrow ? ROW_HEIGHT_NARROW : ROW_HEIGHT_WIDE
+  const headerHeight = isNarrow ? HEADER_HEIGHT_NARROW : HEADER_HEIGHT_WIDE
+
   const estimateSize = useCallback(
-    (index: number) => (items[index]?.kind === 'header' ? HEADER_HEIGHT : ROW_HEIGHT),
-    [items],
+    (index: number) => (items[index]?.kind === 'header' ? headerHeight : rowHeight),
+    [items, headerHeight, rowHeight],
   )
 
   const virtualizer = useVirtualizer({
@@ -186,6 +235,21 @@ export function SongList({
     getItemKey,
     overscan: 10,
   })
+
+  /**
+   * Crossing the breakpoint is a height change, and the virtualizer won't see
+   * it on its own.
+   *
+   * `estimateSize` is not one of the options whose identity triggers a
+   * re-measure — the same reason `getItemKey` is memoized on `items` above — so
+   * a rotation or a resize past 672px would keep every row at the height it was
+   * first laid out at and leave the spacer describing a list that no longer
+   * exists. Saying so explicitly is cheaper than routing a second signal
+   * through `getItemKey`, and it says what it means.
+   */
+  useEffect(() => {
+    virtualizer.measure()
+  }, [isNarrow, virtualizer])
 
   // Return to the top when the *query* changes, so narrowing a filter doesn't
   // leave the user scrolled into empty space.

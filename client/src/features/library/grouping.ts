@@ -7,6 +7,19 @@
  * implies: one per artist, per album, per source, per genre; one per decade of
  * years; one per leading letter of a title.
  *
+ * **A header should not repeat what the row beneath it already says — and how
+ * much the row says depends on how wide it is.** Artist is the one key that
+ * groups differently at the two widths.
+ *
+ * The wide row gives the artist a column of its own, so a header naming it
+ * divides the table along the axis the sort just ordered it by, and there is
+ * vertical room to spend on saying so. The narrow row stacks the artist
+ * directly under the title on every row, where the same header is that string
+ * twice over, 2.6 rows apart — 1,586 of them across a real 4,168-song library,
+ * 16% of the entire scroll height, on the device with the least of it. There it
+ * groups by leading letter instead, which is the answer the title sort already
+ * gives, for the same reason.
+ *
  * **Groups are found by walking the sorted list, never by bucketing it.** The
  * songs arrive in order, so a header goes in wherever consecutive songs stop
  * agreeing — which means the grouping cannot disagree with the ordering, and
@@ -58,20 +71,27 @@ const LETTER = /\p{L}/u
 const SYMBOL: Group = { id: 'symbol', label: '#' }
 const NUMBER: Group = { id: 'number', label: '0–9' }
 
+const UNTITLED: Group = { id: 'untitled', label: '—' }
+const UNKNOWN_ARTIST: Group = { id: 'artist:unknown', label: 'Unknown artist' }
+
 /**
- * One header for every digit, rather than ten.
+ * One header per leading letter, and one for every digit rather than ten.
  *
  * `1979`, `21 Guns` and `99 Problems` have nothing to do with each other beyond
  * starting with a number, and nobody hunting for one of them scans for the
  * digit it happens to begin with.
+ *
+ * Reads the *filed* form, so this agrees with the sort about where a run
+ * begins: `The Beatles` is filed under `Beatles` and gets the `B` header the
+ * ordering already put it in.
  */
-function titleGroup(song: Song): Group {
-  const filed = normalizeForSort(song.name)
+function initialGroup(raw: string, missing: Group): Group {
+  const filed = normalizeForSort(raw)
 
   // Code points, not code units: an emoji or an astral-plane character would
   // otherwise be split down the middle and tested as half of itself.
   const first = [...filed][0]
-  if (first === undefined) return { id: 'untitled', label: '—' }
+  if (first === undefined) return missing
 
   if (DIGIT.test(first)) return NUMBER
   if (!LETTER.test(first)) return SYMBOL
@@ -120,13 +140,16 @@ function sourceGroup(song: Song): Group {
 }
 
 const GROUPERS: Partial<Record<SortKey, (song: Song) => Group>> = {
-  name: titleGroup,
+  name: (song) => initialGroup(song.name, UNTITLED),
   artist: (song) => valueGroup(song.artist, 'Unknown artist'),
   album: (song) => valueGroup(song.album, 'No album'),
   genre: (song) => valueGroup(song.genre, 'No genre'),
   source: sourceGroup,
   year: yearGroup,
 }
+
+/** How much the row itself is saying — see the artist note at the top. */
+export type GroupWidth = 'wide' | 'narrow'
 
 /**
  * The sorted songs, with a header spliced in wherever the group changes.
@@ -135,8 +158,17 @@ const GROUPERS: Partial<Record<SortKey, (song: Song) => Group>> = {
  * header per row, which is the honest result of asking where the runs are in
  * something that has none.
  */
-export function groupSongs(songs: readonly Song[], key: SortKey): ListItem[] {
-  const grouper = GROUPERS[key]
+export function groupSongs(
+  songs: readonly Song[],
+  key: SortKey,
+  width: GroupWidth,
+): ListItem[] {
+  // The one width-dependent division, kept here rather than in the table above
+  // so that the table stays readable as "what a header means for this key".
+  const grouper =
+    key === 'artist' && width === 'narrow'
+      ? (song: Song) => initialGroup(song.artist, UNKNOWN_ARTIST)
+      : GROUPERS[key]
 
   if (grouper === undefined) {
     return songs.map((song, position) => ({ kind: 'song', key: song.id, song, position }))
