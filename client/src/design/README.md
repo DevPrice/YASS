@@ -81,16 +81,37 @@ predicted:
   count nothing was drawn for. These two are the whole reason the app no longer prints a
   `vocal parts` row or a `vocals` stat.
 
-  **They are 512×512, and everything else here is 500×500.** They came from
-  `GET /v1/files/:key/images` — the image-fill endpoint — because `/v1/images` was rate
-  limiting and would not render. That is normally the wrong door: the note under
-  *Re-vendoring* says to render the component, since a source badge layers two bitmaps
-  and only a render composes them. It is safe here specifically because each of these
-  four vocals rectangles carries exactly one `IMAGE` fill and no effects, so the fill *is*
-  the render — verified by pulling `vocals-solo` the same way and finding the art
-  identical to the vendored `vocals.png`. 512 is the native size; the 500s are scale-1
-  renders of 500px rectangles, i.e. downsampled. Nothing renders differently, since CSS
-  sizes all of them. Re-export at scale 1 if you want the set uniform.
+### Two generations of instrument glyph
+
+`instruments/` holds art from two different places in the Figma file, and the difference
+is visible, not just dimensional.
+
+**The seven in use are 512×512**, from the `Instruments` frame (`10003:17191`) — `guitar`
+(upstream `guitar-lead`), `bass`, `drums`, `keys`, `vocals` (upstream `vocals-solo`) and
+the two harmony variants. Every glyph there is a disc inside its own thin outer ring, with
+a margin around it.
+
+**The six unused ones are 500×500**, from the older Icons page: `bass-pro`,
+`drums-5-lane`, `drums-pro`, `guitar-pro`, `harmonies`, `keys-pro`. That generation is a
+bare disc with no outer ring and no margin, so it reads noticeably *larger* at the same
+CSS size. Mixing the two is what made the first pass at the vocal-count glyphs look
+wrong — the new microphones sat in a ring the four glyphs beside them didn't have.
+**Don't reintroduce one of these six next to the seven.** Pull its replacement from the
+`Instruments` frame instead; they are all there.
+
+The drums art differs between the generations by more than framing: the 500 is a pair of
+crossed sticks, the 512 is a drum kit. The kit is busier at the 18px the song row draws it
+at. That is upstream's own art direction and the row's glyphs answer "does this have
+drums" by being lit or dim, so it was taken as-is rather than held back.
+
+**All seven came from `GET /v1/files/:key/images`** — the image-fill endpoint — because
+`/v1/images` was rate limiting and would not render. That is normally the wrong door: the
+note under *Re-vendoring* says to render the component, since a source badge layers two
+bitmaps and only a render composes them. It is safe for these specifically because every
+rectangle in the `Instruments` frame carries exactly one `IMAGE` fill and no effects, so
+the fill *is* the render — verified by pulling `vocals-solo` that way and finding the art
+identical to the `vocals.png` already vendored. 512 is the native size; the 500s are
+scale-1 renders of 500px rectangles, i.e. downsampled.
 - **CSV `source` → badge** is not these 46 badges at all. It resolves through the
   `vendor/opensource` submodule — 240 sources, 293 id spellings, 212 icons, keyed by the
   ids the CSV actually contains. Against a real 4,168-song library that covers 85% of
@@ -177,11 +198,16 @@ overwrite the file of the same name here. Then check whether upstream added toke
 `client/src/index.css` should expose to Tailwind.
 
 **Artwork** comes from Figma instead, using a personal access token (see
-`GET /v1/files/:key/nodes?ids=276:1197` for the Icons page, then `/v1/images/:key` with
-`format=svg` for the eight vector icons and `format=png&scale=1` for the rest). Render
-the *components* rather than pulling the raw image fills — two source badges layer two
-bitmaps, and only a render composes them. Every asset here was exported at scale 1, which
-is native size for all three sets.
+`GET /v1/files/:key/nodes?ids=276:1197` for the Icons page and `ids=10003:17191` for the
+`Instruments` frame, then `/v1/images/:key` with `format=svg` for the eight vector icons
+and `format=png&scale=1` for the rest). Render the *components* rather than pulling the
+raw image fills — two source badges layer two bitmaps, and only a render composes them.
+The one documented exception is the `Instruments` frame; see *Two generations of
+instrument glyph* above for why it is safe there and what it cost.
+
+**Instrument glyphs come from the `Instruments` frame, not the Icons page.** The Icons
+page still has an older set under the same names, and taking a glyph from it lands art
+that is framed differently from everything beside it.
 
 Not stored with Git LFS, deliberately: 81 files totalling 2.2 MB, largest 42 KB, and they
 change approximately never. LFS earns its keep on large or frequently-rewritten binaries,
