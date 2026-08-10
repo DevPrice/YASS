@@ -8,6 +8,7 @@ silently reverts the change.
 |---|---|
 | Source project | `YARG Design System` (Claude Design) |
 | Project id | `ed057d66-45e9-4387-bf0d-1e2a6dc94e9a` |
+| Figma file | `YARG - Design System (Original)`, key `v2uJdQ03SKjIL18slAA1wD` |
 | Vendored | 2026-08-10 |
 
 ## What's here
@@ -15,16 +16,42 @@ silently reverts the change.
 ```
 styles.css        entry point — imports every token file
 tokens/           fonts, colors, typography, layout, base  (verbatim copies)
+assets/icons/     the eight line icons that exist as real vector geometry
 ```
 
-Files are byte-for-byte copies of the upstream paths of the same name, so re-vendoring
-is a straight overwrite and a diff shows exactly what changed upstream.
+Token files are byte-for-byte copies of the upstream paths of the same name, so
+re-vendoring is a straight overwrite and a diff shows exactly what changed upstream.
+
+## Icons
+
+`assets/icons/` holds the only artwork in the system that is genuinely vector:
+
+| File | Figma component | Size |
+|---|---|---|
+| `genre.svg` `length.svg` `year.svg` `source.svg` | Music Data Icons | 25×25 |
+| `random.svg` `setlist.svg` `show.svg` `return.svg` | Action Icons | 35×35 |
+
+Exported 2026-08-09 from the Figma file below. Two edits on the way in, both deliberate:
+the hardcoded `#2ED9FF` stroke became `currentColor` (it matched no token — the nearest
+are `--yarg-vivid-sky-blue` and `--yarg-text-cyan`, and neither is exact), and the fixed
+`width`/`height` were dropped so CSS sizes them. The `viewBox` carries the aspect ratio.
+
+**`currentColor` only works if the SVG is inlined.** Vite's default `import icon from
+'./genre.svg'` yields a URL, and a URL can't inherit colour. Import with `?raw`, or add
+`vite-plugin-svgr` — decide when the first one is actually used.
 
 ## What's deliberately not here
 
 **Bitmap assets** — instrument glyphs, difficulty rings, stars, EX-mode medals, source
-badges, and backgrounds. Upstream ships these as 512px PNGs, and the transfer tool can
-only deliver them base64-encoded, which isn't practical for ~40 files.
+badges, and backgrounds.
+
+These are not vector *anywhere*, which took a look at the Figma file to establish: of the
+136 components on the Icons page, 115 are a bare `RECTANGLE` with a placed image fill.
+Figma will happily export them as `.svg`, but the result is a base64 PNG in an XML
+wrapper — larger than the PNG and no more scalable. The originals behind those fills are
+500×500 PNGs, i.e. the same art upstream ships at 512px. So there is no SVG version to
+find, and PNG is the correct format rather than a compromise. This matches upstream's own
+note that the bitmap art is art, not glyphs, and should never be redrawn as vectors.
 
 Components that reference them resolve paths through `window.__YARG_ASSETS__` (falling
 back to `assets/`), so once the PNGs are in place, set that global and they light up
