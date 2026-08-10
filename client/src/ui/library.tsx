@@ -392,6 +392,32 @@ const NOTCH_GAP = (RING_CIRCUMFERENCE * RING_GAP_DEGREES) / 360
 const NOTCH_DASH = NOTCH_SLOT - NOTCH_GAP - RING_STROKE
 
 /**
+ * Everything the ring's text marks share.
+ *
+ * Both of them are SVG `<text>` in the ring's own viewBox, which is what lets
+ * them size with the ring at any width with no CSS arithmetic and no custom
+ * property to keep in step. That is not a stylistic preference: the first
+ * version sized them from a `--ring-size` variable inside a `calc()`, and a
+ * percentage in a `font-size` resolves against inherited type rather than
+ * against the box — so the moment the ring became fluid, `min(72px, 100%)`
+ * drew its numeral from 16px of body text. Stated in viewBox units the
+ * question cannot come up.
+ */
+const RING_TEXT: {
+  textAnchor: 'middle'
+  dominantBaseline: 'central'
+  style: CSSProperties
+} = {
+  textAnchor: 'middle',
+  dominantBaseline: 'central',
+  style: {
+    fontFamily: 'var(--font-data)',
+    fontWeight: 600,
+    fontVariantNumeric: 'tabular-nums',
+  },
+}
+
+/**
  * What one notch is worth.
  *
  * **Unlit is drawn, not omitted.** A meter that only paints what it has lit is
@@ -478,29 +504,25 @@ export function DifficultyRing({
     <span
       aria-hidden
       className={cx('relative inline-flex shrink-0', className)}
-      style={
-        {
-          width: size,
-          // The ring gives way before its column does. `max-width` rather than
-          // a `min()` on the width itself, because `--ring-size` below is read
-          // in a `font-size`, and a percentage there resolves against the
-          // inherited font size rather than against this box — `min(42px,100%)`
-          // silently set the over-6 numeral from 16px of body text and drew it
-          // at 7px.
-          maxWidth: '100%',
-          aspectRatio: '1',
-          // Published so the middle can size type against the ring rather than
-          // against inherited text — one ring serves 26px and 42px.
-          '--ring-size': typeof size === 'number' ? `${size}px` : size,
-        } as CSSProperties
-      }
+      style={{
+        width: size,
+        // The ring gives way before its column does, whatever `size` asked for.
+        maxWidth: '100%',
+        aspectRatio: '1',
+      }}
     >
       {/*
-       * 62% of the ring, inside a hole that is 81% of the box — so ~4px of air
-       * either side at the size the parts grid draws this. Enough that the
-       * glyph and the meter read as two things; not so much that they read as
-       * two unrelated things. It was 58%, and the extra ring of empty space
-       * made the mark feel hollow.
+       * 74% of the ring, inside a hole that is 81% of the box.
+       *
+       * It was 62%, sized against art that was a bare disc filling its own box
+       * edge to edge. The glyphs come from the design system's `Instruments`
+       * frame now, where each one is a smaller disc inside its own thin ring
+       * with a margin around it — so the same 62% drew an instrument about a
+       * fifth smaller than the one it replaced. 70% puts the *instrument* back
+       * past the size it used to read, and the two rings end up concentric,
+       * which looks deliberate because it is. 74% was the first try and closed
+       * the gap between them to a hairline, at which point the glyph's own ring
+       * and the unlit notches started reading as one thick smudge.
        *
        * **Before the ring, not after.** The ring and the glyph never overlap,
        * so between those two the order is free — but the over-6 number is drawn
@@ -508,26 +530,7 @@ export function DifficultyRing({
        * instrument art is an opaque black disc. Painted second it took the tops
        * off the digits.
        */}
-      <span className="absolute inset-[19%] flex items-center justify-center">
-        {overflow && !badged ? (
-          <span
-            className="font-numeric font-semibold tabular-nums text-white"
-            style={{
-              // Two digits get the smaller setting. At 0.44 a `21` spans 21px
-              // of a 34px hole and its shoulders sit on the notches either
-              // side; 0.36 is the size at which the number is inside the ring
-              // rather than wedged into it. Single digits keep the larger one —
-              // they are the case that has to read at 26px in the banner.
-              fontSize: `calc(var(--ring-size) * ${tier >= 10 ? 0.36 : 0.44})`,
-              lineHeight: 1,
-            }}
-          >
-            {tier}
-          </span>
-        ) : (
-          children
-        )}
-      </span>
+      <span className="absolute inset-[15%] flex items-center justify-center">{children}</span>
       <svg
         viewBox="0 0 100 100"
         fill="none"
@@ -558,23 +561,14 @@ export function DifficultyRing({
           /*
            * The number on the bottom edge, outlined rather than plated.
            *
-           * Drawn in the ring's own SVG on purpose: the coordinates are the
-           * viewBox's, so the number sizes and sits with the ring at any pixel
-           * size and needs none of the `--ring-size` arithmetic the centred
-           * numeral does. It is also the only way to get a real outline — HTML
-           * text can be stroked, but `paint-order` is what puts the stroke
-           * *behind* the fill instead of eating half the letterform from the
-           * inside, and it is dependable on SVG text in a way it isn't on HTML.
-           *
            * `y=88` rather than dead centre on the arc at 95: this reads as a
            * number sitting low on the ring, and pushed to the centreline it
            * read as a number that had fallen off it.
            */
           <text
+            {...RING_TEXT}
             x="50"
             y="88"
-            textAnchor="middle"
-            dominantBaseline="central"
             fill="var(--yarg-white)"
             stroke="var(--yarg-dark-2)"
             /*
@@ -590,18 +584,30 @@ export function DifficultyRing({
              */
             strokeWidth="16"
             strokeLinejoin="round"
-            style={{
-              paintOrder: 'stroke',
-              fontFamily: 'var(--font-data)',
-              fontWeight: 600,
-              fontVariantNumeric: 'tabular-nums',
-              // Two digits step down, as everywhere else here. Both are stated
-              // in viewBox units, so `30` is 30% of whatever the ring is drawn
-              // at — 12.6px in the parts grid.
-              fontSize: tier >= 10 ? 24 : 30,
-            }}
+            style={{ ...RING_TEXT.style, paintOrder: 'stroke', fontSize: tier >= 10 ? 24 : 30 }}
           >
             {tier}
+          </text>
+        ) : null}
+        {/*
+         * The bare ring's middle: the number when it overflows the scale, an em
+         * dash when the tier is unrated. Only ever reached with no glyph in the
+         * way — band difficulty, which is the one ring nothing is drawn inside.
+         */}
+        {!badged && (overflow || tier === null) ? (
+          <text
+            {...RING_TEXT}
+            x="50"
+            y="50"
+            fill={tier === null ? 'var(--color-content-faint)' : 'var(--yarg-white)'}
+            style={{
+              ...RING_TEXT.style,
+              // Two digits step down: at 44 a `21` spans most of the hole and
+              // its shoulders sit on the notches either side.
+              fontSize: tier !== null && tier >= 10 ? 36 : 44,
+            }}
+          >
+            {tier === null ? '—' : tier}
           </text>
         ) : null}
       </svg>
@@ -651,12 +657,21 @@ export function PartsGrid({ song }: { song: Song }) {
             className="flex justify-center"
           >
             {/*
-             * 42px, which the narrowest cell this grid ever gets — 47.5px, in
-             * the detail pane at a 1024px window — still holds with 2.75px of
-             * air either side. `DifficultyRing` caps itself at the column width
-             * below that, so nothing here can push the pane wider.
+             * As wide as the column gives it, up to 68px.
+             *
+             * It was a flat 42px, chosen against the narrowest cell this grid
+             * ever gets — 47.5px, in the detail pane at a 1024px window — and
+             * then drawn at 42px in every wider pane too, which left a third of
+             * the column empty. This is the one surface with room for the parts
+             * and the only thing on it that is drawn rather than set; it should
+             * take the room. A 1440px window gives ~74px cells, so the cap is
+             * what stops five rings from closing up their 10px gaps, and the
+             * percentage is what keeps them inside a 1024px pane.
+             *
+             * Safe to state as a percentage only because nothing inside the
+             * ring is sized in CSS any more — see `RING_TEXT`.
              */}
-            <DifficultyRing tier={tier} size={42}>
+            <DifficultyRing tier={tier} size="min(68px, 100%)">
               <img
                 src={groupArt(group, song)}
                 alt=""
@@ -707,22 +722,14 @@ export function BandDifficulty({
       <span className="sr-only">
         {tier === null ? 'Band difficulty unrated' : `Band difficulty ${tier}`}
       </span>
-      <DifficultyRing tier={tier} size={size}>
-        {tier === null ? (
-          /*
-           * An unrated ring is already dimmer than an unlit one, but "dimmer"
-           * is a judgement you can only make with something to compare against
-           * — and in a song row there is nothing beside it. The dash says it
-           * outright, in the middle, where the number used to be.
-           */
-          <span
-            className="font-numeric leading-none text-content-faint"
-            style={{ fontSize: 'calc(var(--ring-size) * 0.44)' }}
-          >
-            —
-          </span>
-        ) : null}
-      </DifficultyRing>
+      {/*
+       * No glyph, which is what tells the ring its middle is free — that is
+       * where an unrated dash and an over-6 numeral go. An unrated ring is
+       * already dimmer than an unlit one, but "dimmer" is a judgement you can
+       * only make with something to compare against, and in a song row there
+       * is nothing beside it. The dash says it outright.
+       */}
+      <DifficultyRing tier={tier} size={size} />
     </span>
   )
 }
