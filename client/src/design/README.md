@@ -85,9 +85,19 @@ OpenSource's icon slugs, and they are keyed by slugs of display names rather tha
 anything the CSV contains. Kept so the decision reverts with a `git checkout` instead of
 a Figma re-export — delete them once you're sure.
 
-**The 24 difficulty rings are still blocked.** They run `0`–`20`, `21-plus`, `no-part`,
-`unknown`; the CSV's per-instrument difficulties are `0`–`6`. Not the same axis, and they
-must not be indexed against each other until we know what the rings measure.
+**The 24 difficulty rings are drawn rather than used.** They run `0`–`20`, `21-plus`,
+`no-part`, `unknown`, and the axis question that blocked them is unresolved — the CSV's
+difficulties are `0`–`6`, these count to twenty-one, and nothing says the two scales mean
+the same thing. What changed is that the *form* turned out to be portable even though the
+indexing wasn't: six notches round a circle, filling clockwise from a gap at twelve
+o'clock, stroke 9% of the diameter, ~16° of air between notches. `DifficultyRing` in
+`ui/library.tsx` draws that in SVG against the tier YASS actually has.
+
+Drawing it also bought three things the PNGs could not give: a ring that takes its colour
+from tokens (red at the ceiling, two greys below it), one that renders at 26px in the
+banner and 42px in the parts grid off one component, and no 24-image import for a value
+the CSV does not bound. The rings stay on disk as the reference the proportions were
+measured from — re-vendor them if the geometry changes upstream.
 
 Also not here: **stars, EX-mode medals, star slots, and Extra Stats** (25 components).
 They render score data, and the CSV export carries no scores, so there is nothing to
@@ -122,6 +132,7 @@ radius changes upstream. Two habits keep that manageable:
 | `ui/Button` | `components/core/Button.jsx` | 2026-08-10 | Tones `confirm`/`accent`/`danger`/`neutral`; adds a `quiet` variant for toolbars |
 | `ui/HelperBar` | `components/core/HelperBar.jsx` | 2026-08-10 | 52px instead of 75px — a browser footer, not a 1080p game bar. Desktop only: below `md` its space goes to the filter bar, since a phone can't press the keys it advertises |
 | `features/library/SongList` `SongRow` | `components/music/LibraryRow.jsx` | 2026-08-10 | Track variant only. Source tile and instrument glyphs now render (from OpenSource and `GROUP_ART`); stars omitted — the CSV carries no scores |
+| `ui/library` `DifficultyRing` | `assets/difficulty/*.png` | 2026-08-10 | Ported from *art*, not from a component — the geometry is traced off the 500×500 rings (see below), the colour is ours. Six notches; red at 6; past that a full red ring plus the number — badged on the bottom edge when the ring wraps a glyph, centred when it doesn't |
 | `ui/TextField`, `ui/Select`, `ui/ToggleChip` | no upstream equivalent | 2026-08-10 | Browser controls the game has no analogue for; built from the system's recipes |
 | `features/library/SongDetail` `SongDetailSheet` | no upstream equivalent | 2026-08-10 | Master-detail pane and its phone-sized sheet. The game has no "one song, everything about it" screen — it shows this on the track panel of a list it can afford to make 1080p tall. Built from the system's recipes: card fill plus inset stroke, the selected-row wash on the art plate, hairline rules between facts |
 

@@ -69,8 +69,10 @@ export const GROUP_ART: Readonly<Record<InstrumentGroup, string>> = Object.freez
  * safe to delete — kept only so the decision is reversible with a git checkout
  * rather than a re-export from Figma.
  *
- * **`difficulty/` is still blocked.** The rings run `0`…`20`, `21-plus`,
- * `no-part`, `unknown`; the CSV's per-instrument difficulties are `0`–`6`.
- * Those are not the same axis and must not be indexed against each other until
- * we know what the rings measure.
+ * **`difficulty/` is drawn instead.** The rings run `0`…`20`, `21-plus`,
+ * `no-part`, `unknown`; the CSV's per-instrument difficulties are `0`–`6`. Those
+ * are still not the same axis and are still not indexed against each other —
+ * but the shape is portable even where the scale isn't, so `DifficultyRing` in
+ * `ui/library.tsx` draws the same six-notch ring in SVG against the tier we
+ * have. These 24 are the reference its proportions were measured from.
  */

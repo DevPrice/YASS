@@ -38,8 +38,10 @@
  *      up out of row six because it answers "which game is this from" and it is
  *      the one field that is a picture.
  *   2. **What it plays like** — the parts grid with the band tier on its header.
- *      This is the question the surface exists to answer and it is now the only
- *      thing on the page with a filled shape in it.
+ *      This is the question the surface exists to answer, and it is the only
+ *      thing on the page that is drawn rather than set: five instrument glyphs
+ *      inside five difficulty rings, and a sixth ring for the band. Everything
+ *      above and below it is type.
  *   3. **The six short facts** — year, length, genre, vocal parts, charter,
  *      rating — as label-over-value cells in two columns. `2006` does not need
  *      380px of ruled row to itself, and putting its label directly above it
@@ -58,7 +60,7 @@ import type { ReactNode } from 'react'
 
 import type { Song } from '@shared/types'
 import { Badge, Button, cx } from '../../ui'
-import { ArtistName, DifficultyCapsule, PartsGrid, SourceBadge } from '../../ui/library'
+import { ArtistName, BandDifficulty, PartsGrid, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
 import { formatDuration, formatVocalParts, formatYear } from '../../lib/format'
 
@@ -177,7 +179,7 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
           <SectionLabel>parts</SectionLabel>
           <span className="flex items-center gap-[10px]">
             <SectionLabel>band</SectionLabel>
-            <DifficultyCapsule tier={song.bandDifficulty} />
+            <BandDifficulty tier={song.bandDifficulty} />
           </span>
         </div>
 

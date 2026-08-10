@@ -28,7 +28,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
 import { EmptyState, SortArrow, cx } from '../../ui'
-import { ArtistName, DifficultyCapsule, InstrumentStrip, SourceBadge } from '../../ui/library'
+import { ArtistName, BandDifficulty, InstrumentStrip, SourceBadge } from '../../ui/library'
 import { formatDuration, formatYear } from '../../lib/format'
 import { groupSongs } from './grouping'
 import type { SortDirection, SortKey } from './filtering'
@@ -640,7 +640,7 @@ function SongRow({
             five slots stop lining up with the label above them. */}
         <InstrumentStrip song={song} className="hidden w-28 shrink-0 @4xl/list:flex" />
         <div className="flex w-20 shrink-0 justify-end">
-          <DifficultyCapsule tier={song.bandDifficulty} />
+          <BandDifficulty tier={song.bandDifficulty} />
         </div>
         <SourceBadge
           source={song.source}
@@ -678,7 +678,9 @@ function SongRow({
           <span className="sr-only">Length </span>
           {formatDuration(song.lengthSeconds)}
         </span>
-        <DifficultyCapsule tier={song.bandDifficulty} />
+        {/* 28px on the phone row, not 32: the narrow row is 60px tall and the
+            ring is the only thing in that cluster with real height to it. */}
+        <BandDifficulty tier={song.bandDifficulty} size={28} />
       </div>
     </button>
   )

@@ -16,7 +16,7 @@ import type { CSSProperties, ReactNode } from 'react'
 
 import type { NowPlaying } from '@shared/types'
 import { Badge, ChevronRight, cx } from '../../ui'
-import { ArtistName, SourceBadge } from '../../ui/library'
+import { ArtistName, BandDifficulty, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
 import { formatArtistCredit, formatDuration, formatVocalParts } from '../../lib/format'
 import { useVenue } from '../../lib/useVenue'
@@ -131,10 +131,11 @@ export function NowPlayingBar({
 
           <dl className="hidden shrink-0 gap-[25px] text-right sm:flex">
             <Detail label="length" value={formatDuration(song.lengthSeconds)} />
-            <Detail
-              label="band"
-              value={song.bandDifficulty === null ? '—' : String(song.bandDifficulty)}
-            />
+            {/* The ring rather than the digit, so band difficulty is the same
+                mark here, in the song row and in the detail pane. 26px is the
+                size at which it occupies the line box the other two stats set,
+                so the row of three still has one top edge. */}
+            <Detail label="band" value={<BandDifficulty tier={song.bandDifficulty} size={26} />} />
             <Detail label="vocals" value={formatVocalParts(song.vocalsCount)} />
           </dl>
         </>
@@ -233,8 +234,14 @@ function Shell({
   )
 }
 
-/** Numbers are shown, not described: bright value, dim unit label. */
-function Detail({ label, value }: { label: string; value: string }) {
+/**
+ * Numbers are shown, not described: bright value, dim unit label.
+ *
+ * `ReactNode` rather than `string` since band difficulty became a ring. The
+ * numeric styling stays on the `dd` for the two stats that are still text, and
+ * costs the ring nothing.
+ */
+function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt className="yarg-label text-[10px] text-count-muted">{label}</dt>

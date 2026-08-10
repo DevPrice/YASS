@@ -5,6 +5,8 @@
  * now-playing banner need them, and neither owns the other.
  */
 
+import type { CSSProperties, ReactNode } from 'react'
+
 import type { InstrumentGroup, InstrumentKey, Song } from '@shared/types'
 import { INSTRUMENT_GROUPS, INSTRUMENTS } from '@shared/types'
 
@@ -304,6 +306,265 @@ function groupTier(song: Song, group: InstrumentGroup): number | null {
 }
 
 /**
+ * Six notches, because six is where the scale stops.
+ *
+ * A tier is `0`–`6` and the game draws it as a broken ring around the part it
+ * belongs to — see `design/assets/difficulty/`, which ships one PNG per value.
+ * Those rings are not used here: they are a fixed size and a fixed colour, they
+ * cost a request each, and there are only 24 of them for a field the CSV does
+ * not actually bound. Drawn instead, from the same proportions.
+ */
+const NOTCHES = 6
+
+/**
+ * The ring, in numbers.
+ *
+ * Everything is stated against a 100×100 `viewBox`, so one component serves a
+ * 26px stat in the banner and a 42px cell in the parts grid without a second
+ * set of values. The proportions are measured off the design system's own
+ * rings, which are 500×500: a stroke 9% of the diameter, and about 16° of air
+ * between one notch and the next.
+ */
+const RING_RADIUS = 45
+const RING_STROKE = 9
+/**
+ * 13°, not the 16° traced off the art. The PNGs are drawn at 500px and read at
+ * 42; at that size their spacing let the ring fall apart into six separate
+ * marks, and the notches have to read as one broken circle for the count to
+ * mean anything. Each gap is ~1px tighter here.
+ */
+const RING_GAP_DEGREES = 13
+
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+/** One notch and the gap that follows it — a sixth of the way round. */
+const NOTCH_SLOT = RING_CIRCUMFERENCE / NOTCHES
+const NOTCH_GAP = (RING_CIRCUMFERENCE * RING_GAP_DEGREES) / 360
+/**
+ * Round caps hang half a stroke past each end of a dash, so the dash is cut a
+ * full stroke short and the caps hand the length back. Drawn without that
+ * subtraction every notch overruns its slot by 9 units and the gaps close up.
+ */
+const NOTCH_DASH = NOTCH_SLOT - NOTCH_GAP - RING_STROKE
+
+/**
+ * What one notch is worth.
+ *
+ * **Unlit is drawn, not omitted.** A meter that only paints what it has lit is
+ * a shape that changes with its value, and "three of six" is a comparison — the
+ * track is what makes it one. It sits two rungs down the dark ramp, visible as
+ * structure and never as a reading.
+ *
+ * **`null` drops to the bottom of the ramp**, because a part that is not charted
+ * has to differ from a part tiered at 0 — and 0 lights nothing either, so the
+ * lit notches cannot be what separates them. One rung apart was not enough: at
+ * a glance the empty cell read as a meter sitting at zero rather than as a part
+ * that isn't there. Two rungs down it barely lifts off the card, which is the
+ * correct amount of presence for something that does not exist. The glyph
+ * inside says the same thing at 20% opacity.
+ *
+ * **At 6 the whole ring turns red**, rather than the last notch alone. Six is
+ * the ceiling, and the point of a ceiling is that it reads without counting. It
+ * is also what makes the case above it legible — charts past 6 write their
+ * number over this same full-red ring, so red means "at or past the top" in
+ * both, and the numeral is what separates them.
+ */
+function notchFill(tier: number | null, index: number): string {
+  if (tier === null) return 'var(--yarg-dark-4)'
+  if (tier >= NOTCHES) return 'var(--color-danger)'
+
+  return index < tier ? 'var(--yarg-white)' : 'var(--yarg-dark-6)'
+}
+
+/**
+ * A tier as the game draws it: notches round a ring, and whatever the ring is
+ * about in the middle of it.
+ *
+ * This replaced a numeral in three places. A number is exact and a ring is not,
+ * which is the trade — but nobody reading a song list is doing arithmetic on
+ * difficulty. They are asking "is this one hard", and a shape answers that
+ * across a room and at a glance where `4` has to be read. The exact value stays
+ * available to anything that needs it: it is in the accessible name.
+ *
+ * Purely decorative — the ring is `aria-hidden` and every caller names the
+ * value in text of its own.
+ */
+export function DifficultyRing({
+  tier,
+  size = 32,
+  children,
+  className,
+}: {
+  tier: number | null
+  /** Any CSS length. The ring is square and its contents scale with it. */
+  size?: number | string
+  /** What the ring is drawn around — an instrument glyph, a dash, nothing. */
+  children?: ReactNode
+  className?: string
+}) {
+  /*
+   * Past the ceiling, the number itself.
+   *
+   * The ring counts to six and charts do go higher — the design system ships
+   * rings as far as `21-plus`, and `parseDifficulty` clamps nothing above 0.
+   * Rather than inventing a way to draw 9 on a six-notch meter, the ring maxes
+   * out red and the value is written over it.
+   */
+  const overflow = tier !== null && tier > NOTCHES
+
+  /*
+   * Where the number goes depends on whether the middle is already spoken for.
+   *
+   * **Around a glyph it sits on the bottom edge**, white and outlined in black,
+   * where the ring and the instrument meet. The first cut put it in the centre
+   * and moved the glyph out of the way, which cost the cell the thing it is
+   * actually scanned by: five parts read as five silhouettes, and a row of
+   * numerals where the pictures were is five cells you have to read instead of
+   * see. This adds the number without taking anything — the outline is what
+   * buys it legibility over a white glyph and a red notch, in place of a plate
+   * that would have to cut a hole in both.
+   *
+   * **On a bare ring it is simply centred.** Band difficulty has no glyph to
+   * preserve, and the middle is the biggest, most legible place the number can
+   * be — which matters, because that ring is drawn as small as 26px.
+   */
+  const badged = overflow && children !== null && children !== undefined
+
+  return (
+    <span
+      aria-hidden
+      className={cx('relative inline-flex shrink-0', className)}
+      style={
+        {
+          width: size,
+          // The ring gives way before its column does. `max-width` rather than
+          // a `min()` on the width itself, because `--ring-size` below is read
+          // in a `font-size`, and a percentage there resolves against the
+          // inherited font size rather than against this box — `min(42px,100%)`
+          // silently set the over-6 numeral from 16px of body text and drew it
+          // at 7px.
+          maxWidth: '100%',
+          aspectRatio: '1',
+          // Published so the middle can size type against the ring rather than
+          // against inherited text — one ring serves 26px and 42px.
+          '--ring-size': typeof size === 'number' ? `${size}px` : size,
+        } as CSSProperties
+      }
+    >
+      {/*
+       * 62% of the ring, inside a hole that is 81% of the box — so ~4px of air
+       * either side at the size the parts grid draws this. Enough that the
+       * glyph and the meter read as two things; not so much that they read as
+       * two unrelated things. It was 58%, and the extra ring of empty space
+       * made the mark feel hollow.
+       *
+       * **Before the ring, not after.** The ring and the glyph never overlap,
+       * so between those two the order is free — but the over-6 number is drawn
+       * inside the ring's SVG and reaches up into the glyph's box, and the
+       * instrument art is an opaque black disc. Painted second it took the tops
+       * off the digits.
+       */}
+      <span className="absolute inset-[19%] flex items-center justify-center">
+        {overflow && !badged ? (
+          <span
+            className="font-numeric font-semibold tabular-nums text-white"
+            style={{
+              // Two digits get the smaller setting. At 0.44 a `21` spans 21px
+              // of a 34px hole and its shoulders sit on the notches either
+              // side; 0.36 is the size at which the number is inside the ring
+              // rather than wedged into it. Single digits keep the larger one —
+              // they are the case that has to read at 26px in the banner.
+              fontSize: `calc(var(--ring-size) * ${tier >= 10 ? 0.36 : 0.44})`,
+              lineHeight: 1,
+            }}
+          >
+            {tier}
+          </span>
+        ) : (
+          children
+        )}
+      </span>
+      <svg
+        viewBox="0 0 100 100"
+        fill="none"
+        className="absolute inset-0 size-full"
+        // The number below sits low enough that its stroke hangs past the
+        // bottom of the box, and a browser's default on the outermost `<svg>`
+        // is to clip at its own bounds.
+        style={{ overflow: 'visible' }}
+      >
+        {/* -90° puts the first notch at twelve o'clock, so the ring fills
+            clockwise from the top and the empty gap sits where the eye starts. */}
+        <g transform="rotate(-90 50 50)">
+          {Array.from({ length: NOTCHES }, (_, index) => (
+            <circle
+              key={index}
+              cx="50"
+              cy="50"
+              r={RING_RADIUS}
+              stroke={notchFill(tier, index)}
+              strokeWidth={RING_STROKE}
+              strokeLinecap="round"
+              strokeDasharray={`${NOTCH_DASH} ${RING_CIRCUMFERENCE - NOTCH_DASH}`}
+              strokeDashoffset={-(index * NOTCH_SLOT + NOTCH_GAP / 2 + RING_STROKE / 2)}
+            />
+          ))}
+        </g>
+        {badged ? (
+          /*
+           * The number on the bottom edge, outlined rather than plated.
+           *
+           * Drawn in the ring's own SVG on purpose: the coordinates are the
+           * viewBox's, so the number sizes and sits with the ring at any pixel
+           * size and needs none of the `--ring-size` arithmetic the centred
+           * numeral does. It is also the only way to get a real outline — HTML
+           * text can be stroked, but `paint-order` is what puts the stroke
+           * *behind* the fill instead of eating half the letterform from the
+           * inside, and it is dependable on SVG text in a way it isn't on HTML.
+           *
+           * `y=88` rather than dead centre on the arc at 95: this reads as a
+           * number sitting low on the ring, and pushed to the centreline it
+           * read as a number that had fallen off it.
+           */
+          <text
+            x="50"
+            y="88"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill="var(--yarg-white)"
+            stroke="var(--yarg-dark-2)"
+            /*
+             * 16 units of stroke, half of which the fill paints back over — so
+             * ~3.4px of black around each digit at the size the parts grid
+             * draws this. Heavy on purpose: this is the outline a game puts on
+             * a number over artwork, and at the 1.5px it started at the digits
+             * were legible but looked like text that happened to land there
+             * rather than a marker placed on the ring.
+             *
+             * `stroke-linejoin: round` matters at this weight. Mitred, the
+             * corners of a `1` or a `2` throw spikes several units long.
+             */
+            strokeWidth="16"
+            strokeLinejoin="round"
+            style={{
+              paintOrder: 'stroke',
+              fontFamily: 'var(--font-data)',
+              fontWeight: 600,
+              fontVariantNumeric: 'tabular-nums',
+              // Two digits step down, as everywhere else here. Both are stated
+              // in viewBox units, so `30` is 30% of whatever the ring is drawn
+              // at — 12.6px in the parts grid.
+              fontSize: tier >= 10 ? 24 : 30,
+            }}
+          >
+            {tier}
+          </text>
+        ) : null}
+      </svg>
+    </span>
+  )
+}
+
+/**
  * What each family plays, and how hard.
  *
  * The list row can only afford a lit-or-dim glyph: it answers "does this have
@@ -311,6 +572,12 @@ function groupTier(song: Song, group: InstrumentGroup): number | null {
  * per song, used as a filter predicate and displayed nowhere — and this is the
  * one surface with room for it. A band asks "how hard are the drums", and until
  * now the app could not answer.
+ *
+ * The tier used to be a numeral under the glyph, which made a cell three
+ * stacked things — picture, word, number — read top to bottom before it meant
+ * anything. The ring is the game's own answer and it is a better one here:
+ * drawn *around* the glyph, the part and its difficulty become one mark, and
+ * five of them read as a row of shapes instead of five columns of digits.
  *
  * Absent parts hold their slot rather than collapsing, so five songs read as a
  * matrix rather than five differently-shaped rows.
@@ -326,44 +593,33 @@ export function PartsGrid({ song }: { song: Song }) {
           <li
             key={group}
             aria-label={tier === null ? `${label}, not charted` : `${label}, difficulty ${tier}`}
-            // 10px between the glyph and the pair beneath it, 5px inside the
-            // pair: the name and the number are one answer, and spacing is what
-            // says so. At an even 8px all three floated apart and five cells
-            // read as fifteen things.
             className="flex flex-col items-center gap-[10px]"
           >
-            <img
-              src={GROUP_ART[group]}
-              alt=""
-              aria-hidden
-              width={32}
-              height={32}
-              loading="lazy"
-              decoding="async"
-              className={cx('size-[32px] object-contain', tier === null ? 'opacity-20' : null)}
-            />
-            <span aria-hidden className="flex flex-col items-center gap-[5px]">
-              {/*
-               * 12px, which is `--text-stat-sm` — the smallest size the type
-               * tokens actually offer. This was 10px, below the scale's own
-               * floor, uppercase Red Hat Display extrabold, read on a phone in
-               * a dark room. `VOCALS` sets to ~45px at 12px and the narrowest
-               * cell this grid ever gets is 47.5px, in the detail pane at a
-               * 1024px window.
-               */}
-              <span className="yarg-label text-[12px] text-count-muted">{label}</span>
-              <span
-                className={cx(
-                  // 16px is `--text-stat`, and it is deliberately the same size
-                  // the band capsule sets — a part's tier and the band's tier
-                  // are the same kind of number, so the capsule's fill is what
-                  // separates them rather than a size nobody chose.
-                  'font-numeric text-[16px] font-semibold tabular-nums',
-                  tier === null ? 'text-content-faint' : 'text-count',
-                )}
-              >
-                {tier === null ? '—' : tier}
-              </span>
+            {/*
+             * 42px, which the narrowest cell this grid ever gets — 47.5px, in
+             * the detail pane at a 1024px window — still holds with 2.75px of
+             * air either side. `DifficultyRing` caps itself at the column width
+             * below that, so nothing here can push the pane wider.
+             */}
+            <DifficultyRing tier={tier} size={42}>
+              <img
+                src={GROUP_ART[group]}
+                alt=""
+                aria-hidden
+                loading="lazy"
+                decoding="async"
+                className={cx('size-full object-contain', tier === null ? 'opacity-20' : null)}
+              />
+            </DifficultyRing>
+            {/*
+             * 12px, which is `--text-stat-sm` — the smallest size the type
+             * tokens actually offer. This was 10px, below the scale's own floor,
+             * uppercase Red Hat Display extrabold, read on a phone in a dark
+             * room. `VOCALS` sets to ~45px at 12px and the narrowest cell this
+             * grid ever gets is 47.5px.
+             */}
+            <span aria-hidden className="yarg-label text-[12px] text-count-muted">
+              {label}
             </span>
           </li>
         )
@@ -373,55 +629,55 @@ export function PartsGrid({ song }: { song: Song }) {
 }
 
 /**
- * Band difficulty in the design's rounded capsule.
+ * Band difficulty, wearing the same ring every part wears.
  *
- * Zero is left as a number rather than reinterpreted. `Song` documents that `0`
- * can mean "present but untiered" as well as "trivial", and 205 of the 4,168
- * songs in the library this was built against carry it — too many to silently
- * relabel on a guess. Deciding what YARG actually means needs the exporter, not
- * this component; the detail view says so in words, where a phone can read it.
+ * One number stands for five, so it is drawn the same way they are — the row,
+ * the banner and the detail header all show a ring, and a reader who has
+ * learned to read one has learned to read all of them. There is no glyph in the
+ * middle because there is no instrument: the ring is the whole mark.
+ *
+ * Zero is left as zero rather than reinterpreted. `Song` documents that `0` can
+ * mean "present but untiered" as well as "trivial", and 205 of the 4,168 songs
+ * in the library this was built against carry it — too many to silently relabel
+ * on a guess. Deciding what YARG actually means needs the exporter, not this
+ * component; the detail view says so in words, where a phone can read it.
  */
-export function DifficultyCapsule({ tier, size = 32 }: { tier: number | null; size?: number }) {
-  const rated = tier !== null
-
-  /*
-   * One footprint for every value, rated or not.
-   *
-   * The unrated case used to be a bare dash with no capsule and no padding —
-   * a third of the width of the pill beside it — so a phone row with an
-   * untiered chart pulled its whole metadata line sideways. The two states
-   * are the same box now and differ only in fill and colour.
-   *
-   * `tabular-nums` and `w-[1ch]` are what hold the rest of it still: Inter's
-   * proportional figures give 1 and 4 different advances, and the em dash is
-   * wider than either. Fixing the character cell to one digit makes all eight
-   * possible values the same width, and the dash simply overhangs its cell
-   * into padding that has 13px to spare.
-   */
+export function BandDifficulty({
+  tier,
+  size = 32,
+}: {
+  tier: number | null
+  size?: number | string
+}) {
   return (
     <span
-      title={
-        tier === 0 ? 'Difficulty 0 — YARG also writes 0 for untiered charts' : undefined
-      }
-      className={cx(
-        'font-numeric inline-flex items-center justify-center px-[13px]',
-        'text-[16px] font-semibold tabular-nums',
-        rated ? 'text-white' : 'text-content-faint',
-      )}
-      style={{
-        height: size,
-        borderRadius: 'var(--radius-round)',
-        background: rated ? 'var(--yarg-surface-sunken)' : undefined,
-      }}
+      className="inline-flex items-center"
+      title={tier === 0 ? 'Difficulty 0 — YARG also writes 0 for untiered charts' : undefined}
     >
-      <span className="sr-only">{rated ? 'Band difficulty ' : 'Difficulty unrated'}</span>
-      {rated ? (
-        <span className="inline-block w-[1ch] text-center">{tier}</span>
-      ) : (
-        <span aria-hidden className="inline-block w-[1ch] text-center">
-          —
-        </span>
-      )}
+      {/*
+       * The exact tier, for anything that cannot see a ring. It is also the
+       * only place the number survives now, which is the reason it is a
+       * sentence and not a digit.
+       */}
+      <span className="sr-only">
+        {tier === null ? 'Band difficulty unrated' : `Band difficulty ${tier}`}
+      </span>
+      <DifficultyRing tier={tier} size={size}>
+        {tier === null ? (
+          /*
+           * An unrated ring is already dimmer than an unlit one, but "dimmer"
+           * is a judgement you can only make with something to compare against
+           * — and in a song row there is nothing beside it. The dash says it
+           * outright, in the middle, where the number used to be.
+           */
+          <span
+            className="font-numeric leading-none text-content-faint"
+            style={{ fontSize: 'calc(var(--ring-size) * 0.44)' }}
+          >
+            —
+          </span>
+        ) : null}
+      </DifficultyRing>
     </span>
   )
 }
