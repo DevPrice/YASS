@@ -47,15 +47,26 @@ export const EMPTY_FILTERS: Filters = {
 }
 
 export function hasActiveFilters(filters: Filters): boolean {
+  return filters.search.trim() !== '' || panelFilterCount(filters) > 0
+}
+
+/**
+ * How many filter dimensions the collapsible panel currently constrains.
+ *
+ * Search is excluded on purpose: it has its own always-visible field, so
+ * counting it here would make the panel's badge answer for a control the panel
+ * doesn't own. Instruments count once however many are picked — the badge
+ * answers "how many things are narrowing this list", not "how many taps".
+ */
+export function panelFilterCount(filters: Filters): number {
   return (
-    filters.search.trim() !== '' ||
-    filters.sources.length > 0 ||
-    filters.genres.length > 0 ||
-    filters.formats.length > 0 ||
-    filters.instruments.length > 0 ||
-    filters.minDifficulty !== null ||
-    filters.maxDifficulty !== null ||
-    filters.masterOnly
+    (filters.sources.length > 0 ? 1 : 0) +
+    (filters.genres.length > 0 ? 1 : 0) +
+    (filters.formats.length > 0 ? 1 : 0) +
+    (filters.instruments.length > 0 ? 1 : 0) +
+    (filters.minDifficulty !== null ? 1 : 0) +
+    (filters.maxDifficulty !== null ? 1 : 0) +
+    (filters.masterOnly ? 1 : 0)
   )
 }
 

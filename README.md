@@ -112,12 +112,27 @@ proxy needs a single upstream. All client URLs are relative.
 | Route | Purpose |
 |---|---|
 | `GET /api/songs` | Full library + facets + metadata (ETag-cached) |
-| `POST /api/songs/reload` | Re-read the CSV from disk |
+| `POST /api/songs/reload` | Force a re-read of the CSV — **host-only**, 404 otherwise |
 | `GET /api/now-playing` | Current state, one shot |
-| `GET /api/now-playing/stream` | SSE stream of changes |
+| `GET /api/events` | SSE stream: `now-playing`, `library`, `ping` |
 | `GET /api/art/current` | Album art for the playing song |
 | `GET /api/capabilities` | What this caller may do (drives whether a settings tab renders) |
 | `GET /api/settings` · `PUT /api/settings` | Read/write configuration — **host-only**, 404 otherwise |
+
+### The song list reloads itself
+
+The CSV is a snapshot YARG writes only when someone picks Settings → Export Songs
+List, so it goes stale silently. The server watches the file and re-reads it on change,
+then emits a `library` event on the SSE stream; every connected phone refetches through
+a conditional GET, so an unchanged list costs a 304.
+
+It watches the *directory* and filters by filename, because an export replaces the file
+rather than appending to it — on Windows a watch bound to the path itself follows the
+old inode and goes deaf after the first export. Events are debounced 500ms and confirmed
+against size and mtime, since a CSV write is not atomic and fires a burst.
+
+There is deliberately no reload button in the UI. Re-exporting from YARG is the whole
+gesture.
 
 ### Reading `currentSong.json` safely
 

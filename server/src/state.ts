@@ -6,7 +6,8 @@
  * process or a test without going through Hono.
  */
 
-import type { Settings, SettingsView, SongLibrary } from '@shared/types.js'
+import type { LibraryMeta, Settings, SettingsView, SongLibrary } from '@shared/types.js'
+import { CsvWatcher } from './core/csvWatcher.js'
 import { emptyLibrary, loadLibraryFromCsv } from './core/library.js'
 import { NowPlayingWatcher } from './core/nowPlaying.js'
 import {
@@ -32,6 +33,8 @@ export class AppState {
   /** hash → song id, for joining now-playing to the library. */
   #byHash = new Map<string, string>()
   #watcher: NowPlayingWatcher
+  #csvWatcher: CsvWatcher
+  #librarySubscribers = new Set<(meta: LibraryMeta) => void>()
 
   private constructor(stored: Settings) {
     this.#stored = stored
@@ -42,13 +45,36 @@ export class AppState {
       getPollIntervalMs: () => this.#effective.pollIntervalMs,
       resolveLibraryId: (hash) => (hash ? (this.#byHash.get(hash) ?? null) : null),
     })
+
+    this.#csvWatcher = new CsvWatcher({
+      getPath: () => this.#effective.songListCsvPath,
+      onChange: async () => {
+        await this.reloadLibrary()
+      },
+      onError: (error) => {
+        console.error('[yass] song list watch:', error)
+      },
+    })
   }
 
   static async create(): Promise<AppState> {
     const state = new AppState(await loadStoredSettings())
     await state.reloadLibrary()
     state.#watcher.start()
+    await state.#csvWatcher.start()
     return state
+  }
+
+  /**
+   * Listen for the song list being reloaded from disk.
+   *
+   * Only the metadata is published. The index itself is megabytes, and the
+   * client already has a conditional GET for it — so this says "it moved" and
+   * lets the browser decide whether to spend the bandwidth.
+   */
+  subscribeLibrary(listener: (meta: LibraryMeta) => void): () => void {
+    this.#librarySubscribers.add(listener)
+    return () => this.#librarySubscribers.delete(listener)
   }
 
   /** The values actually in force. */
@@ -84,6 +110,16 @@ export class AppState {
     // A song may already be playing; re-resolve its library link.
     this.#watcher.refreshLibraryJoin()
 
+    for (const listener of this.#librarySubscribers) {
+      // One bad subscriber must not stop the others from being told, and must
+      // not propagate out of a filesystem event into an unhandled rejection.
+      try {
+        listener(this.#library.meta)
+      } catch (error) {
+        console.error('[yass] library subscriber:', error)
+      }
+    }
+
     return this.#library
   }
 
@@ -103,6 +139,8 @@ export class AppState {
 
     if (this.#effective.songListCsvPath !== previousCsvPath) {
       await this.reloadLibrary()
+      // Follow the file — the old directory is no longer interesting.
+      await this.#csvWatcher.start()
     }
 
     return this.settingsView
@@ -115,5 +153,6 @@ export class AppState {
 
   stop(): void {
     this.#watcher.stop()
+    this.#csvWatcher.stop()
   }
 }

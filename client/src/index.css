@@ -14,7 +14,24 @@
  *
  * Font imports must stay first: remote @imports have to precede other rules.
  */
-@import './design/tokens/fonts.css';
+/*
+ * Fonts are the one token file not imported wholesale.
+ *
+ * `design/tokens/fonts.css` pulls all seven families the .fig specifies, but
+ * YASS only ever renders three: Red Hat Display for the display type, Barlow
+ * for body, Inter for tabular numbers. Open Sans, Noto Sans, Big Shoulders Text
+ * and Archivo Black are referenced by no token this app uses — they were four
+ * render-blocking round trips to fonts.googleapis.com for nothing, on a webapp
+ * whose whole point is being served off a box on the LAN.
+ *
+ * The vendored file stays byte-identical to upstream; the three lines below are
+ * copied from it verbatim, so re-vendoring is still a diff against a known
+ * source. Self-hosting is the remaining fix — these are still remote requests,
+ * and an offline gaming PC falls back to `system-ui`.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:ital,wght@0,300..900;1,300..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
 @import './design/tokens/colors.css';
 @import './design/tokens/typography.css';
 @import './design/tokens/layout.css';
@@ -37,15 +54,42 @@
   --color-surface-row: var(--yarg-surface-row);
   --color-surface-hover: var(--yarg-dark-4);
 
+  /*
+   * Borders.
+   *
+   * `border` stays the design system's card stroke: it is decorative, sitting
+   * on a shape that already reads as a card. The other two are deliberately
+   * *not* the tokens named after them, and both deviations are legibility
+   * fixes measured against the real surfaces:
+   *
+   *   `border-strong` (was Space Cadet #2, 1.69:1) carries the outline of
+   *   interactive controls — the text field, the selects, the filter chips.
+   *   WCAG 1.4.11 wants 3:1 for those, and Cool Gray is the first rung of the
+   *   dark ramp that clears it, at 5.15:1.
+   *
+   *   `border-row` (was #002549, 1.29:1) rules the song list. Rows are also
+   *   separated by 80px of height and their own content, so this is structure
+   *   rather than a control boundary and doesn't owe 3:1 — but at 1.29 it was
+   *   not visible at all on a phone in a lit room.
+   *
+   * The token files under `design/tokens/` stay byte-identical to upstream;
+   * this block is the documented seam for exactly this kind of override.
+   */
   --color-border: var(--yarg-border-card);
-  --color-border-row: var(--yarg-border-row);
-  --color-border-strong: var(--yarg-dark-6);
+  --color-border-row: var(--yarg-dark-6);
+  --color-border-strong: var(--yarg-dark-7);
 
   /* Text roles. `secondary` is the cyan used for artists and "as made famous by". */
   --color-content: var(--yarg-text-primary);
   --color-content-secondary: var(--yarg-text-cyan-soft);
   --color-content-muted: var(--yarg-text-muted);
-  --color-content-faint: var(--yarg-text-dim);
+  /*
+   * Was `--yarg-text-dim` (#5C6070), which tops out at 3.30:1 against the
+   * lightest surface in the app and so could never pass 4.5:1 anywhere — while
+   * carrying the search placeholder, the export stamp and both settings hints.
+   * Cool Gray is the next rung up and clears it at 5.15:1.
+   */
+  --color-content-faint: var(--yarg-dark-7);
   --color-content-header: var(--yarg-text-header);
   --color-count: var(--yarg-text-count);
   --color-count-muted: var(--yarg-text-count-muted);
@@ -93,11 +137,53 @@
   /*
    * The signature move: wash colour in from one edge rather than filling a
    * shape. Used on the selected row and on category headers.
+   *
+   * The angle is a variable because the wash has to point away from the text.
+   * At the table width the row's text starts ~40% across, so the bright edge
+   * can sit on the left; the narrow layout stacks title and artist hard against
+   * that same edge, which drops white-on-#0082BA to 4.28:1. Callers flip the
+   * angle at the breakpoint where the text moves.
    */
   .yarg-wash-selected {
     background:
-      linear-gradient(90deg, rgba(7, 8, 16, 0) -10.08%, #070810 99.98%),
+      linear-gradient(var(--yarg-wash-angle, 90deg), rgba(7, 8, 16, 0) -10.08%, #070810 99.98%),
       var(--yarg-row-selected);
+  }
+
+  /*
+   * Focus ring.
+   *
+   * Deliberately an outline and not Tailwind's `ring-*`, which compiles to a
+   * box-shadow: several primitives here set `boxShadow` inline for their inset
+   * stroke, and an inline style beats any class, so a ring utility silently
+   * never rendered on them. Outline also survives Windows High Contrast, which
+   * discards box-shadow entirely.
+   */
+  .yarg-focusable:focus-visible,
+  .yarg-focusable-within:focus-within {
+    outline: var(--stroke) solid var(--yarg-vivid-sky-blue);
+    outline-offset: 2px;
+  }
+
+  /*
+   * Grows a control's hit area to the 44px touch minimum without changing a
+   * pixel of how it looks. Only for controls with clear space around them —
+   * on a tight row the invisible boxes would overlap each other.
+   */
+  .tap-target {
+    position: relative;
+  }
+
+  .tap-target::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .yarg-wash-header {

@@ -25,11 +25,9 @@ export function formatDifficulty(tier: number | null): string {
   return tier === null ? '—' : String(tier)
 }
 
-/** `$DEFAULT$` is YARG's "no source" sentinel; other ids pass through as authored. */
-export function formatSource(source: string): string {
-  if (!source || source === '$DEFAULT$') return 'Custom'
-  return source
-}
+// Source display lives in `lib/sources.ts` now: the CSV's ids resolve through
+// YARG's own OpenSource registry, which knows `$DEFAULT$` along with 292 other
+// spellings. Passing the raw id through as a label was never right.
 
 const VOCAL_PART_LABELS = ['No vocals', 'Solo vocals', '2-part harmony', '3-part harmony']
 

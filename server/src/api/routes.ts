@@ -52,7 +52,15 @@ export function createApiRoutes(state: AppState): Hono {
     return c.json(library)
   })
 
-  api.post('/songs/reload', async (c) => {
+  /**
+   * Force a re-read of the CSV.
+   *
+   * Host-only. The server watches the file and reloads on its own, so this is
+   * a manual override for the host and the tray process — not something a
+   * guest browsing on their phone should be able to trigger on the host's
+   * machine.
+   */
+  api.post('/songs/reload', requireLocal, async (c) => {
     return c.json(await state.reloadLibrary())
   })
 
@@ -64,12 +72,21 @@ export function createApiRoutes(state: AppState): Hono {
   })
 
   /**
-   * Server-sent events for now-playing changes.
+   * The live channel.
    *
    * SSE rather than WebSockets: the data flows one way, it survives reverse
    * proxies with no upgrade handshake, and the browser reconnects on its own.
+   *
+   * Two event types share one connection, because a phone on LAN Wi-Fi holding
+   * two long-lived sockets to say two small things is a worse trade than one
+   * stream with a discriminator:
+   *
+   *   `now-playing`  full NowPlaying state, on every change
+   *   `library`      just the metadata, when the CSV is re-exported; the
+   *                  client refetches `/api/songs` conditionally
+   *   `ping`         keepalive, so idle proxies don't hang up
    */
-  api.get('/now-playing/stream', (c) => {
+  api.get('/events', (c) => {
     c.header('Cache-Control', 'no-store')
     // Tell nginx not to buffer, or events arrive in bursts.
     c.header('X-Accel-Buffering', 'no')
@@ -80,17 +97,21 @@ export function createApiRoutes(state: AppState): Hono {
         open = false
       })
 
-      const send = async (data: unknown) => {
+      const send = async (event: string, data: unknown) => {
         if (!open) return
-        await stream.writeSSE({ event: 'now-playing', data: JSON.stringify(data) })
+        await stream.writeSSE({ event, data: JSON.stringify(data) })
       }
 
       // Send current state immediately so a fresh client isn't blank until the
       // next song change.
-      await send(state.watcher.current)
+      await send('now-playing', state.watcher.current)
 
-      const unsubscribe = state.watcher.subscribe((next) => {
-        void send(next)
+      const unsubscribeNowPlaying = state.watcher.subscribe((next) => {
+        void send('now-playing', next)
+      })
+
+      const unsubscribeLibrary = state.subscribeLibrary((meta) => {
+        void send('library', meta)
       })
 
       try {
@@ -100,7 +121,8 @@ export function createApiRoutes(state: AppState): Hono {
           await stream.writeSSE({ event: 'ping', data: '' })
         }
       } finally {
-        unsubscribe()
+        unsubscribeNowPlaying()
+        unsubscribeLibrary()
       }
     })
   })

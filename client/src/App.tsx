@@ -15,6 +15,7 @@ import { formatRelativeTime } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { useNowPlaying } from './lib/useNowPlaying'
 import { FiltersPanel } from './features/library/Filters'
+import type { OpenPanel } from './features/library/Filters'
 import { SongList } from './features/library/SongList'
 import { EMPTY_FILTERS, filterSongs, sortSongs } from './features/library/filtering'
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
@@ -24,8 +25,8 @@ import { SettingsPanel } from './features/settings/SettingsPanel'
 type View = 'library' | 'settings'
 
 export function App() {
-  const { library, loading, error, reload } = useLibrary()
-  const { nowPlaying, connected } = useNowPlaying()
+  const { library, loading, error, refresh } = useLibrary()
+  const { nowPlaying, connected, settled } = useNowPlaying()
 
   /**
    * Settings are host-only, so the tab only exists when the server says this
@@ -44,6 +45,21 @@ export function App() {
   const [sortKey, setSortKey] = useState<SortKey>('artist')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
 
+  /**
+   * Which control sheet is open, held here rather than inside the filter bar so
+   * Escape can dismiss it before falling through to clearing the filters.
+   */
+  const [openPanel, setOpenPanel] = useState<OpenPanel>('none')
+
+  /**
+   * The song the Random button landed on.
+   *
+   * The app has no queue and won't have one until the karaoke research lands,
+   * so "random" does the honest browser-side thing: it picks one, scrolls it
+   * into view, and marks it. That's enough to settle an argument in a room.
+   */
+  const [pickedId, setPickedId] = useState<string | null>(null)
+
   const songs = library?.songs ?? []
 
   // Filter and sort are separate memos so changing sort doesn't redo the
@@ -55,6 +71,16 @@ export function App() {
   )
 
   const searchRef = useRef<HTMLInputElement>(null)
+
+  /**
+   * Identifies the *query*, not the result.
+   *
+   * The list scrolls back to the top when this changes. Keying that off the
+   * songs array instead would also fire whenever the library reloads — and now
+   * that a re-export pushes a reload to every connected phone, that would yank
+   * a reader back to the A's mid-scroll for something they didn't do.
+   */
+  const queryKey = JSON.stringify([filters, sortKey, sortDirection])
 
   // The helper bar advertises these, so they have to actually work.
   useEffect(() => {
@@ -72,6 +98,15 @@ export function App() {
       }
 
       if (event.key === 'Escape') {
+        // Escape unwinds one layer at a time. With a sheet open it closes the
+        // sheet and stops there — going straight to wiping every filter would
+        // make the reflex that dismisses a panel also destroy the work that
+        // panel was used for.
+        if (openPanel !== 'none') {
+          setOpenPanel('none')
+          return
+        }
+
         // Inside the search field, clear it and step back out; elsewhere,
         // reset every filter at once.
         if (target === searchRef.current) {
@@ -83,7 +118,17 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [openPanel])
+
+  const handleRandom = () => {
+    if (visible.length === 0) return
+    const choice = visible[Math.floor(Math.random() * visible.length)]
+    if (choice !== undefined) {
+      setPickedId(choice.id)
+      // Close the sheet so the pick is actually visible on a phone.
+      setOpenPanel('none')
+    }
+  }
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -96,11 +141,12 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col bg-surface">
-      <NowPlayingBar nowPlaying={nowPlaying} connected={connected} />
+      <NowPlayingBar nowPlaying={nowPlaying} connected={connected} settled={settled} />
 
       <header className="flex shrink-0 items-center justify-between gap-[15px] bg-surface-app px-[25px] py-[10px]">
         <div className="flex items-baseline gap-[15px]">
-          <span className="yarg-label text-[24px] text-white">yass</span>
+          {/* The app had no heading at all, so heading navigation did nothing. */}
+          <h1 className="yarg-label text-[24px] text-white">yass</h1>
           {library ? (
             <span className="hidden text-[13px] text-content-faint sm:inline">
               list exported {formatRelativeTime(library.meta.generatedAt)}
@@ -108,33 +154,37 @@ export function App() {
           ) : null}
         </div>
 
-        <nav className="flex items-center gap-[5px]">
+        {/*
+         * Host-only, and the only thing in the header besides the wordmark.
+         *
+         * There used to be a `library` tab, which was permanently active and
+         * did nothing, and a `reload` button — the one control a guest had that
+         * acted on the host's machine, next to a stale list nobody could tell
+         * was stale. The server watches the CSV now, so re-exporting from YARG
+         * updates every phone in the room on its own.
+         */}
+        {canConfigure ? (
           <Button
             tone="accent"
-            quiet={view !== 'library'}
-            onClick={() => setView('library')}
+            quiet={view !== 'settings'}
+            aria-pressed={view === 'settings'}
+            onClick={() => setView(view === 'settings' ? 'library' : 'settings')}
           >
-            library
+            settings
           </Button>
-          {canConfigure ? (
-            <Button
-              tone="accent"
-              quiet={view !== 'settings'}
-              onClick={() => setView('settings')}
-            >
-              settings
-            </Button>
-          ) : null}
-          <Button quiet onClick={() => void reload()} disabled={loading}>
-            {loading ? 'loading' : 'reload'}
-          </Button>
-        </nav>
+        ) : null}
       </header>
 
+      {/*
+       * `main` is itself the flex column, not a wrapper around one: the filter
+       * bar positions itself with `order-last` below `md`, and order is
+       * resolved against the immediate flex parent.
+       */}
+      <main className="flex min-h-0 flex-1 flex-col">
       {view === 'settings' && canConfigure ? (
         <div className="scrollbar-slim flex-1 overflow-y-auto p-4">
           <div className="mx-auto max-w-2xl">
-            <SettingsPanel onSaved={() => void reload()} />
+            <SettingsPanel onSaved={() => void refresh()} />
           </div>
         </div>
       ) : (
@@ -151,17 +201,30 @@ export function App() {
           playingId={nowPlaying.song?.libraryId ?? null}
           onOpenSettings={canConfigure ? () => setView('settings') : null}
           searchRef={searchRef}
+          openPanel={openPanel}
+          onOpenPanelChange={setOpenPanel}
+          queryKey={queryKey}
+          onRandom={handleRandom}
+          pickedId={pickedId}
         />
       )}
+      </main>
 
       {/*
        * The helper bar is the strongest identity cue in YARG's chrome, so the
        * design system keeps it on the companion app even though a browser has
        * no gamepad. It's branding with a shortcut function, not a control bar.
+       *
+       * Which is exactly why it stops at `md`. On a phone it was spending the
+       * one screen region a thumb can comfortably reach on two shortcuts the
+       * device cannot produce; below `md` the filter bar takes that space and
+       * fills it with controls. Nothing is lost — the shortcuts don't apply
+       * without a keyboard, and the play state is already the subject of the
+       * now-playing banner at the top of the screen.
        */}
-      <HelperBar>
+      <HelperBar className="hidden md:flex">
         <HelperHint keyLabel="/" action="search" />
-        <HelperHint keyLabel="esc" action="clear filters" />
+        <HelperHint keyLabel="esc" action="close, then clear" />
         <span className="ml-auto text-[12px] text-content-faint">
           {nowPlaying.playing ? 'yarg is playing' : 'yarg is idle'}
         </span>
@@ -202,6 +265,11 @@ function LibraryView({
   playingId,
   onOpenSettings,
   searchRef,
+  openPanel,
+  onOpenPanelChange,
+  queryKey,
+  onRandom,
+  pickedId,
 }: {
   error: string | null
   loading: boolean
@@ -216,6 +284,11 @@ function LibraryView({
   /** Null for guests — configuration is host-only. */
   onOpenSettings: (() => void) | null
   searchRef: Ref<HTMLInputElement>
+  openPanel: OpenPanel
+  onOpenPanelChange: (panel: OpenPanel) => void
+  queryKey: string
+  onRandom: () => void
+  pickedId: string | null
 }) {
   if (error) {
     return (
@@ -267,6 +340,12 @@ function LibraryView({
         facets={library.facets}
         resultCount={visible.length}
         totalCount={library.meta.count}
+        sortKey={sortKey}
+        sortDirection={sortDirection}
+        onSort={onSort}
+        onRandom={onRandom}
+        open={openPanel}
+        onOpenChange={onOpenPanelChange}
         searchRef={searchRef}
       />
       <SongList
@@ -275,6 +354,8 @@ function LibraryView({
         sortDirection={sortDirection}
         onSort={onSort}
         playingId={playingId}
+        pickedId={pickedId}
+        queryKey={queryKey}
       />
     </>
   )

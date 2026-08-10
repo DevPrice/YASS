@@ -16,8 +16,9 @@ import type { ReactNode } from 'react'
 
 import type { NowPlaying } from '@shared/types'
 import { Badge } from '../../ui'
+import { SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
-import { formatDuration, formatSource, formatVocalParts } from '../../lib/format'
+import { formatDuration, formatVocalParts } from '../../lib/format'
 
 /** Tall enough for the badge, title and artist stack without clipping. */
 const BANNER_HEIGHT = 92
@@ -29,9 +30,12 @@ const SCRIM =
 export function NowPlayingBar({
   nowPlaying,
   connected,
+  settled,
 }: {
   nowPlaying: NowPlaying
   connected: boolean
+  /** False until the server has answered once, either way. */
+  settled: boolean
 }) {
   const song = nowPlaying.song
   const playing = nowPlaying.playing && song !== null
@@ -55,13 +59,18 @@ export function NowPlayingBar({
           <div className="min-w-0 flex-1">
             <div className="mb-[5px] flex items-center gap-[10px]">
               <Badge tone="accent">Now playing</Badge>
+              {/* Where the chart came from, as a mark rather than a word. */}
+              <SourceBadge source={song.source} size={16} showName={false} />
               {!connected ? <Badge title="Live updates interrupted">offline</Badge> : null}
             </div>
 
-            <p className="truncate text-[22px] leading-none font-semibold text-white">
+            <p dir="auto" className="truncate text-[22px] leading-none font-semibold text-white">
               {song.name}
             </p>
-            <p className="mt-[5px] truncate text-[17px] leading-none font-medium text-content-secondary italic">
+            <p
+              dir="auto"
+              className="mt-[5px] truncate text-[17px] leading-none font-medium text-content-secondary italic"
+            >
               {song.artist}
               {song.album ? (
                 <span className="text-content-muted not-italic"> — {song.album}</span>
@@ -76,16 +85,28 @@ export function NowPlayingBar({
               value={song.bandDifficulty === null ? '—' : String(song.bandDifficulty)}
             />
             <Detail label="vocals" value={formatVocalParts(song.vocalsCount)} />
-            <Detail label="source" value={formatSource(song.source)} />
           </dl>
         </>
       ) : (
         <>
           <PlaceholderArt />
           <div className="min-w-0 flex-1">
-            <p className="yarg-label text-[15px] text-content-muted">Nothing playing</p>
+            {/*
+             * Three states, not two. Before `settled` we have simply not heard
+             * back yet — saying "Reconnecting" there told every guest the app
+             * was broken during the first second of every visit, because the
+             * connection flag starts false and nothing distinguished "never
+             * tried" from "lost it".
+             */}
+            <p className="yarg-label text-[15px] text-content-muted">
+              {settled ? 'Nothing playing' : 'Connecting'}
+            </p>
             <p className="mt-[5px] truncate text-[14px] text-content-faint">
-              {connected ? 'Waiting for YARG to start a song' : 'Reconnecting to the server'}
+              {!settled
+                ? 'Checking what YARG is up to'
+                : connected
+                  ? 'Waiting for YARG to start a song'
+                  : 'Reconnecting to the server'}
             </p>
           </div>
         </>

@@ -42,8 +42,10 @@ are `--yarg-vivid-sky-blue` and `--yarg-text-cyan`, and neither is exact), and t
 `width`/`height` were dropped so CSS sizes them. The `viewBox` carries the aspect ratio.
 
 **`currentColor` only works if the SVG is inlined.** Vite's default `import icon from
-'./genre.svg'` yields a URL, and a URL can't inherit colour. Import with `?raw`, or add
-`vite-plugin-svgr` — decide when the first one is actually used.
+'./genre.svg'` yields a URL, and a URL can't inherit colour. Settled when `random.svg`
+became the first one used: `?raw` plus `dangerouslySetInnerHTML`, in `ui/index.tsx`. It's
+a build-time constant from this repo with no interpolation, and it adds no dependency.
+`vite-plugin-svgr` is the upgrade if several more come into use.
 
 ## Bitmap art
 
@@ -118,8 +120,8 @@ radius changes upstream. Two habits keep that manageable:
 | YASS | Upstream source | Ported | Notes |
 |---|---|---|---|
 | `ui/Button` | `components/core/Button.jsx` | 2026-08-10 | Tones `confirm`/`accent`/`danger`/`neutral`; adds a `quiet` variant for toolbars |
-| `ui/HelperBar` | `components/core/HelperBar.jsx` | 2026-08-10 | 52px instead of 75px — a browser footer, not a 1080p game bar |
-| `features/library/SongList` `SongRow` | `components/music/LibraryRow.jsx` | 2026-08-10 | Track variant only. Source tile, instrument glyph and stars omitted pending assets |
+| `ui/HelperBar` | `components/core/HelperBar.jsx` | 2026-08-10 | 52px instead of 75px — a browser footer, not a 1080p game bar. Desktop only: below `md` its space goes to the filter bar, since a phone can't press the keys it advertises |
+| `features/library/SongList` `SongRow` | `components/music/LibraryRow.jsx` | 2026-08-10 | Track variant only. Source tile and instrument glyphs now render (from OpenSource and `GROUP_ART`); stars omitted — the CSV carries no scores |
 | `ui/TextField`, `ui/Select`, `ui/ToggleChip` | no upstream equivalent | 2026-08-10 | Browser controls the game has no analogue for; built from the system's recipes |
 
 **Drift check:** read the upstream path with DesignSync and compare against the port. Worth
@@ -127,9 +129,16 @@ doing when re-vendoring tokens, since the two usually change together.
 
 ## Fonts
 
-`tokens/fonts.css` pulls seven families from Google Fonts. That needs internet access on
-the *viewing device*, which is usually fine for phones on the LAN but not for an offline
-gaming PC. To self-host, replace the `@import`s with `@font-face` rules; nothing else
+`tokens/fonts.css` pulls seven families from Google Fonts. **`client/src/index.css` does
+not import it** — it repeats the three `@import` lines this app actually renders (Red Hat
+Display, Barlow, Inter) and skips the other four. Open Sans, Noto Sans, Big Shoulders
+Text and Archivo Black are referenced by no token YASS uses, so they were four
+render-blocking round trips for nothing. The vendored file stays byte-identical to
+upstream so re-vendoring is still a clean diff; the lines in `index.css` are copied from
+it verbatim.
+
+Still remote, though. On an offline gaming PC the whole type identity falls back to
+`system-ui`. To self-host, replace those `@import`s with `@font-face` rules; nothing else
 needs to change.
 
 ## Re-vendoring

@@ -21,11 +21,9 @@ export function fetchLibrary(): Promise<SongLibrary> {
   return getJson<SongLibrary>('/api/songs')
 }
 
-export async function reloadLibrary(): Promise<SongLibrary> {
-  const response = await fetch('/api/songs/reload', { method: 'POST' })
-  if (!response.ok) throw new Error(`Reload failed: ${response.status}`)
-  return (await response.json()) as SongLibrary
-}
+// `POST /api/songs/reload` deliberately has no client binding. The server
+// watches the CSV and reloads itself, and the endpoint is host-only — it
+// exists for the tray process, not for a browser.
 
 export function fetchNowPlaying(): Promise<NowPlaying> {
   return getJson<NowPlaying>('/api/now-playing')
