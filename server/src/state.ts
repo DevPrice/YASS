@@ -9,37 +9,55 @@
 import type { Settings, SettingsView, SongLibrary } from '@shared/types.js'
 import { emptyLibrary, loadLibraryFromCsv } from './core/library.js'
 import { NowPlayingWatcher } from './core/nowPlaying.js'
-import { describeSettings, loadSettings, saveSettings } from './core/settings.js'
+import {
+  applyEnvOverrides,
+  describeSettings,
+  loadStoredSettings,
+  saveStoredSettings,
+} from './core/settings.js'
 
 export class AppState {
-  #settings: Settings
+  /**
+   * Settings are held twice on purpose.
+   *
+   * `#stored` is what the settings file says; `#effective` is that with
+   * environment overrides applied. Only `#stored` is ever written back — saving
+   * the effective values would permanently bake a one-off `YASS_PORT=…` into
+   * the user's configuration.
+   */
+  #stored: Settings
+  #effective: Settings
+
   #library: SongLibrary = emptyLibrary()
   /** hash → song id, for joining now-playing to the library. */
   #byHash = new Map<string, string>()
   #watcher: NowPlayingWatcher
 
-  private constructor(settings: Settings) {
-    this.#settings = settings
+  private constructor(stored: Settings) {
+    this.#stored = stored
+    this.#effective = applyEnvOverrides(stored)
+
     this.#watcher = new NowPlayingWatcher({
-      getDataDir: () => this.#settings.yargDataDir,
-      getPollIntervalMs: () => this.#settings.pollIntervalMs,
+      getDataDir: () => this.#effective.yargDataDir,
+      getPollIntervalMs: () => this.#effective.pollIntervalMs,
       resolveLibraryId: (hash) => (hash ? (this.#byHash.get(hash) ?? null) : null),
     })
   }
 
   static async create(): Promise<AppState> {
-    const state = new AppState(await loadSettings())
+    const state = new AppState(await loadStoredSettings())
     await state.reloadLibrary()
     state.#watcher.start()
     return state
   }
 
+  /** The values actually in force. */
   get settings(): Settings {
-    return this.#settings
+    return this.#effective
   }
 
   get settingsView(): SettingsView {
-    return describeSettings(this.#settings)
+    return describeSettings(this.#effective)
   }
 
   get library(): SongLibrary {
@@ -52,7 +70,7 @@ export class AppState {
 
   /** Re-read the song list from disk and rebuild the hash join index. */
   async reloadLibrary(): Promise<SongLibrary> {
-    this.#library = await loadLibraryFromCsv(this.#settings.songListCsvPath)
+    this.#library = await loadLibraryFromCsv(this.#effective.songListCsvPath)
 
     this.#byHash = new Map()
     for (const song of this.#library.songs) {
@@ -72,14 +90,18 @@ export class AppState {
   /**
    * Persist new settings and apply them live.
    *
-   * `host` and `port` changes are stored but need a restart to bind, which the
-   * settings UI tells the user.
+   * The patch merges onto the *stored* values, never the effective ones, so an
+   * environment override in force during this run doesn't get written to disk.
+   *
+   * `host` and `port` changes are stored but need a restart to bind.
    */
   async updateSettings(patch: Partial<Settings>): Promise<SettingsView> {
-    const previous = this.#settings
-    this.#settings = await saveSettings({ ...previous, ...patch })
+    const previousCsvPath = this.#effective.songListCsvPath
 
-    if (this.#settings.songListCsvPath !== previous.songListCsvPath) {
+    this.#stored = await saveStoredSettings({ ...this.#stored, ...patch })
+    this.#effective = applyEnvOverrides(this.#stored)
+
+    if (this.#effective.songListCsvPath !== previousCsvPath) {
       await this.reloadLibrary()
     }
 

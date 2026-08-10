@@ -15,6 +15,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 
 import { createApiRoutes } from './api/routes.js'
+import { settingsFilePath } from './core/paths.js'
 import { AppState } from './state.js'
 import { serveClient } from './static.js'
 
@@ -80,7 +81,10 @@ async function main(): Promise<void> {
     }
 
     const { settings, status } = state.settingsView
-    console.log(`\n  YARG data dir : ${settings.yargDataDir}${status.yargDataDirExists ? '' : '  [not found]'}`)
+    // Configuration is host-only and there's no tray app yet, so make the file
+    // easy to find rather than making the user go looking for it.
+    console.log(`\n  Settings file : ${settingsFilePath()}`)
+    console.log(`  YARG data dir : ${settings.yargDataDir}${status.yargDataDirExists ? '' : '  [not found]'}`)
     console.log(
       `  Song list     : ${settings.songListCsvPath || '(not configured)'}${
         settings.songListCsvPath && !status.songListCsvExists ? '  [not found]' : ''

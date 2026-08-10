@@ -182,7 +182,13 @@ export interface Settings {
 
 /** Settings plus read-only context the UI needs to render the settings screen. */
 export interface SettingsView {
+  /** The effective values — the settings file with environment overrides applied. */
   settings: Settings
+  /**
+   * Fields currently forced by an environment variable. Editing these has no
+   * effect until the variable is unset, and they are never written to the file.
+   */
+  envOverrides: Array<keyof Settings>
   /** Platform default for `yargDataDir`, shown as a hint. */
   defaultYargDataDir: string
   /** Per-path existence checks so the UI can flag a bad configuration. */

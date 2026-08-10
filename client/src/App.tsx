@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 
 import { Button, EmptyState, HelperBar, cx } from './ui'
+import { fetchCapabilities } from './lib/api'
 import { formatRelativeTime } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { useNowPlaying } from './lib/useNowPlaying'
@@ -25,6 +26,18 @@ type View = 'library' | 'settings'
 export function App() {
   const { library, loading, error, reload } = useLibrary()
   const { nowPlaying, connected } = useNowPlaying()
+
+  /**
+   * Settings are host-only, so the tab only exists when the server says this
+   * client is the host. Guests browsing from a phone never see it.
+   */
+  const [canConfigure, setCanConfigure] = useState(false)
+
+  useEffect(() => {
+    void fetchCapabilities()
+      .then((capabilities) => setCanConfigure(capabilities.settings))
+      .catch(() => setCanConfigure(false))
+  }, [])
 
   const [view, setView] = useState<View>('library')
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
@@ -103,20 +116,22 @@ export function App() {
           >
             library
           </Button>
-          <Button
-            tone="accent"
-            quiet={view !== 'settings'}
-            onClick={() => setView('settings')}
-          >
-            settings
-          </Button>
+          {canConfigure ? (
+            <Button
+              tone="accent"
+              quiet={view !== 'settings'}
+              onClick={() => setView('settings')}
+            >
+              settings
+            </Button>
+          ) : null}
           <Button quiet onClick={() => void reload()} disabled={loading}>
             {loading ? 'loading' : 'reload'}
           </Button>
         </nav>
       </header>
 
-      {view === 'settings' ? (
+      {view === 'settings' && canConfigure ? (
         <div className="scrollbar-slim flex-1 overflow-y-auto p-4">
           <div className="mx-auto max-w-2xl">
             <SettingsPanel onSaved={() => void reload()} />
@@ -134,7 +149,7 @@ export function App() {
           sortDirection={sortDirection}
           onSort={handleSort}
           playingId={nowPlaying.song?.libraryId ?? null}
-          onOpenSettings={() => setView('settings')}
+          onOpenSettings={canConfigure ? () => setView('settings') : null}
           searchRef={searchRef}
         />
       )}
@@ -198,7 +213,8 @@ function LibraryView({
   sortDirection: SortDirection
   onSort: (key: SortKey) => void
   playingId: string | null
-  onOpenSettings: () => void
+  /** Null for guests — configuration is host-only. */
+  onOpenSettings: (() => void) | null
   searchRef: Ref<HTMLInputElement>
 }) {
   if (error) {
@@ -220,6 +236,16 @@ function LibraryView({
   // No CSV configured yet — send the user straight to the fix rather than
   // showing an empty table.
   if (library.meta.count === 0) {
+    // Guests can't fix this, so don't hand them a dead end — tell them whose
+    // problem it is instead of showing a settings button that isn't there.
+    if (!onOpenSettings) {
+      return (
+        <EmptyState title="No songs loaded">
+          The song list hasn&apos;t been set up yet. Ask whoever is running YARG to export it.
+        </EmptyState>
+      )
+    }
+
     return (
       <EmptyState title="No songs loaded">
         <p className="mb-[25px]">

@@ -76,8 +76,15 @@ export function normalizeSettings(raw: unknown): Settings {
   }
 }
 
-/** Environment overrides win over the settings file. */
-function applyEnvOverrides(settings: Settings): Settings {
+/**
+ * Environment overrides win over the settings file — but only in memory.
+ *
+ * They must never be written back: persisting them would bake a one-off
+ * `YASS_PORT=…` into the config permanently the first time anything saves.
+ * `loadStoredSettings` / `saveStoredSettings` deal in un-overridden values for
+ * exactly that reason.
+ */
+export function applyEnvOverrides(settings: Settings): Settings {
   const env = process.env
 
   return {
@@ -91,7 +98,8 @@ function applyEnvOverrides(settings: Settings): Settings {
   }
 }
 
-export async function loadSettings(): Promise<Settings> {
+/** Read the settings file alone, with no environment overrides applied. */
+export async function loadStoredSettings(): Promise<Settings> {
   const path = settingsFilePath()
 
   let stored: unknown = null
@@ -99,22 +107,24 @@ export async function loadSettings(): Promise<Settings> {
     stored = JSON.parse(await readFile(path, 'utf8'))
   } catch (err) {
     // A missing file is the normal first-run case. Anything else (corrupt JSON,
-    // permissions) falls back to defaults rather than refusing to start — the
-    // settings screen is how the user fixes it.
+    // permissions) falls back to defaults rather than refusing to start.
     const code = (err as NodeJS.ErrnoException).code
     if (code !== 'ENOENT') {
       console.warn(`[settings] could not read ${path}, using defaults:`, err)
     }
   }
 
-  return applyEnvOverrides(normalizeSettings(stored))
+  return normalizeSettings(stored)
 }
 
 /**
  * Persist settings via write-to-temp + rename, so an interrupted write can't
  * leave a truncated settings file behind.
+ *
+ * Takes and returns *stored* settings. Callers must not hand this the
+ * env-resolved values.
  */
-export async function saveSettings(settings: Settings): Promise<Settings> {
+export async function saveStoredSettings(settings: Settings): Promise<Settings> {
   const normalized = normalizeSettings(settings)
   const path = settingsFilePath()
 
@@ -124,14 +134,33 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
   await writeFile(tempPath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
   await rename(tempPath, path)
 
-  // Env overrides still win for the running process, so report what's in effect.
-  return applyEnvOverrides(normalized)
+  return normalized
 }
 
-/** Settings plus the existence checks the settings UI needs to flag misconfiguration. */
+/** Which fields the environment is currently overriding, for the settings UI. */
+export function envOverriddenFields(): Array<keyof Settings> {
+  const overridden: Array<keyof Settings> = []
+
+  if (process.env.YASS_YARG_DATA_DIR) overridden.push('yargDataDir')
+  if (process.env.YASS_SONG_LIST_CSV) overridden.push('songListCsvPath')
+  if (process.env.YASS_POLL_INTERVAL_MS) overridden.push('pollIntervalMs')
+  if (process.env.YASS_HOST) overridden.push('host')
+  if (process.env.YASS_PORT) overridden.push('port')
+
+  return overridden
+}
+
+/**
+ * Settings plus the existence checks the settings UI needs to flag misconfiguration.
+ *
+ * `settings` is the effective (env-resolved) view — what's actually in force —
+ * and `envOverrides` names the fields where editing the file won't change
+ * anything until the variable is removed.
+ */
 export function describeSettings(settings: Settings): SettingsView {
   return {
     settings,
+    envOverrides: envOverriddenFields(),
     defaultYargDataDir: defaultYargDataDir('release'),
     status: {
       yargDataDirExists: settings.yargDataDir !== '' && existsSync(settings.yargDataDir),

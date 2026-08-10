@@ -31,6 +31,15 @@ export function fetchNowPlaying(): Promise<NowPlaying> {
   return getJson<NowPlaying>('/api/now-playing')
 }
 
+/** What this client is allowed to do. Settings are host-only. */
+export interface Capabilities {
+  settings: boolean
+}
+
+export function fetchCapabilities(): Promise<Capabilities> {
+  return getJson<Capabilities>('/api/capabilities')
+}
+
 export function fetchSettings(): Promise<SettingsView> {
   return getJson<SettingsView>('/api/settings')
 }

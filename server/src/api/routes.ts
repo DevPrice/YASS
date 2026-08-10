@@ -14,6 +14,7 @@ import { streamSSE } from 'hono/streaming'
 
 import type { Settings } from '@shared/types.js'
 import type { AppState } from '../state.js'
+import { isLocalRequest, requireLocal } from './local.js'
 
 /** Heartbeat interval for the SSE stream, to keep proxies from idling it out. */
 const SSE_KEEPALIVE_MS = 15_000
@@ -22,6 +23,17 @@ export function createApiRoutes(state: AppState): Hono {
   const api = new Hono()
 
   api.get('/health', (c) => c.json({ ok: true }))
+
+  /**
+   * What this caller is allowed to do.
+   *
+   * The client asks first so it can decide whether to render a settings tab at
+   * all, rather than showing one that 404s.
+   */
+  api.get('/capabilities', (c) => {
+    c.header('Cache-Control', 'no-store')
+    return c.json({ settings: isLocalRequest(c) })
+  })
 
   // --- Library ------------------------------------------------------------
 
@@ -123,14 +135,24 @@ export function createApiRoutes(state: AppState): Hono {
     return c.body(Readable.toWeb(createReadStream(art.path)) as ReadableStream)
   })
 
-  // --- Settings -----------------------------------------------------------
+  // --- Settings -------------------------------------------------------------
+  //
+  // Host-only. These responses carry absolute filesystem paths, which name the
+  // user's account, and the PUT repoints the whole app — neither belongs on a
+  // LAN-facing surface a room full of people is browsing.
 
   api.get('/settings', (c) => {
+    const denied = requireLocal(c)
+    if (denied) return denied
+
     c.header('Cache-Control', 'no-store')
     return c.json(state.settingsView)
   })
 
   api.put('/settings', async (c) => {
+    const denied = requireLocal(c)
+    if (denied) return denied
+
     let patch: Partial<Settings>
     try {
       patch = (await c.req.json()) as Partial<Settings>

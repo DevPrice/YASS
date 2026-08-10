@@ -15,8 +15,8 @@ npm install
 npm run dev          # Vite on :5173, API on :4321
 ```
 
-Then open <http://localhost:5173>, go to **Settings**, and fill in the two paths
-described below.
+Then open <http://localhost:5173> **on the machine running the server**, go to
+**Settings**, and fill in the two paths described below.
 
 For a production run:
 
@@ -27,9 +27,27 @@ npm start            # single process, single port
 
 ## Configuration
 
+**Settings are host-only.** The settings screen and `/api/settings` are available only
+to a browser on the machine running the server; everyone else gets a 404 and never sees
+the tab. Two reasons: the responses carry absolute filesystem paths that name your user
+account, and nobody wants a guest repointing the app mid-party.
+
+A reverse proxy connects over loopback, so any request carrying proxy headers
+(`X-Forwarded-For` and friends) counts as remote. That means reaching YASS through your
+own domain also hides settings — deliberately, since the alternative fails open and
+exposes configuration to the whole LAN.
+
+Configuration will move to the tray app when that exists. Until then, use the settings
+screen on the host, edit the file directly, or set environment variables.
+
 Settings live in `%APPDATA%/yass/settings.json` (Windows), `~/Library/Application
 Support/yass` (macOS), or `$XDG_CONFIG_HOME/yass` (Linux) — outside the repo, so a
-packaged build behaves like a dev run. Every field has an environment override.
+packaged build behaves like a dev run. The path is printed at startup.
+
+Every field has an environment override. Overrides apply to the running process only and
+are **never written to the settings file**, so starting once with `YASS_PORT=9999` won't
+bake that port into your configuration the next time anything saves. The settings screen
+flags any field an environment variable is currently forcing.
 
 | Setting | Env var | Notes |
 |---|---|---|
@@ -86,7 +104,8 @@ proxy needs a single upstream. All client URLs are relative.
 | `GET /api/now-playing` | Current state, one shot |
 | `GET /api/now-playing/stream` | SSE stream of changes |
 | `GET /api/art/current` | Album art for the playing song |
-| `GET /api/settings` · `PUT /api/settings` | Read/write configuration |
+| `GET /api/capabilities` | What this caller may do (drives whether a settings tab renders) |
+| `GET /api/settings` · `PUT /api/settings` | Read/write configuration — **host-only**, 404 otherwise |
 
 ### Reading `currentSong.json` safely
 
@@ -135,6 +154,9 @@ reference. Re-capture `fixtures/currentSong.playing.json` after a YARG upgrade.
 - **Design system.** `client/src/ui/` and the tokens in `client/src/index.css` are
   placeholders. The YARG design system will become the authority; feature components
   are written against the primitives so adopting it is a contained change.
+- **Tray app owns configuration.** Including a native file picker for the two paths,
+  which is why there's no Browse button in the web UI — a browser can't read a real
+  filesystem path, and a picker triggered from a phone would open a dialog on the host.
 - **Distribution.** An installer with a system-tray executable. The server bundles to
   a single dependency-free `dist/index.js` and resolves paths without relying on
   `cwd`, so it can be wrapped as a Node SEA, or an Electron/Tauri sidecar. Windows

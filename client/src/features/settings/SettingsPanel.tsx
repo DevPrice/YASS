@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from 'react'
 
-import type { SettingsView } from '@shared/types'
+import type { Settings, SettingsView } from '@shared/types'
 import { Button, Panel, TextField, cx } from '../../ui'
 import { fetchSettings, saveSettings } from '../../lib/api'
 
@@ -72,6 +72,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
           okText="Found currentSong.json — now-playing is live."
           badText="No currentSong.json here. Check the build channel (release / nightly / dev), or the -persistent-data-path YARG was launched with."
         />
+        <EnvOverrideNote field="yargDataDir" view={view} />
         <p className="text-xs text-content-faint">
           Default for this machine: <code className="text-content-muted">{view.defaultYargDataDir}</code>
         </p>
@@ -93,6 +94,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
           okText="Song list found."
           badText="No CSV at this path yet."
         />
+        <EnvOverrideNote field="songListCsvPath" view={view} />
         <p className="text-xs text-content-faint">
           In YARG: Settings → Export Songs List → CSV. The list is a snapshot, so re-export
           after adding songs and hit Reload.
@@ -113,6 +115,24 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
 
 function PathStatus({ ok, okText, badText }: { ok: boolean; okText: string; badText: string }) {
   return (
-    <p className={cx('text-xs', ok ? 'text-success' : 'text-danger')}>{ok ? okText : badText}</p>
+    <p className={cx('text-[13px]', ok ? 'text-success' : 'text-danger')}>{ok ? okText : badText}</p>
+  )
+}
+
+/**
+ * Warn when an environment variable is forcing a field.
+ *
+ * Saving still works — it writes the settings file — but the running process
+ * keeps using the variable, so without this note the value would appear to
+ * revert on its own.
+ */
+function EnvOverrideNote({ field, view }: { field: keyof Settings; view: SettingsView }) {
+  if (!view.envOverrides.includes(field)) return null
+
+  return (
+    <p className="text-[13px] text-warning">
+      Set by an environment variable, which wins until it&apos;s unset. Saving records your
+      value in the settings file but won&apos;t change this run.
+    </p>
   )
 }
