@@ -82,7 +82,22 @@
   /* Text roles. `secondary` is the cyan used for artists and "as made famous by". */
   --color-content: var(--yarg-text-primary);
   --color-content-secondary: var(--yarg-text-cyan-soft);
-  --color-content-muted: var(--yarg-text-muted);
+  /*
+   * Was `--yarg-text-muted` (#8D9799). Every other neutral in the palette sits
+   * in the blue-violet band — Cool Gray at hue 232, Space Cadet at 230, Dim at
+   * 228 — and the bright text colours are bluer still. #8D9799 was the only one
+   * off that axis, at hue 190 with 5.6% saturation: a green-grey whose blue
+   * channel sits 2 points above its green. Hue 190 is the accent's own hue, but
+   * the accent carries it at 99% saturation where it reads as cyan; drained to
+   * near-neutral and set beside violet-leaning greys, the same hue turns warm.
+   *
+   * Stated as a mix rather than a hex so it cannot drift off the axis: it is
+   * literally Cool Gray lightened, one rung above the ramp's top. Resolves to
+   * #9497AE — hue 233, and brighter than what it replaces, so contrast improves
+   * on every surface it lands on (7.03:1 on the app background, 5.97:1 on a
+   * hovered row, the lightest thing under it).
+   */
+  --color-content-muted: color-mix(in oklab, var(--yarg-dark-7) 80%, var(--yarg-white));
   /*
    * Was `--yarg-text-dim` (#5C6070), which tops out at 3.30:1 against the
    * lightest surface in the app and so could never pass 4.5:1 anywhere — while
