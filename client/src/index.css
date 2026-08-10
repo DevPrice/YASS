@@ -287,6 +287,32 @@
 }
 
 @layer utilities {
+  /*
+   * `truncate`, for text whose line-height is tighter than its own glyphs.
+   *
+   * `overflow: hidden` clips to the padding box, and at `leading-none` that box
+   * is exactly 1em while the font's is 1.18-1.31em. Every truncating line set
+   * that way was losing the bottom of its descenders and the top of its
+   * accents: 2px off a 22px row title and off `Motörhead`'s umlaut, 1.5px off
+   * a 14px artist. Nothing was wrong with the type — it was being cut.
+   *
+   * The padding buys the glyphs their room and the negative margin hands the
+   * space back to the layout, so no box moves and no rhythm changes; the clip
+   * rectangle alone grows. 0.2em clears the worst case measured across both
+   * families — 0.154em, Red Hat Display at 13px.
+   *
+   * Plain `truncate` stays correct wherever the line-height is the inherited
+   * one: at 1.5 the line box is already taller than the glyphs, and the album,
+   * genre, source and category-header text needs nothing.
+   */
+  .truncate-tight {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-block: 0.2em;
+    margin-block: -0.2em;
+  }
+
   .scrollbar-slim {
     scrollbar-width: thin;
     scrollbar-color: var(--yarg-dark-6) transparent;

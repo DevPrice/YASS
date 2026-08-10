@@ -533,13 +533,13 @@ function SongRow({
       <div className="hidden w-full items-center gap-[15px] @2xl/list:flex">
         <div
           dir="auto"
-          className="min-w-0 flex-[3] truncate text-[22px] leading-none font-semibold text-white"
+          className="min-w-0 flex-[3] truncate-tight text-[22px] leading-none font-semibold text-white"
         >
           {song.name}
         </div>
         <div
           dir="auto"
-          className="min-w-0 flex-[2] truncate text-[18px] leading-none font-medium text-content-secondary italic"
+          className="min-w-0 flex-[2] truncate-tight text-[18px] leading-none font-medium text-content-secondary italic"
         >
           {song.artist}
         </div>
@@ -573,12 +573,12 @@ function SongRow({
 
       {/* Narrow layout: title over a metadata line. */}
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px] @2xl/list:hidden">
-        <span dir="auto" className="truncate text-[17px] leading-none font-semibold text-white">
+        <span dir="auto" className="truncate-tight text-[17px] leading-none font-semibold text-white">
           {song.name}
         </span>
         <span
           dir="auto"
-          className="truncate text-[14px] leading-none font-medium text-content-secondary italic"
+          className="truncate-tight text-[14px] leading-none font-medium text-content-secondary italic"
         >
           {song.artist}
         </span>

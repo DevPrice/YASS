@@ -280,13 +280,22 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
         >
           <p
             dir="auto"
-            className="yarg-label line-clamp-4 text-[clamp(24px,15cqw,72px)] leading-[0.95] break-words text-white"
+            /*
+             * `py`/`-my` for the same reason `truncate-tight` exists, and more
+             * of it: `line-clamp` is `overflow: hidden` too, and at 0.95 the
+             * line box is 11px shorter than the glyphs at the size this clamps
+             * to. Uppercase display type has no descenders to lose, but it has
+             * umlauts — MOTÖRHEAD ÜBER ALLES was being served with the dots cut
+             * off the top. The negative margin gives the space back, so the
+             * plate's type sits exactly where it did.
+             */
+            className="yarg-label line-clamp-4 py-[0.2em] -my-[0.2em] text-[clamp(24px,15cqw,72px)] leading-[0.95] break-words text-white"
           >
             {song.name}
           </p>
           <p
             dir="auto"
-            className="truncate text-[15px] leading-none font-medium text-content-secondary italic"
+            className="truncate-tight text-[15px] leading-none font-medium text-content-secondary italic"
           >
             {song.artist}
           </p>

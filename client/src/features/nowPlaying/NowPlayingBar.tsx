@@ -115,12 +115,12 @@ export function NowPlayingBar({
               ) : null}
             </div>
 
-            <p dir="auto" className="truncate text-[22px] leading-none font-semibold text-white">
+            <p dir="auto" className="truncate-tight text-[22px] leading-none font-semibold text-white">
               {song.name}
             </p>
             <p
               dir="auto"
-              className="mt-[5px] truncate text-[17px] leading-none font-medium text-content-secondary italic"
+              className="mt-[5px] truncate-tight text-[17px] leading-none font-medium text-content-secondary italic"
             >
               {song.artist}
               {song.album ? (
