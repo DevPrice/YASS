@@ -6,7 +6,12 @@
  * the difficulty. The playing row swaps to the cyan fill washed out to card
  * colour and grows a hard white border — the design's signature treatment.
  *
- * Virtualized because the library runs to thousands of rows.
+ * Virtualized because the library runs to thousands of rows — and indexed for
+ * the same reason. A jump rail runs down the outer edge of the scroller,
+ * carrying one mark per division of whatever the list is currently sorted by;
+ * `indexing.ts` decides what those divisions are and `IndexRail` draws them.
+ * The rail is a sibling column rather than an overlay, so it costs the rows
+ * 38px of a phone's width and never covers one.
  *
  * **Every layout decision here is a container query, not a media query.** The
  * list no longer owns the window: from `lg` up it shares it with the detail
@@ -31,6 +36,8 @@ import { EmptyState, SortArrow, cx } from '../../ui'
 import { ArtistName, BandDifficulty, InstrumentStrip, SourceBadge } from '../../ui/library'
 import { formatDuration, formatYear } from '../../lib/format'
 import { groupSongs } from './grouping'
+import { IndexRail } from './IndexRail'
+import { INDEX_LABELS, buildIndex } from './indexing'
 import type { SortDirection, SortKey } from './filtering'
 
 /**
@@ -63,6 +70,24 @@ const HEADER_HEIGHT_NARROW = 35
  * pixel, scrollbar included.
  */
 const WIDE_AT = 672
+
+/**
+ * A pixel of slack at the top edge, when deciding which item the list is on.
+ *
+ * `scrollToIndex` asks for an exact offset and the browser answers with
+ * whatever its own scroll position rounds to. Where device pixels do not divide
+ * CSS pixels evenly — a 2.625x phone, a desktop at 125% — that answer can land
+ * a fraction short of the item it was aiming at, and the row above is then
+ * still technically on screen by less than a pixel. Read literally, that row is
+ * "the one at the top", so the jump rail lights the mark before the one you
+ * just asked for.
+ *
+ * Anything with under a pixel showing has been scrolled past. This is a
+ * threshold rather than a rounding, because the error is not always in the same
+ * direction and there is nothing to round *to* — the honest statement is that
+ * a sliver at the top edge is not where you are.
+ */
+const TOP_EDGE_SLACK = 1
 
 /**
  * The selected song, and how the list should bring it into view.
@@ -142,20 +167,22 @@ export function SongList({
   const scrollRef = useRef<HTMLDivElement>(null)
 
   /**
-   * Width of the list's scrollbar, reserved on the header so the two agree.
+   * Everything to the right of a row, reserved on the header so the two agree.
    *
    * The header is a sibling *above* the scroll container, not inside it — it has
    * to be, because the virtualizer positions rows from the scroll element's own
    * origin, and a header sharing that box would offset every row by its height.
-   * The cost of staying outside is that the scrollbar narrows the rows and not
-   * the header, so at four thousand songs every column sat ~10px left of the
-   * label naming it.
+   * The cost of staying outside is that whatever narrows the rows does not
+   * narrow the header, so at four thousand songs every column sat ~10px left of
+   * the label naming it.
    *
-   * Measured rather than assumed: `scrollbar-slim` asks for `thin`, and what
-   * that resolves to is the platform's business — 10px in Chromium via the
-   * `::-webkit-scrollbar` rule, something else in Firefox, nothing at all where
-   * scrollbars overlay. Zero when the list doesn't overflow, which is correct:
-   * there is no scrollbar to leave room for.
+   * Two things narrow them now. The scrollbar is measured rather than assumed:
+   * `scrollbar-slim` asks for `thin`, and what that resolves to is the
+   * platform's business — 10px in Chromium via the `::-webkit-scrollbar` rule,
+   * something else in Firefox, nothing at all where scrollbars overlay. The
+   * jump rail is a sibling column beside the scroller and takes another 38px,
+   * but only for the sorts it can index. Measuring the whole gap in one number
+   * means the header never has to know which of them is there.
    *
    * Taken off the two boxes' rects rather than `offsetWidth - clientWidth`,
    * because both of those are rounded to whole pixels. At anything but 100%
@@ -163,38 +190,50 @@ export function SongList({
    * put the whole row back out by that fraction, which is the same bug again
    * one order of magnitude down.
    */
+  const columnRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  const [scrollbarWidth, setScrollbarWidth] = useState(0)
+  const [gutter, setGutter] = useState(0)
 
   /**
    * Which row the list is rendering, as a number the virtualizer can use.
    *
-   * Taken in the same pass as the scrollbar, off the scroll container rather
-   * than the content box — the container query the rows themselves switch on
-   * measures the column, and the content box is that minus the scrollbar. Read
-   * in a layout effect, so the first paint is already at the right height
-   * rather than laying a phone out in 80px rows and correcting after.
+   * Taken in the same pass as the gutter, off the *column* rather than the
+   * scroll container. The column is the `@container/list` box every
+   * `@2xl/list:` class in this file resolves against, and it is what the
+   * scroller used to be — until the rail took a strip off the scroller's right
+   * and left the two disagreeing by the rail's width at exactly the point where
+   * the row changes shape. Read in a layout effect, so the first paint is
+   * already at the right height rather than laying a phone out in 80px rows and
+   * correcting after.
    */
   const [isNarrow, setIsNarrow] = useState(false)
 
+  const hasRows = songs.length > 0
+
   useLayoutEffect(() => {
-    const scroller = scrollRef.current
+    const column = columnRef.current
     const content = contentRef.current
-    if (scroller === null || content === null) return
+    if (column === null || content === null) return
 
     const measure = () => {
-      const outer = scroller.getBoundingClientRect().width
-      setScrollbarWidth(outer - content.getBoundingClientRect().width)
-      setIsNarrow(outer < WIDE_AT)
+      const outer = column.getBoundingClientRect()
+      setGutter(outer.right - content.getBoundingClientRect().right)
+      setIsNarrow(outer.width < WIDE_AT)
     }
     measure()
 
-    // The content box is exactly what a scrollbar appearing narrows, so
-    // filtering a long list down to three rows re-measures too.
+    // Both boxes: the column moves when the window does, and the content box is
+    // exactly what a scrollbar appearing narrows — so filtering a long list
+    // down to three rows re-measures too.
     const observer = new ResizeObserver(measure)
+    observer.observe(column)
     observer.observe(content)
     return () => observer.disconnect()
-  }, [])
+    // Re-attached when the list comes back, because the empty state below
+    // returns before either box exists. Without this, filtering down to nothing
+    // and then clearing the filter left the observers watching two detached
+    // elements and every measurement frozen at whatever it was.
+  }, [hasRows])
 
   /**
    * The songs with their category headers spliced in — what actually renders.
@@ -283,6 +322,55 @@ export function SongList({
     if (index >= 0) virtualizer.scrollToIndex(index, { align: selection.align })
   }, [selection, virtualizer])
 
+  /**
+   * Where the jump rail can put you, and what it calls those places.
+   *
+   * Built from `items` rather than from `songs` because a mark has to point at
+   * the header that opens its run — see `indexing.ts`. Memoized on the same
+   * value, so it is recomputed exactly when the grouping is.
+   */
+  const marks = useMemo(() => buildIndex(items, sortKey), [items, sortKey])
+
+  const virtualItems = virtualizer.getVirtualItems()
+
+  /**
+   * The item at the top of the viewport, which is what the rail lights.
+   *
+   * Not `virtualItems[0]`: the virtualizer keeps ten rows of overscan above the
+   * fold, so the first *rendered* item is most of a screen behind the first
+   * *visible* one, and the rail would light a letter you had already scrolled
+   * past. The first item whose end is below the scroll offset is the one
+   * actually under the top edge.
+   *
+   * **Except at the bottom, where the top edge is the wrong thing to ask.** The
+   * last screenful of songs cannot be scrolled any further, so jumping to a
+   * mark inside it leaves that mark somewhere down the page and the run above
+   * it still under the top edge — the rail would answer `Y` for a list that is
+   * showing, and was just asked for, `Z`. It was not lying, it was answering a
+   * question nobody had asked: at maximum scroll every remaining division is on
+   * screen at once, and the one you are in is the last. How far into the
+   * library that reaches depends on how long the list is, which is why a
+   * filtered list could hit it as early as `O`.
+   */
+  const scrollOffset = virtualizer.scrollOffset ?? 0
+  const viewport = virtualizer.scrollRect?.height ?? scrollRef.current?.clientHeight ?? 0
+  // A pixel of tolerance: `scrollTop` is fractional under zoom and on a phone,
+  // and browsers do not promise it reaches the maximum exactly.
+  const atEnd = viewport > 0 && scrollOffset + viewport >= virtualizer.getTotalSize() - 1
+
+  const currentItem = atEnd
+    ? items.length - 1
+    : (virtualItems.find((item) => item.end > scrollOffset + TOP_EDGE_SLACK)?.index ?? 0)
+
+  const jumpTo = useCallback(
+    (index: number) => {
+      // `start`, so the header that opens a run lands against the top edge —
+      // arriving at `M` should put the word `M` on screen, not one row above it.
+      virtualizer.scrollToIndex(index, { align: 'start' })
+    },
+    [virtualizer],
+  )
+
   if (songs.length === 0) {
     return (
       <EmptyState title="No songs match">
@@ -291,26 +379,37 @@ export function SongList({
     )
   }
 
+  /*
+   * One mark is not an index.
+   *
+   * A rail appears for any ordering `indexing.ts` can divide, and disappears
+   * when the current results collapse into a single division — filtering down
+   * to one artist, one decade, one source. There is nowhere to jump at that
+   * point, and the width goes back to the rows.
+   */
+  const showRail = marks.length > 1
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={columnRef} className="flex min-h-0 flex-1 flex-col">
       <SortHeader
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSort={onSort}
-        scrollbarWidth={scrollbarWidth}
+        gutter={gutter}
       />
 
+      {/*
+       * The scroller and the rail, side by side.
+       *
+       * The rail is a real column rather than an overlay: it never covers a row,
+       * and at the widths where the table shows nine columns the ninth ends
+       * hard against this edge. The fade that says a re-order is in flight sits
+       * out here so the two move together — the rail's marks are being rebuilt
+       * by the same sort.
+       */}
       <div
-        ref={scrollRef}
-        // Focusable so the list can be scrolled from the keyboard. Chrome makes
-        // scroll containers focusable on its own; Firefox and Safari do not, and
-        // without this a keyboard user reaches the end of the initial virtual
-        // window and stops.
-        tabIndex={0}
-        role="list"
-        aria-label={`Song library, ${songs.length.toLocaleString()} songs`}
         className={cx(
-          'scrollbar-slim yarg-focusable min-h-0 flex-1 overflow-y-auto',
+          'flex min-h-0 flex-1',
           'transition-opacity duration-100',
           /*
            * Says a re-order is happening, without flashing on the sorts that
@@ -327,68 +426,92 @@ export function SongList({
         )}
       >
         <div
-          ref={contentRef}
-          className="relative w-full"
-          // Transparent to assistive tech: the spacer only exists to give the
-          // scrollbar the full height, and it must not sit between the list and
-          // its items.
-          role="presentation"
-          style={{ height: `${virtualizer.getTotalSize()}px` }}
+          ref={scrollRef}
+          // Focusable so the list can be scrolled from the keyboard. Chrome makes
+          // scroll containers focusable on its own; Firefox and Safari do not, and
+          // without this a keyboard user reaches the end of the initial virtual
+          // window and stops.
+          tabIndex={0}
+          role="list"
+          aria-label={`Song library, ${songs.length.toLocaleString()} songs`}
+          className="scrollbar-slim yarg-focusable min-h-0 min-w-0 flex-1 overflow-y-auto"
         >
-          {virtualizer.getVirtualItems().map((virtualRow) => {
-            const item = items[virtualRow.index]
-            if (item === undefined) return null
+          <div
+            ref={contentRef}
+            className="relative w-full"
+            // Transparent to assistive tech: the spacer only exists to give the
+            // scrollbar the full height, and it must not sit between the list and
+            // its items.
+            role="presentation"
+            style={{ height: `${virtualizer.getTotalSize()}px` }}
+          >
+            {virtualItems.map((virtualRow) => {
+              const item = items[virtualRow.index]
+              if (item === undefined) return null
 
-            const placement = {
-              height: `${virtualRow.size}px`,
-              transform: `translateY(${virtualRow.start}px)`,
-            }
+              const placement = {
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start}px)`,
+              }
 
-            if (item.kind === 'header') {
+              if (item.kind === 'header') {
+                return (
+                  <div
+                    key={item.key}
+                    /*
+                     * Presentational on purpose, twice over: a `list` owns
+                     * `listitem`s and nothing else, and every value these group
+                     * by is already on the row or in its detail — the artist, the
+                     * year, the letter the title starts with. Announcing each
+                     * header would put a second copy of that in the way of
+                     * someone moving through four thousand songs one at a time.
+                     */
+                    role="presentation"
+                    aria-hidden
+                    className="absolute top-0 left-0 w-full"
+                    style={placement}
+                  >
+                    <CategoryHeader label={item.label} />
+                  </div>
+                )
+              }
+
               return (
                 <div
                   key={item.key}
-                  /*
-                   * Presentational on purpose, twice over: a `list` owns
-                   * `listitem`s and nothing else, and every value these group
-                   * by is already on the row or in its detail — the artist, the
-                   * year, the letter the title starts with. Announcing each
-                   * header would put a second copy of that in the way of
-                   * someone moving through four thousand songs one at a time.
-                   */
-                  role="presentation"
-                  aria-hidden
+                  role="listitem"
+                  // Only ~17 rows exist in the DOM at a time, so without these a
+                  // screen reader reports a list of seventeen out of 4,168.
+                  // Counted in songs, so the headers don't inflate the total or
+                  // put gaps in the numbering.
+                  aria-setsize={songs.length}
+                  aria-posinset={item.position + 1}
                   className="absolute top-0 left-0 w-full"
                   style={placement}
                 >
-                  <CategoryHeader label={item.label} />
+                  <SongRow
+                    song={item.song}
+                    isPlaying={item.song.id === playingId}
+                    isSelected={item.song.id === selection?.id}
+                    onSelect={onSelect}
+                  />
                 </div>
               )
-            }
-
-            return (
-              <div
-                key={item.key}
-                role="listitem"
-                // Only ~17 rows exist in the DOM at a time, so without these a
-                // screen reader reports a list of seventeen out of 4,168.
-                // Counted in songs, so the headers don't inflate the total or
-                // put gaps in the numbering.
-                aria-setsize={songs.length}
-                aria-posinset={item.position + 1}
-                className="absolute top-0 left-0 w-full"
-                style={placement}
-              >
-                <SongRow
-                  song={item.song}
-                  isPlaying={item.song.id === playingId}
-                  isSelected={item.song.id === selection?.id}
-                  onSelect={onSelect}
-                />
-              </div>
-            )
-          })}
+            })}
+          </div>
         </div>
+
+        {showRail ? (
+          <IndexRail
+            marks={marks}
+            currentItem={currentItem}
+            onJump={jumpTo}
+            // The ordering in the app's own words. `bandDifficulty` is `diff` in
+            // the column header because a column is 20px wide; a spoken name
+            // has no such excuse.
+            sortLabel={INDEX_LABELS[sortKey] ?? 'section'}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -445,15 +568,16 @@ function CategoryHeader({ label }: { label: string }) {
  *   box 4px narrower than this one and 2px to the right. Repeating them
  *   transparent here costs nothing and lines the two boxes up.
  *
- *   The scrollbar takes its width out of the rows and not out of this, since
- *   the scroll container is below. `scrollbarWidth` is what it actually took.
+ *   The scrollbar and the jump rail take their width out of the rows and not
+ *   out of this, since both sit below. `gutter` is what they actually took,
+ *   measured as one number so this doesn't have to know which of them is there.
  */
 function SortHeader({
   sortKey,
   sortDirection,
   onSort,
-  scrollbarWidth,
-}: Pick<SongListProps, 'sortKey' | 'sortDirection' | 'onSort'> & { scrollbarWidth: number }) {
+  gutter,
+}: Pick<SongListProps, 'sortKey' | 'sortDirection' | 'onSort'> & { gutter: number }) {
   return (
     <div
       className="yarg-wash-header hidden items-center gap-[15px] px-[25px] py-[10px] @2xl/list:flex"
@@ -462,7 +586,7 @@ function SortHeader({
         borderLeft: '2px solid transparent',
         borderRight: '2px solid transparent',
         // Overrides the right half of `px-[25px]`; the left half stands.
-        paddingRight: `calc(25px + ${scrollbarWidth}px)`,
+        paddingRight: `calc(25px + ${gutter}px)`,
       }}
     >
       {COLUMNS.map((column) => {

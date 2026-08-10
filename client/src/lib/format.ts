@@ -25,6 +25,85 @@ export function formatDifficulty(tier: number | null): string {
   return tier === null ? '—' : String(tier)
 }
 
+/**
+ * The names YARG gives a band-difficulty tier.
+ *
+ * Transcribed from `Assets/StreamingAssets/lang/en-US.json`
+ * (`Menu.Filters.Intensities`), and indexed exactly as `FiltersMenu.cs` indexes
+ * them: **the tier is the index.** `0` is `Warm Up`, `6` is `Impossible`, and
+ * anything past the end of the table clamps to the last name rather than
+ * inventing one — which is also what the ring does when it turns fully red past
+ * six. See `DifficultyRing` in `ui/library.tsx`.
+ *
+ * These are the game's words rather than ours, for the same reason source ids
+ * resolve through OpenSource: anybody who has picked a song in YARG has already
+ * read this scale, and a second vocabulary for the same number would be a
+ * second thing to learn. The number is still what the rings draw. This is what
+ * it is called.
+ */
+const INTENSITY_NAMES = [
+  'Warm Up',
+  'Apprentice',
+  'Solid',
+  'Moderate',
+  'Challenging',
+  'Nightmare',
+  'Impossible',
+] as const
+
+/**
+ * The tier two songs have to share to be the same intensity.
+ *
+ * Clamped, so a chart tiered 9 and a chart tiered 6 are both `Impossible` and
+ * land in one run rather than three headers all reading the same word.
+ */
+export function intensityTier(tier: number | null): number | null {
+  if (tier === null || !Number.isFinite(tier)) return null
+
+  return Math.min(Math.max(Math.trunc(tier), 0), INTENSITY_NAMES.length - 1)
+}
+
+export function intensityName(tier: number | null): string {
+  const index = intensityTier(tier)
+  // `Unrated` rather than YARG's `Unknown`: the CSV writes `-1` for a part that
+  // isn't charted, and the loader has already turned that into null. What is
+  // left is a band difficulty nobody assigned, which is a different fact.
+  if (index === null) return 'Unrated'
+
+  return INTENSITY_NAMES[index] ?? 'Unrated'
+}
+
+/**
+ * YARG's own song-length buckets, at the boundaries it draws them.
+ *
+ * From `FiltersMenu.GetSongLengthLabel`: under three minutes, under five, under
+ * seven, and everything above. The names are the game's
+ * (`Menu.Filters.Length`); the parentheticals are set in this app's sentence
+ * case rather than the Unity screen's title case, because they gloss the name
+ * rather than being part of it.
+ *
+ * There is a second, finer table in that same file — six ranges from `00:00 -
+ * 02:00` up — sitting behind a `UseLegacyLengthLabels` flag that is `true`.
+ * Four buckets is what YARG actually ships, so four is what this follows.
+ *
+ * `short` is the same fact with no room to say it: two or three characters, for
+ * the jump rail, where a slot is 38px wide. See `indexing.ts`.
+ */
+export const LENGTH_BUCKETS = [
+  { belowSeconds: 180, label: 'Short (under 3 min)', short: '<3' },
+  { belowSeconds: 300, label: 'Medium (3–5 min)', short: '3–5' },
+  { belowSeconds: 420, label: 'Long (5–7 min)', short: '5–7' },
+  { belowSeconds: Infinity, label: 'Epic (over 7 min)', short: '7+' },
+] as const
+
+/** Which bucket a length falls in, or null when the CSV omitted it. */
+export function lengthBucket(seconds: number | null): number | null {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return null
+
+  // The last bound is Infinity, so this always finds one.
+  return LENGTH_BUCKETS.findIndex((bucket) => seconds < bucket.belowSeconds)
+}
+
 // Source display lives in `lib/sources.ts` now: the CSV's ids resolve through
 // YARG's own OpenSource registry, which knows `$DEFAULT$` along with 292 other
 // spellings. Passing the raw id through as a label was never right.

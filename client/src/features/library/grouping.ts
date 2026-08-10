@@ -26,13 +26,31 @@
  * descending sorts get descending headers for free rather than through a second
  * rule that has to be kept in step with the first.
  *
- * Only the keys where a division means something get headers. `length` and
- * `diff` are continuous, and `charter` is a person rather than a category —
- * a header per charter would be one header per row for most of a library.
+ * Only the keys where a division means something get headers. `charter` is a
+ * person rather than a category — a header per charter would be one header per
+ * row for most of a library.
+ *
+ * **Length and difficulty are continuous, and are grouped anyway, because YARG
+ * has already cut them.** Both were left out on the grounds that a number line
+ * has no natural divisions, which is true and was the wrong conclusion: the
+ * divisions do not have to be natural, they have to be *the ones the player
+ * already knows*. YARG's own filter menu cuts band difficulty into seven named
+ * intensities and length into four buckets, and somebody who has picked a song
+ * in the game has read both scales. Inventing our own would have been the
+ * mistake; borrowing theirs costs nothing and makes the two longest unbroken
+ * runs in the library navigable. `lib/format.ts` holds the tables and cites the
+ * files they came from.
  */
 
 import type { Song } from '@shared/types'
-import { artistCredit, foldForSearch } from '../../lib/format'
+import {
+  artistCredit,
+  foldForSearch,
+  intensityName,
+  intensityTier,
+  lengthBucket,
+  LENGTH_BUCKETS,
+} from '../../lib/format'
 import { sourceName } from '../../lib/sources'
 import { normalizeForSort } from './filtering'
 import type { SortKey } from './filtering'
@@ -51,7 +69,7 @@ export type ListItem =
  * at base sensitivity, or `Beyoncé` and `Beyonce` would sort adjacent and then
  * be given a header each.
  */
-interface Group {
+export interface Group {
   id: string
   label: string
 }
@@ -68,8 +86,8 @@ const LETTER = /\p{L}/u
  * `#` rather than a word because the neighbouring headers are single
  * characters, and `0–9` already has the numbers.
  */
-const SYMBOL: Group = { id: 'symbol', label: '#' }
-const NUMBER: Group = { id: 'number', label: '0–9' }
+export const SYMBOL: Group = { id: 'symbol', label: '#' }
+export const NUMBER: Group = { id: 'number', label: '0–9' }
 
 const UNTITLED: Group = { id: 'untitled', label: '—' }
 const UNKNOWN_ARTIST: Group = { id: 'artist:unknown', label: 'Unknown artist' }
@@ -85,7 +103,7 @@ const UNKNOWN_ARTIST: Group = { id: 'artist:unknown', label: 'Unknown artist' }
  * begins: `The Beatles` is filed under `Beatles` and gets the `B` header the
  * ordering already put it in.
  */
-function initialGroup(raw: string, missing: Group): Group {
+export function initialGroup(raw: string, missing: Group): Group {
   const filed = normalizeForSort(raw)
 
   // Code points, not code units: an emoji or an astral-plane character would
@@ -139,6 +157,32 @@ function sourceGroup(song: Song): Group {
   return { id: `source:${raw.toLowerCase()}`, label: sourceName(raw) }
 }
 
+/**
+ * Band difficulty, cut where YARG cuts it and called what YARG calls it.
+ *
+ * Keyed on the *clamped* tier rather than the raw one, so the handful of charts
+ * tiered above six join the run they are already sorted into instead of opening
+ * a second `Impossible` header two rows later.
+ *
+ * Unrated sorts last whichever way the column points — `compareNullableNumbers`
+ * puts null at the end in both directions — so this group is always the tail of
+ * the list rather than moving with the arrow.
+ */
+function intensityGroup(song: Song): Group {
+  const tier = intensityTier(song.bandDifficulty)
+  if (tier === null) return { id: 'diff:unrated', label: 'Unrated' }
+
+  return { id: `diff:${tier}`, label: intensityName(song.bandDifficulty) }
+}
+
+/** Four buckets, same source and same rule as the intensities above. */
+function lengthGroup(song: Song): Group {
+  const bucket = lengthBucket(song.lengthSeconds)
+  if (bucket === null) return { id: 'length:unknown', label: 'Unknown length' }
+
+  return { id: `length:${bucket}`, label: LENGTH_BUCKETS[bucket]?.label ?? 'Unknown length' }
+}
+
 const GROUPERS: Partial<Record<SortKey, (song: Song) => Group>> = {
   name: (song) => initialGroup(song.name, UNTITLED),
   // Headed by the artist the rows name, which is the one without the cover
@@ -148,6 +192,8 @@ const GROUPERS: Partial<Record<SortKey, (song: Song) => Group>> = {
   genre: (song) => valueGroup(song.genre, 'No genre'),
   source: sourceGroup,
   year: yearGroup,
+  bandDifficulty: intensityGroup,
+  length: lengthGroup,
 }
 
 /** How much the row itself is saying — see the artist note at the top. */
