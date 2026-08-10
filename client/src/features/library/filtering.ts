@@ -146,6 +146,92 @@ export function filterSongs(songs: readonly Song[], filters: Filters): Song[] {
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
 /**
+ * Leading punctuation, stripped before anything else is read.
+ *
+ * `…And Justice for All` has to lose its ellipsis before the article rule can
+ * see the `And` behind it, and `(What's the Story) Morning Glory?` files under
+ * W rather than under `(`.
+ */
+const LEADING_NOISE = /^[\p{P}\p{S}\s]+/u
+
+/**
+ * The articles a title is filed *behind* rather than under.
+ *
+ * `an` is included though it wasn't asked for: it is the same word as `a` doing
+ * the same job, and filing `A Hard Day's Night` under H while `An Innocent Man`
+ * stayed under A would read as a bug rather than as a rule. Only English —
+ * `Los Lobos` and `Die Ärzte` keep their articles, because knowing that `Die`
+ * is an article there and a verb here needs a language tag the CSV doesn't
+ * carry.
+ *
+ * The trailing `\s+` is what makes this safe: it cannot fire on `A.M.`, on
+ * `Anthrax`, or on a title that is the bare word `The`.
+ */
+const LEADING_ARTICLE = /^(?:an?|the)\s+/iu
+
+/**
+ * Apostrophes vanish rather than becoming a gap, so `Don't Stop` files as
+ * `Dont Stop` — beside `Donna`, which is where someone looking for it will
+ * run their finger. Every other mark becomes a space instead: `AC/DC` is two
+ * words and sorting it as `ACDC` would be the same mistake in reverse.
+ */
+const APOSTROPHES = /['‘’ʼ`´]/gu
+const SEPARATORS = /[\p{P}\p{S}]+/gu
+
+/**
+ * The form a title, artist or album is *filed* under — never the form shown.
+ *
+ * Diacritics and case are deliberately left alone: the collator already folds
+ * both at `sensitivity: 'base'`, and stripping them here would overrule the
+ * locale on a question it answers better than we can — Swedish files `ö` after
+ * `z`, and `Motörhead` should land wherever the reader's locale puts it.
+ *
+ * A value that is *entirely* punctuation keeps its original text. `!!!` is a
+ * band, and normalizing it to an empty string would file it with the songs
+ * that have no artist at all.
+ */
+export function normalizeForSort(value: string): string {
+  const normalized = value
+    .replace(LEADING_NOISE, '')
+    .replace(LEADING_ARTICLE, '')
+    .replace(APOSTROPHES, '')
+    .replace(SEPARATORS, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+
+  return normalized === '' ? value.trim() : normalized
+}
+
+/**
+ * The three normalized fields, computed once per song.
+ *
+ * Same reasoning as `searchTextCache`: `sortSongs` runs on every sort change
+ * and every filter change, and a comparator that normalized on each call would
+ * do it O(n log n) times across four thousand songs instead of n.
+ */
+interface SortText {
+  name: string
+  artist: string
+  album: string
+}
+
+const sortTextCache = new WeakMap<Song, SortText>()
+
+function sortTextFor(song: Song): SortText {
+  const cached = sortTextCache.get(song)
+  if (cached !== undefined) return cached
+
+  const text: SortText = {
+    name: normalizeForSort(song.name),
+    artist: normalizeForSort(song.artist),
+    album: normalizeForSort(song.album),
+  }
+
+  sortTextCache.set(song, text)
+  return text
+}
+
+/**
  * Compare two possibly-null numbers, always sorting null last regardless of
  * direction — an unknown year is never "the earliest".
  */
@@ -181,11 +267,14 @@ export function sortSongs(songs: Song[], key: SortKey, direction: SortDirection)
       case 'bandDifficulty':
         primary = compareNullableNumbers(a.bandDifficulty, b.bandDifficulty, direction)
         break
+      // Title, artist and album sort on their filed form; everything below
+      // them sorts on what the CSV said. A charter handle is a username and a
+      // source id is an identifier — neither has an article to look behind.
       case 'name':
-        primary = compareStrings(a.name, b.name, direction)
+        primary = compareStrings(sortTextFor(a).name, sortTextFor(b).name, direction)
         break
       case 'album':
-        primary = compareStrings(a.album, b.album, direction)
+        primary = compareStrings(sortTextFor(a).album, sortTextFor(b).album, direction)
         break
       case 'charter':
         primary = compareStrings(a.charter, b.charter, direction)
@@ -198,19 +287,21 @@ export function sortSongs(songs: Song[], key: SortKey, direction: SortDirection)
         break
       case 'artist':
       default:
-        primary = compareStrings(a.artist, b.artist, direction)
+        primary = compareStrings(sortTextFor(a).artist, sortTextFor(b).artist, direction)
     }
 
     if (primary !== 0) return primary
 
     // Stable, predictable tiebreak: artist → name, always ascending, so equal
-    // keys don't reshuffle when the direction flips.
+    // keys don't reshuffle when the direction flips. Normalized too — a
+    // tiebreak that filed The Beatles somewhere the artist column wouldn't
+    // would undo the rule one level down.
     if (key !== 'artist') {
-      const byArtist = collator.compare(a.artist, b.artist)
+      const byArtist = collator.compare(sortTextFor(a).artist, sortTextFor(b).artist)
       if (byArtist !== 0) return byArtist
     }
 
-    return collator.compare(a.name, b.name)
+    return collator.compare(sortTextFor(a).name, sortTextFor(b).name)
   })
 
   return sorted
