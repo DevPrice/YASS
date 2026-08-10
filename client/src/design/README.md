@@ -17,12 +17,16 @@ silently reverts the change.
 styles.css        entry point — imports every token file
 tokens/           fonts, colors, typography, layout, base  (verbatim copies)
 assets/icons/     the eight line icons that exist as real vector geometry
+assets/instruments/  11 instrument glyphs        500×500 PNG
+assets/difficulty/   24 difficulty rings         500×500 PNG
+assets/sources/      46 source badges            300×300 PNG
+assets/index.ts   slug → URL lookups for the three PNG directories
 ```
 
 Token files are byte-for-byte copies of the upstream paths of the same name, so
 re-vendoring is a straight overwrite and a diff shows exactly what changed upstream.
 
-## Icons
+## Vector icons
 
 `assets/icons/` holds the only artwork in the system that is genuinely vector:
 
@@ -40,25 +44,40 @@ are `--yarg-vivid-sky-blue` and `--yarg-text-cyan`, and neither is exact), and t
 './genre.svg'` yields a URL, and a URL can't inherit colour. Import with `?raw`, or add
 `vite-plugin-svgr` — decide when the first one is actually used.
 
-## What's deliberately not here
+## Bitmap art
 
-**Bitmap assets** — instrument glyphs, difficulty rings, stars, EX-mode medals, source
-badges, and backgrounds.
+The instrument glyphs, difficulty rings and source badges are PNG, and that is not a
+compromise — **there is no vector version of them anywhere.** Of the 136 components on
+the Figma Icons page, 115 are a bare `RECTANGLE` with a placed image fill. Figma exports
+those as `.svg` happily, but the output is a base64 PNG in an XML wrapper: larger than
+the PNG and no more scalable. The bitmaps behind the fills are 500×500, i.e. the same art
+upstream ships at 512px. This matches upstream's own note that the bitmap art is art, not
+glyphs, and should never be redrawn as vectors.
 
-These are not vector *anywhere*, which took a look at the Figma file to establish: of the
-136 components on the Icons page, 115 are a bare `RECTANGLE` with a placed image fill.
-Figma will happily export them as `.svg`, but the result is a base64 PNG in an XML
-wrapper — larger than the PNG and no more scalable. The originals behind those fills are
-500×500 PNGs, i.e. the same art upstream ships at 512px. So there is no SVG version to
-find, and PNG is the correct format rather than a compromise. This matches upstream's own
-note that the bitmap art is art, not glyphs, and should never be redrawn as vectors.
+They live in `src/` and are reached through `assets/index.ts`, **not** in `public/`. Vite
+fingerprints anything imported from `src/`, and `server/src/static.ts` serves `/assets/`
+with a one-year `immutable` cache — only safe because the names carry a content hash. A
+verbatim `public/` copy would be cached for a year under a stable name, so re-exporting
+an icon would never reach a browser that had already loaded it.
 
-Components that reference them resolve paths through `window.__YARG_ASSETS__` (falling
-back to `assets/`), so once the PNGs are in place, set that global and they light up
-with no code change.
+Nothing imports `assets/index.ts` yet, so the PNGs are tree-shaken out and cost the
+bundle nothing until something renders them.
 
-Until then, YASS uses the token layer only, and any component needing bitmap art either
-falls back to text or is left out.
+Two mappings are deliberately absent, because both are judgement calls rather than
+lookups, and both are documented at their export in `assets/index.ts`:
+
+- **`InstrumentKey` → glyph.** 20 instruments, 11 glyphs. Nothing is drawn for 6-fret or
+  elite drums, and whether rhythm and co-op borrow the guitar glyph is a decision.
+- **CSV `source` → badge.** The badges are slugs of display names (`rock-band-3`); the
+  CSV holds YARG's raw ids (`rb3dlc`, `$DEFAULT$`). Translating needs YARG's source list.
+
+Also not here: **stars, EX-mode medals, star slots, and Extra Stats** (25 components).
+They render score data, and the CSV export carries no scores, so there is nothing to
+draw them against. Re-export them from the same Figma page when that changes.
+
+Upstream components resolve art through `window.__YARG_ASSETS__` (falling back to
+`assets/`). YASS ports rather than vendoring components, so it uses the lookups above
+instead; set that global only if a vendored upstream component ever ships here.
 
 **Components** — upstream's `components/` are inline-styled `.jsx` and are **not** copied
 here. See the porting policy below.
@@ -102,3 +121,15 @@ needs to change.
 Read each upstream path with the DesignSync tool against the project id above and
 overwrite the file of the same name here. Then check whether upstream added tokens that
 `client/src/index.css` should expose to Tailwind.
+
+**Artwork** comes from Figma instead, using a personal access token (see
+`GET /v1/files/:key/nodes?ids=276:1197` for the Icons page, then `/v1/images/:key` with
+`format=svg` for the eight vector icons and `format=png&scale=1` for the rest). Render
+the *components* rather than pulling the raw image fills — two source badges layer two
+bitmaps, and only a render composes them. Every asset here was exported at scale 1, which
+is native size for all three sets.
+
+Not stored with Git LFS, deliberately: 81 files totalling 2.2 MB, largest 42 KB, and they
+change approximately never. LFS earns its keep on large or frequently-rewritten binaries,
+and costs a working `git-lfs` on every clone — without it the images arrive as pointer
+stubs and fail silently. Revisit if the full-resolution backgrounds ever land here.
