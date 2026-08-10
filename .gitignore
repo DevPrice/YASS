@@ -12,3 +12,7 @@ art-cache/
 # OS noise
 Thumbs.db
 .DS_Store
+
+# Tooling scratch. The Impeccable config and critiques are tracked; this is a
+# per-machine record of which files the detector hook has already seen.
+.impeccable/hook.cache.json

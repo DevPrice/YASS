@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-10T05:06:27.676Z",
+        "reason": "Inter is bound to --font-numeric for tabular figures only; display is Red Hat Display, body is Barlow"
+      }
+    ]
+  }
+}
