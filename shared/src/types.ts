@@ -116,6 +116,24 @@ export interface SongLibrary {
   meta: LibraryMeta
 }
 
+/**
+ * One address this machine can be reached at, and whether it is worth reading
+ * out loud.
+ *
+ * A developer's machine answers with three or four of these — Wi-Fi, plus
+ * whatever VirtualBox, WSL, Docker or a VPN installed — and they are
+ * indistinguishable as bare IPv4 strings. Handing a guest the wrong one is a
+ * failure that only shows up across a loud room, so the adapter's name travels
+ * with the address instead of being thrown away.
+ */
+export interface LanAddress {
+  url: string
+  /** The adapter as the OS names it: "Wi-Fi", "Ethernet", "vEthernet (WSL)". */
+  name: string
+  /** A virtual adapter, which no phone on the network can reach. */
+  virtual: boolean
+}
+
 export interface LibraryMeta {
   /** `csv` today; `yarg-index` once YARG publishes its own index. */
   source: 'csv' | 'yarg-index' | 'none'

@@ -6,7 +6,7 @@
  * runtime code — the renderer is sandboxed and can't load main's modules.
  */
 
-import type { LibraryMeta, Settings, SettingsView } from '@shared/types.js'
+import type { LanAddress, LibraryMeta, Settings, SettingsView } from '@shared/types.js'
 
 export type ServerStatusName = 'starting' | 'running' | 'stopped' | 'failed'
 
@@ -28,8 +28,11 @@ export interface DesktopState {
   server: ServerState
   /** The song index as the running server last loaded it. */
   songs: LibraryMeta | null
-  /** Addresses to hand to a guest. Empty unless the server is bound LAN-wide. */
-  lanUrls: string[]
+  /**
+   * Addresses to hand to a guest, reachable ones first. Empty unless the
+   * server is bound LAN-wide.
+   */
+  lan: LanAddress[]
   /** The host's own URL, which exists whatever the bind address is. */
   localUrl: string | null
   /** The saved host/port have moved past what's bound; only a restart applies them. */

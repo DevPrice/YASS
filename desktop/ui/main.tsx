@@ -19,6 +19,8 @@ import type { Settings } from '@shared/types.js'
 // renderer has no way to run any of it. The import is erased at build time.
 import type { DesktopApi, DesktopState } from '../src/ipc.js'
 
+import { QrCode } from './qr.js'
+
 import './index.css'
 
 declare global {
@@ -213,29 +215,128 @@ function Field({
   )
 }
 
-/** Copy a URL, and say so where the user is already looking. */
-function CopyRow({ url }: { url: string }) {
+/** Copy something, and say so where the user is already looking. */
+function useCopy(text: string): [boolean, () => void] {
   const [copied, setCopied] = useState(false)
   const timer = useRef<number | undefined>(undefined)
 
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
+  return [
+    copied,
+    () => {
+      window.yass.copyText(text)
+      setCopied(true)
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setCopied(false), 1400)
+    },
+  ]
+}
+
+function CopyRow({ url, label }: { url: string; label?: string }) {
+  const [copied, copy] = useCopy(url)
+
   return (
     <div className="flex items-center gap-2">
-      <code className="selectable min-w-0 flex-1 truncate font-numeric text-[12px] text-accent">
-        {url}
-      </code>
-      <QuietButton
-        onClick={() => {
-          window.yass.copyText(url)
-          setCopied(true)
-          window.clearTimeout(timer.current)
-          timer.current = window.setTimeout(() => setCopied(false), 1400)
-        }}
-      >
-        {copied ? 'copied' : 'copy'}
-      </QuietButton>
+      <div className="min-w-0 flex-1">
+        <code className="selectable block truncate font-numeric text-[12px] text-accent">
+          {url}
+        </code>
+        {label ? <span className="text-[10px] text-content-faint">{label}</span> : null}
+      </div>
+      <QuietButton onClick={copy}>{copied ? 'copied' : 'copy'}</QuietButton>
     </div>
+  )
+}
+
+/** `192.168.1.24:4321` → the address and the port, so the two can differ in weight. */
+function splitPort(authority: string): [string, string] {
+  const at = authority.lastIndexOf(':')
+  return at === -1 ? [authority, ''] : [authority.slice(0, at), authority.slice(at + 1)]
+}
+
+/**
+ * The one string this window exists to move into somebody's phone.
+ *
+ * It used to render at 12px under an 18px wordmark — the fourth-largest text in
+ * a window whose entire output it is. Now it is the largest, in the numeric
+ * face, next to a code that skips the typing altogether.
+ */
+function AddressBlock({ state }: { state: DesktopState }) {
+  const primary = state.lan[0] ?? null
+  const url = primary?.url ?? state.localUrl
+  const [copied, copy] = useCopy(url ?? '')
+
+  if (!url) return null
+
+  const [host, port] = splitPort(url.replace(/^https?:\/\//, ''))
+  const others = state.lan.slice(1)
+
+  return (
+    <>
+      <div className="mt-3 flex items-start gap-3">
+        <QrCode value={url} />
+
+        <div className="min-w-0 flex-1">
+          <p className="font-numeric text-[20px] leading-none">
+            <span className="selectable text-content">{host}</span>
+            <span className="text-content-muted">:{port}</span>
+          </p>
+          <p className="mt-1.5 text-[11px] text-content-faint">
+            {primary ? primary.name : 'this machine only'}
+          </p>
+          <div className="mt-2.5">
+            <QuietButton onClick={copy}>{copied ? 'copied' : 'copy'}</QuietButton>
+          </div>
+        </div>
+      </div>
+
+      {/*
+       * The rest, demoted rather than hidden. A developer's machine answers
+       * with VirtualBox and WSL addresses that look exactly like the real one
+       * and go nowhere; the ranking is a heuristic, so it must never be the
+       * only way to reach an address it guessed wrong about.
+       */}
+      {others.length > 0 ? (
+        <details className="group mt-2.5">
+          <summary
+            className={cx(
+              'yarg-label inline-flex cursor-default list-none items-center gap-1.5 rounded-[5px]',
+              'text-[10px] text-content-muted hover:text-content',
+              '[&::-webkit-details-marker]:hidden',
+              FOCUS,
+            )}
+          >
+            {others.length} other {others.length === 1 ? 'address' : 'addresses'}
+            <svg
+              viewBox="0 0 12 12"
+              aria-hidden
+              className="size-3 transition-transform group-open:rotate-180"
+            >
+              <path
+                d="M2.5 4.5 6 8l3.5-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </summary>
+          <div className="mt-2 space-y-2">
+            {others.map((entry) => (
+              <CopyRow key={entry.url} url={entry.url} label={entry.name} />
+            ))}
+          </div>
+        </details>
+      ) : null}
+
+      <p className="mt-2.5 text-[11px] text-content-faint">
+        {primary
+          ? "Point a guest's camera at the code. If they can't reach it, the firewall prompt was probably dismissed."
+          : 'Bound to this machine only — nothing on the network can reach it.'}
+      </p>
+    </>
   )
 }
 
@@ -396,28 +497,7 @@ function StatusBlock({
       ) : null}
 
       {/* Only once there is something at the other end of it to browse. */}
-      {kind === 'ready' ? (
-        <>
-          <div className="mt-3 space-y-1.5">
-            {state.lanUrls.length > 0 ? (
-              state.lanUrls.map((url) => <CopyRow key={url} url={url} />)
-            ) : state.localUrl ? (
-              <CopyRow url={state.localUrl} />
-            ) : null}
-          </div>
-
-          {state.lanUrls.length > 0 ? (
-            <p className="mt-2 text-[11px] text-content-faint">
-              Hand one of these to a guest. If they can't reach it, the firewall prompt was
-              probably dismissed.
-            </p>
-          ) : (
-            <p className="mt-2 text-[11px] text-content-faint">
-              Bound to this machine only — nothing on the network can reach it.
-            </p>
-          )}
-        </>
-      ) : null}
+      {kind === 'ready' ? <AddressBlock state={state} /> : null}
     </section>
   )
 }

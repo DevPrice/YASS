@@ -63,14 +63,16 @@ async function main(): Promise<void> {
     console.log(`\n  YASS  →  http://localhost:${info.port}`)
 
     if (host === '0.0.0.0') {
-      for (const url of lanAddresses(info.port)) {
-        console.log(`         →  ${url}  (LAN)`)
+      for (const address of lanAddresses(info.port)) {
+        console.log(
+          `         →  ${address.url}  (${address.name}${address.virtual ? ', virtual' : ''})`,
+        )
       }
     }
 
     const { settings, status } = state.settingsView
-    // Configuration is host-only and there's no tray app yet, so make the file
-    // easy to find rather than making the user go looking for it.
+    // Configuration is host-only, and a headless run has no tray to edit it
+    // from, so make the file easy to find rather than sending the user looking.
     console.log(`\n  Settings file : ${settingsFilePath()}`)
     console.log(`  YARG data dir : ${settings.yargDataDir}${status.yargDataDirExists ? '' : '  [not found]'}`)
     console.log(

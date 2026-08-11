@@ -80,7 +80,7 @@ async function buildState(): Promise<DesktopState> {
     server: serverState,
     songs: status?.songs ?? null,
     // Only worth showing when the server can actually be reached at them.
-    lanUrls: running && server.isLanBound && boundPort ? lanAddresses(boundPort) : [],
+    lan: running && server.isLanBound && boundPort ? lanAddresses(boundPort) : [],
     localUrl: running ? server.localUrl : null,
     // Nothing is pending against a socket that isn't open.
     restartRequired:
@@ -103,8 +103,10 @@ async function publish(): Promise<void> {
   // the one thing worth knowing at a glance: is this working, and where.
   if (tray) {
     const summaries: Record<DesktopState['server']['status'], () => string> = {
+      // The shareable one, not `localUrl`: 127.0.0.1 is the single address in
+      // the app that is of no use to the person being told it.
       running: () =>
-        `YASS — ${state.songs?.count ?? 0} songs on ${state.localUrl ?? 'this machine'}`,
+        `YASS — ${state.songs?.count ?? 0} songs on ${shareableUrl(state) ?? 'this machine'}`,
       failed: () => `YASS — ${state.server.message ?? 'the server is not running'}`,
       starting: () => 'YASS — starting…',
       stopped: () => 'YASS — the server is stopped',
@@ -127,9 +129,15 @@ function stopPolling(): void {
   pollTimer = null
 }
 
-/** The address to hand to a guest, preferring one that isn't this machine. */
+/**
+ * The address to hand to a guest.
+ *
+ * `lan` arrives with the reachable adapters first, so the head of it is the one
+ * worth reading out; `localUrl` is the fallback for a loopback-only bind, where
+ * there is nothing to hand anybody.
+ */
 function shareableUrl(state: DesktopState): string | null {
-  return state.lanUrls[0] ?? state.localUrl
+  return state.lan[0]?.url ?? state.localUrl
 }
 
 async function quit(): Promise<void> {
