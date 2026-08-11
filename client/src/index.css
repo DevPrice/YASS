@@ -135,6 +135,33 @@
   --radius-capsule: var(--radius-pill);
 }
 
+/*
+ * The three compositings of the accent, named once.
+ *
+ * `rgba(69,216,254, …)` had been retyped as a literal in six places, directly
+ * against the rule at the top of `ui/index.tsx` — and the filter panel was about
+ * to add eight more, because "active chip", "lit sheet edge" and "checked box"
+ * are the same three mixes over and over. They are not in the vendored token
+ * files because the design system states them as component styles rather than
+ * as colours, so this is the documented seam for them, same as the border
+ * overrides in `@theme` above.
+ *
+ * Stated as `color-mix` off the brand token rather than as pre-multiplied hex,
+ * so re-vendoring `colors.css` moves all three.
+ *
+ *   `tint` — the fill under an active chip, quiet enough for white text on it.
+ *   `edge` — the 2px inset stroke that says a control is live.
+ *   `fill` — the solid-reading accent surface, which carries Night and not white.
+ *
+ * Outside `@theme` on purpose: these are values to be written into `background`
+ * and `box-shadow`, not colours that want a `bg-*` utility each.
+ */
+:root {
+  --accent-tint: color-mix(in srgb, var(--yarg-vivid-sky-blue) 20%, transparent);
+  --accent-edge: color-mix(in srgb, var(--yarg-vivid-sky-blue) 50%, transparent);
+  --accent-fill: color-mix(in srgb, var(--yarg-vivid-sky-blue) 75%, transparent);
+}
+
 @layer base {
   html {
     /* The list owns scrolling; don't let iOS rubber-band the page. */

@@ -43,6 +43,8 @@
  */
 
 import type { Song } from '@shared/types'
+import type { DifficultyLens } from '../../lib/difficulty'
+import { lensTier, unratedLabel } from '../../lib/difficulty'
 import {
   artistCredit,
   foldForSearch,
@@ -158,7 +160,7 @@ function sourceGroup(song: Song): Group {
 }
 
 /**
- * Band difficulty, cut where YARG cuts it and called what YARG calls it.
+ * Difficulty, cut where YARG cuts it and called what YARG calls it.
  *
  * Keyed on the *clamped* tier rather than the raw one, so the handful of charts
  * tiered above six join the run they are already sorted into instead of opening
@@ -166,13 +168,16 @@ function sourceGroup(song: Song): Group {
  *
  * Unrated sorts last whichever way the column points — `compareNullableNumbers`
  * puts null at the end in both directions — so this group is always the tail of
- * the list rather than moving with the arrow.
+ * the list rather than moving with the arrow. What that tail *is* depends on the
+ * lens: unrated band difficulty under `band`, and a family with no chart at all
+ * under the other five, which is why it does not always say the same word.
  */
-function intensityGroup(song: Song): Group {
-  const tier = intensityTier(song.bandDifficulty)
-  if (tier === null) return { id: 'diff:unrated', label: 'Unrated' }
+function intensityGroup(song: Song, lens: DifficultyLens): Group {
+  const raw = lensTier(song, lens)
+  const tier = intensityTier(raw)
+  if (tier === null) return { id: 'diff:unrated', label: unratedLabel(lens) }
 
-  return { id: `diff:${tier}`, label: intensityName(song.bandDifficulty) }
+  return { id: `diff:${tier}`, label: intensityName(raw) }
 }
 
 /** Four buckets, same source and same rule as the intensities above. */
@@ -183,7 +188,12 @@ function lengthGroup(song: Song): Group {
   return { id: `length:${bucket}`, label: LENGTH_BUCKETS[bucket]?.label ?? 'Unknown length' }
 }
 
-const GROUPERS: Partial<Record<SortKey, (song: Song) => Group>> = {
+/**
+ * The lens reaches one grouper and no others, so it is passed to all of them
+ * rather than special-cased at the call site — one signature is cheaper to read
+ * than a table with an exception in it.
+ */
+const GROUPERS: Partial<Record<SortKey, (song: Song, lens: DifficultyLens) => Group>> = {
   name: (song) => initialGroup(song.name, UNTITLED),
   // Headed by the artist the rows name, which is the one without the cover
   // house's parenthetical on it — and the one the sort put the run in order by.
@@ -192,7 +202,7 @@ const GROUPERS: Partial<Record<SortKey, (song: Song) => Group>> = {
   genre: (song) => valueGroup(song.genre, 'No genre'),
   source: sourceGroup,
   year: yearGroup,
-  bandDifficulty: intensityGroup,
+  difficulty: intensityGroup,
   length: lengthGroup,
 }
 
@@ -210,6 +220,7 @@ export function groupSongs(
   songs: readonly Song[],
   key: SortKey,
   width: GroupWidth,
+  lens: DifficultyLens,
 ): ListItem[] {
   // The one width-dependent division, kept here rather than in the table above
   // so that the table stays readable as "what a header means for this key".
@@ -226,7 +237,7 @@ export function groupSongs(
   let current: string | null = null
 
   songs.forEach((song, position) => {
-    const group = grouper(song)
+    const group = grouper(song, lens)
 
     if (group.id !== current) {
       current = group.id

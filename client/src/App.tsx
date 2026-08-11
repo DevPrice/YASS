@@ -28,9 +28,11 @@ import type { Ref } from 'react'
 
 import type { Song } from '@shared/types'
 import { EmptyState, HelperBar, cx } from './ui'
+import type { DifficultyLens } from './lib/difficulty'
 import { useLibrary } from './lib/useLibrary'
 import { useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
+import { decodeAppState, syncUrl } from './lib/urlState'
 import { FiltersPanel } from './features/library/Filters'
 import type { OpenPanel } from './features/library/Filters'
 import { SongList } from './features/library/SongList'
@@ -39,8 +41,9 @@ import { SongDetail, SongDetailEmpty } from './features/library/SongDetail'
 import { SongDetailSheet } from './features/library/SongDetailSheet'
 import {
   EMPTY_FILTERS,
+  deriveFacets,
   filterSongs,
-  hasActiveFilters,
+  hasActiveView,
   sortSongs,
 } from './features/library/filtering'
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
@@ -62,9 +65,29 @@ export function App() {
   const { library, loading, error } = useLibrary()
   const { nowPlaying, connected, settled } = useNowPlaying()
 
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
-  const [sortKey, setSortKey] = useState<SortKey>('artist')
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  /**
+   * The view, read out of the address bar on the way in.
+   *
+   * Lazy initialisers rather than an effect, so the first render is already the
+   * shared view — an effect would paint the whole library, then the filtered
+   * one, and yank the list back to the top between the two.
+   */
+  const initial = useMemo(() => decodeAppState(window.location.search), [])
+
+  const [filters, setFilters] = useState<Filters>(initial.filters)
+  const [sortKey, setSortKey] = useState<SortKey>(initial.sortKey)
+  const [sortDirection, setSortDirection] = useState<SortDirection>(initial.sortDirection)
+
+  /**
+   * Which part every difficulty on screen is about.
+   *
+   * Held beside the filters rather than inside them because it is not one: it
+   * removes no songs. What it does is decide which of a song's twenty-one tiers
+   * the filter chips, the sort, the ring on every row, the column header and the
+   * jump rail are all quoting — five surfaces that have to agree, which is
+   * exactly why the answer lives in one place. See `lib/difficulty.ts`.
+   */
+  const [lens, setLens] = useState<DifficultyLens>(initial.lens)
 
   /**
    * Which control sheet is open, held here rather than inside the filter bar so
@@ -80,8 +103,14 @@ export function App() {
    * "which one" and then dropped the question everybody actually asks next.
    * Picking at random now selects, so the pick arrives with its parts, its
    * difficulty and its charter attached.
+   *
+   * A song restored from the URL arrives `center`ed: whoever opens that link did
+   * not scroll to it, so the list has to place it somewhere it can be seen with
+   * its neighbours rather than wherever an `auto` reveal decides is least work.
    */
-  const [selection, setSelection] = useState<Selection | null>(null)
+  const [selection, setSelection] = useState<Selection | null>(
+    initial.selectedId === null ? null : { id: initial.selectedId, align: 'center' },
+  )
 
   const twoPane = useMediaQuery(TWO_PANE_QUERY)
 
@@ -120,10 +149,23 @@ export function App() {
    * touches. Searching stopped sorting anything at all.
    */
   const sorted = useMemo(
-    () => sortSongs(songs, sortKey, sortDirection),
-    [songs, sortKey, sortDirection],
+    () => sortSongs(songs, sortKey, sortDirection, lens),
+    [songs, sortKey, sortDirection, lens],
   )
-  const visible = useMemo(() => filterSongs(sorted, deferredFilters), [sorted, deferredFilters])
+  const visible = useMemo(
+    () => filterSongs(sorted, deferredFilters, lens),
+    [sorted, deferredFilters, lens],
+  )
+
+  /**
+   * Decade, vocal count and length bucket, tallied off the library itself.
+   *
+   * The server's facets cover the CSV's own columns; these three are this app's
+   * cuts across fields it already has, and the tables they cut at live in
+   * `lib/format.ts` because YARG drew them. Memoized on `songs`, so a re-export
+   * pushed to every phone recomputes them once and a keystroke never does.
+   */
+  const derivedFacets = useMemo(() => deriveFacets(songs), [songs])
 
   /**
    * Resolved against the whole library, not the filtered view.
@@ -176,7 +218,51 @@ export function App() {
   // Built from the deferred filters, not the live ones: this is what returns
   // the list to the top, and it has to change on the commit that shows the new
   // results rather than on the one that shows the new character.
-  const queryKey = JSON.stringify([deferredFilters, sortKey, sortDirection])
+  const queryKey = JSON.stringify([deferredFilters, sortKey, sortDirection, lens])
+
+  /**
+   * The view, written back to the address bar.
+   *
+   * Everything anybody builds up here used to survive nothing: a refresh lost
+   * it, a phone lock that evicted the tab lost it, and handing your phone to
+   * the person beside you — the entire social mechanic of a room picking a
+   * song — lost it. Now the URL *is* the view, so all three work and the view
+   * is also a link somebody can send to four other phones.
+   *
+   * `replaceState`, never `pushState`. See `lib/urlState.ts` for why Back is
+   * deliberately not an undo, and Escape is.
+   *
+   * Off the live filters rather than the deferred ones: the address bar is not
+   * the list and has no reason to lag a keystroke.
+   */
+  useEffect(() => {
+    syncUrl({ filters, sortKey, sortDirection, lens, selectedId: selection?.id ?? null })
+  }, [filters, sortKey, sortDirection, lens, selection])
+
+  /**
+   * A real navigation, read back.
+   *
+   * Nothing here pushes history, so this fires only when the browser moves
+   * between entries for some other reason — opening a shared link in the same
+   * tab, or Forward after a Back that left the app and came home. Ignoring it
+   * would leave the address bar and the screen describing different views.
+   */
+  useEffect(() => {
+    const onPopState = () => {
+      const state = decodeAppState(window.location.search)
+
+      setFilters(state.filters)
+      setSortKey(state.sortKey)
+      setSortDirection(state.sortDirection)
+      setLens(state.lens)
+      setSelection(
+        state.selectedId === null ? null : { id: state.selectedId, align: 'center' },
+      )
+    }
+
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   /**
    * What Escape does *right now* — or null, when it would do nothing.
@@ -193,7 +279,7 @@ export function App() {
       ? `close ${openPanel}`
       : selection !== null
         ? 'close song'
-        : hasActiveFilters(filters)
+        : hasActiveView(filters, lens)
           ? 'clear filters'
           : null
 
@@ -283,13 +369,17 @@ export function App() {
           return
         }
 
-        // Otherwise it resets every filter, search included. From inside the
-        // search field it also steps back out, so the second Escape isn't
-        // swallowed by a field that has already been emptied.
+        // Otherwise it resets every filter, search included — and the
+        // difficulty lens, which is the one piece of state that can outlive an
+        // empty filter set and would otherwise leave the list quoting drum
+        // tiers after being told to clear. From inside the search field it also
+        // steps back out, so the second Escape isn't swallowed by a field that
+        // has already been emptied.
         if (target === searchRef.current) {
           searchRef.current?.blur()
         }
         setFilters(EMPTY_FILTERS)
+        setLens('band')
       }
     }
 
@@ -376,6 +466,9 @@ export function App() {
             library={library}
             filters={filters}
             onFiltersChange={setFilters}
+            derivedFacets={derivedFacets}
+            lens={lens}
+            onLensChange={setLens}
             visible={visible}
             sortKey={sortKey}
             sortDirection={sortDirection}
@@ -486,6 +579,9 @@ function LibraryView({
   library,
   filters,
   onFiltersChange,
+  derivedFacets,
+  lens,
+  onLensChange,
   visible,
   sortKey,
   sortDirection,
@@ -505,6 +601,9 @@ function LibraryView({
   library: ReturnType<typeof useLibrary>['library']
   filters: Filters
   onFiltersChange: (filters: Filters) => void
+  derivedFacets: ReturnType<typeof deriveFacets>
+  lens: DifficultyLens
+  onLensChange: (lens: DifficultyLens) => void
   visible: Parameters<typeof SongList>[0]['songs']
   sortKey: SortKey
   sortDirection: SortDirection
@@ -561,6 +660,9 @@ function LibraryView({
         filters={filters}
         onChange={onFiltersChange}
         facets={library.facets}
+        derived={derivedFacets}
+        lens={lens}
+        onLensChange={onLensChange}
         resultCount={visible.length}
         totalCount={library.meta.count}
         sortKey={sortKey}
@@ -576,6 +678,7 @@ function LibraryView({
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSort={onSort}
+        lens={lens}
         playingId={playingId}
         selection={selection}
         onSelect={onSelect}

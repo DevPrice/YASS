@@ -28,6 +28,8 @@
  */
 
 import type { Song } from '@shared/types'
+import type { DifficultyLens } from '../../lib/difficulty'
+import { LENS_LABELS, lensTier, unratedLabel } from '../../lib/difficulty'
 import {
   LENGTH_BUCKETS,
   artistCredit,
@@ -167,11 +169,12 @@ function sourceMark(song: Song): Mark {
  * past it says the word, which is how anyone learns that the two are the same
  * fact.
  */
-function intensityMark(song: Song): Mark {
-  const tier = intensityTier(song.bandDifficulty)
-  if (tier === null) return { id: 'diff:unrated', glyph: MISSING_GLYPH, label: 'Unrated' }
+function intensityMark(song: Song, lens: DifficultyLens): Mark {
+  const raw = lensTier(song, lens)
+  const tier = intensityTier(raw)
+  if (tier === null) return { id: 'diff:unrated', glyph: MISSING_GLYPH, label: unratedLabel(lens) }
 
-  return { id: `diff:${tier}`, glyph: numeral(String(tier)), label: intensityName(song.bandDifficulty) }
+  return { id: `diff:${tier}`, glyph: numeral(String(tier)), label: intensityName(raw) }
 }
 
 function lengthMark(song: Song): Mark {
@@ -194,7 +197,7 @@ function lengthMark(song: Song): Mark {
  * app draws — it is a username rather than a category. Nothing indexes it, so
  * the rail does not appear, and the list takes the width back.
  */
-const MARKERS: Partial<Record<SortKey, (song: Song) => Mark>> = {
+const MARKERS: Partial<Record<SortKey, (song: Song, lens: DifficultyLens) => Mark>> = {
   name: (song) => letterMark(song.name, 'Untitled'),
   // The credited artist, not the raw field — the name the rows show, the name
   // the sort ordered by, and so the letter the run actually begins under.
@@ -205,20 +208,35 @@ const MARKERS: Partial<Record<SortKey, (song: Song) => Mark>> = {
   genre: (song) => letterMark(song.genre, 'No genre'),
   source: sourceMark,
   year: yearMark,
-  bandDifficulty: intensityMark,
+  difficulty: intensityMark,
   length: lengthMark,
 }
 
 /** What the rail is dividing, for its accessible name. */
-export const INDEX_LABELS: Partial<Record<SortKey, string>> = {
+const INDEX_LABELS: Partial<Record<SortKey, string>> = {
   name: 'title',
   artist: 'artist',
   album: 'album',
   genre: 'genre',
   source: 'source',
   year: 'year',
-  bandDifficulty: 'difficulty',
+  difficulty: 'difficulty',
   length: 'length',
+}
+
+/**
+ * The ordering in the app's own words, which for one key depends on the lens.
+ *
+ * "Jump through the list by difficulty" is true and unhelpful once the rail's
+ * numerals are drum tiers — the whole reason the lens exists is that those are
+ * different scales, and the one control that reads the scale out loud should
+ * say which one it is reading.
+ */
+export function indexLabel(key: SortKey, lens: DifficultyLens): string {
+  const base = INDEX_LABELS[key] ?? 'section'
+  return key === 'difficulty' && lens !== 'band'
+    ? `${LENS_LABELS[lens].toLowerCase()} ${base}`
+    : base
 }
 
 /**
@@ -236,7 +254,11 @@ export const INDEX_LABELS: Partial<Record<SortKey, string>> = {
  * divides: artist coarsens to a letter at both widths, and the walk finds
  * whatever headers are actually there.
  */
-export function buildIndex(items: readonly ListItem[], key: SortKey): IndexMark[] {
+export function buildIndex(
+  items: readonly ListItem[],
+  key: SortKey,
+  lens: DifficultyLens,
+): IndexMark[] {
   const marker = MARKERS[key]
   if (marker === undefined) return []
 
@@ -246,7 +268,7 @@ export function buildIndex(items: readonly ListItem[], key: SortKey): IndexMark[
   items.forEach((item, index) => {
     if (item.kind !== 'song') return
 
-    const mark = marker(item.song)
+    const mark = marker(item.song, lens)
     if (mark.id === current) return
     current = mark.id
 

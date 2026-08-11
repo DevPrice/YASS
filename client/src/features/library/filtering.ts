@@ -5,9 +5,11 @@
  * hook layer stays thin.
  */
 
-import type { InstrumentGroup, Song } from '@shared/types'
+import type { FacetCount, InstrumentGroup, Song } from '@shared/types'
 import { INSTRUMENTS } from '@shared/types'
-import { artistCredit, foldForSearch } from '../../lib/format'
+import type { DifficultyLens } from '../../lib/difficulty'
+import { lensTier } from '../../lib/difficulty'
+import { LENGTH_BUCKETS, artistCredit, foldForSearch, intensityTier, lengthBucket } from '../../lib/format'
 
 export type SortKey =
   | 'name'
@@ -15,23 +17,67 @@ export type SortKey =
   | 'album'
   | 'year'
   | 'length'
-  | 'bandDifficulty'
+  // Whichever instrument the difficulty lens is pointed at, band included. It
+  // was `bandDifficulty` back when band was the only answer available.
+  | 'difficulty'
   | 'charter'
   | 'source'
   | 'genre'
 
 export type SortDirection = 'asc' | 'desc'
 
+/**
+ * "The CSV never said", as a member of a numeric selection.
+ *
+ * Three of the bucketed dimensions have a real bucket for songs the export left
+ * blank — no year, no length, no tier — and each of those is a legitimate thing
+ * to go looking for. `-1` rather than `null` because these live in arrays that
+ * the URL round-trips, and one sentinel that survives `Number()` is cheaper than
+ * a nullable element type in five places.
+ */
+export const UNKNOWN = -1
+
+/**
+ * **Within a dimension, any. Across dimensions, all.**
+ *
+ * Picking two decades widens; picking a decade and a genre narrows. That is
+ * what everyone means by a filter set and it is why every dimension below is a
+ * list rather than a value — the old single-select dropdowns could express
+ * "songs from Rock Band 3" but never "songs from any Rock Band", which is the
+ * question an actual room asks.
+ *
+ * `instruments` is the documented exception and reads the other way: every
+ * selected part must be present. "Guitar, drums, vocals" is one band standing in
+ * a room asking what all three of them can play at once, not three separate
+ * hopes. It is the only dimension where the values are things people *bring*
+ * rather than things a song *is*.
+ *
+ * **`format` was a dimension here and is not any more.** YARG's `EntryType` — a
+ * chart folder, a `.sng`, a CON package — is a fact about how a chart is stored
+ * on the host's disk. It is invisible in the game, invisible on the row, and
+ * nobody standing in a room has ever narrowed four thousand songs by container
+ * format. It was in the panel because the CSV has a column for it, which is the
+ * wrong reason for a control to exist. The server still tallies the facet
+ * alongside `charters` and `playlists`, neither of which the UI has ever drawn.
+ */
 export interface Filters {
   search: string
   sources: string[]
   genres: string[]
-  formats: string[]
-  /** Only songs charting every selected instrument group. */
+  /** Decade start years — `1980` for the eighties. `UNKNOWN` for undated charts. */
+  decades: number[]
+  /** `Song.vocalParts`: 0 instrumental, 1 solo, 2–3 harmonies. */
+  vocals: number[]
+  /** Indexes into `LENGTH_BUCKETS`, plus `UNKNOWN`. */
+  lengths: number[]
+  /**
+   * Difficulty tiers 0–6 under the current lens, plus `UNKNOWN` for a part that
+   * isn't charted. Clamped the way `intensityTier` clamps, so a chart tiered 9
+   * matches the `Impossible` chip rather than nothing at all.
+   */
+  intensities: number[]
+  /** Every selected instrument group must be charted. See above. */
   instruments: InstrumentGroup[]
-  /** Inclusive band-difficulty bounds; null means unbounded. */
-  minDifficulty: number | null
-  maxDifficulty: number | null
   /** Drop the covers — everything the rows introduce with `as made famous by`. */
   masterOnly: boolean
 }
@@ -40,10 +86,11 @@ export const EMPTY_FILTERS: Filters = {
   search: '',
   sources: [],
   genres: [],
-  formats: [],
+  decades: [],
+  vocals: [],
+  lengths: [],
+  intensities: [],
   instruments: [],
-  minDifficulty: null,
-  maxDifficulty: null,
   masterOnly: false,
 }
 
@@ -52,23 +99,50 @@ export function hasActiveFilters(filters: Filters): boolean {
 }
 
 /**
+ * Everything `clear` undoes, lens included.
+ *
+ * The lens is not a filter and is still something somebody set, so a `clear`
+ * that left the list quoting drum tiers would be a control that says it reset
+ * the view and didn't. It is the one piece of state that can survive an empty
+ * filter set, which is exactly why it has to be swept up with them.
+ */
+export function hasActiveView(filters: Filters, lens: DifficultyLens): boolean {
+  return hasActiveFilters(filters) || lens !== 'band'
+}
+
+/**
  * How many filter dimensions the collapsible panel currently constrains.
  *
  * Search is excluded on purpose: it has its own always-visible field, so
  * counting it here would make the panel's badge answer for a control the panel
- * doesn't own. Instruments count once however many are picked — the badge
- * answers "how many things are narrowing this list", not "how many taps".
+ * doesn't own. So is the difficulty lens, which changes what the list *shows*
+ * without removing a single song from it — the badge answers "how many things
+ * are narrowing this list", and a lens narrows nothing.
+ *
+ * Each dimension counts once however many values are picked, for the same
+ * reason: eight decades is one question answered, not eight.
  */
 export function panelFilterCount(filters: Filters): number {
   return (
     (filters.sources.length > 0 ? 1 : 0) +
     (filters.genres.length > 0 ? 1 : 0) +
-    (filters.formats.length > 0 ? 1 : 0) +
+    (filters.decades.length > 0 ? 1 : 0) +
+    (filters.vocals.length > 0 ? 1 : 0) +
+    (filters.lengths.length > 0 ? 1 : 0) +
+    (filters.intensities.length > 0 ? 1 : 0) +
     (filters.instruments.length > 0 ? 1 : 0) +
-    (filters.minDifficulty !== null ? 1 : 0) +
-    (filters.maxDifficulty !== null ? 1 : 0) +
     (filters.masterOnly ? 1 : 0)
   )
+}
+
+/** Add or remove one value from a multi-select dimension, preserving order. */
+export function toggleValue<T>(values: readonly T[], value: T): T[] {
+  return values.includes(value) ? values.filter((v) => v !== value) : [...values, value]
+}
+
+/** The decade a song files under, or `UNKNOWN`. */
+export function songDecade(song: Song): number {
+  return song.yearNumber === null ? UNKNOWN : Math.floor(song.yearNumber / 10) * 10
 }
 
 /** Instrument keys that satisfy each group, precomputed once. */
@@ -81,6 +155,63 @@ for (const instrument of INSTRUMENTS) {
 function hasInstrumentGroup(song: Song, group: InstrumentGroup): boolean {
   const keys = GROUP_KEYS.get(group) ?? []
   return keys.some((key) => song.difficulties[key] !== null)
+}
+
+/**
+ * The three facets nobody sends over the wire.
+ *
+ * `SongFacets` is built by the server and carries the columns the CSV has as
+ * columns — source, genre, charter, format, playlist. Decade, vocal count and
+ * length bucket are not columns; they are this app's cuts across `yearNumber`,
+ * `vocalParts` and `lengthSeconds`, and two of the three cut at boundaries that
+ * live in `lib/format.ts` because YARG drew them. Asking the server for them
+ * would mean shipping that table across the wire so the server could bucket
+ * with it, which is a coupling bought for one pass over an array already in
+ * memory.
+ *
+ * Counts are library-wide rather than result-relative, which is what the
+ * server's facets already are — a count beside a chip says how much is *there*,
+ * not how much would survive the filters you have already set.
+ */
+export interface DerivedFacets {
+  /** Descending by recency: the twenties before the sixties. */
+  decades: FacetCount[]
+  vocals: FacetCount[]
+  lengths: FacetCount[]
+}
+
+/** Tally one numeric cut, dropping buckets no song landed in. */
+function tallyNumbers(values: readonly number[]): Map<number, number> {
+  const counts = new Map<number, number>()
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1)
+  return counts
+}
+
+export function deriveFacets(songs: readonly Song[]): DerivedFacets {
+  const decades = tallyNumbers(songs.map(songDecade))
+  const vocals = tallyNumbers(songs.map((song) => song.vocalParts))
+  const lengths = tallyNumbers(songs.map((song) => lengthBucket(song.lengthSeconds) ?? UNKNOWN))
+
+  const entries = (counts: Map<number, number>, order: (a: number, b: number) => number) =>
+    [...counts.entries()]
+      .sort(([a], [b]) => order(a, b))
+      .map(([value, count]) => ({ value: String(value), count }))
+
+  return {
+    // Newest first, and undated last whichever way that runs — the same "unknown
+    // is never the earliest" rule the sort comparators follow.
+    decades: entries(decades, (a, b) => (a === UNKNOWN ? 1 : b === UNKNOWN ? -1 : b - a)),
+    // Ascending, so the row reads instrumental → solo → two → three, which is
+    // the order the microphone glyphs gain microphones.
+    vocals: entries(vocals, (a, b) => a - b),
+    // Shortest first; unknown last, as above.
+    lengths: entries(lengths, (a, b) => (a === UNKNOWN ? 1 : b === UNKNOWN ? -1 : a - b)),
+  }
+}
+
+/** `LENGTH_BUCKETS` is fixed, so a bucket index either names one or is `UNKNOWN`. */
+export function lengthBucketName(index: number): string {
+  return LENGTH_BUCKETS[index]?.label ?? 'Unknown length'
 }
 
 /**
@@ -114,30 +245,51 @@ function matchesSearch(song: Song, terms: readonly string[]): boolean {
   return terms.every((term) => haystack.includes(term))
 }
 
-export function filterSongs(songs: readonly Song[], filters: Filters): Song[] {
+/**
+ * Narrow the library.
+ *
+ * The lens is a parameter rather than part of `Filters` because it is not one:
+ * it decides *which* difficulty the intensity chips are asking about, and it
+ * goes on deciding that for the sort, the ring and the rail long after the
+ * chips are cleared. Threading it in keeps one value answering one question in
+ * five places instead of five copies drifting apart.
+ */
+export function filterSongs(
+  songs: readonly Song[],
+  filters: Filters,
+  lens: DifficultyLens,
+): Song[] {
   const terms = foldForSearch(filters.search).split(/\s+/).filter(Boolean)
 
-  // Sets beat repeated Array.includes when a facet has many selections.
+  // Sets beat repeated Array.includes when a facet has many selections — which
+  // is now the normal case rather than the pathological one.
   const sources = new Set(filters.sources)
   const genres = new Set(filters.genres)
-  const formats = new Set(filters.formats)
+  const decades = new Set(filters.decades)
+  const vocals = new Set(filters.vocals)
+  const lengths = new Set(filters.lengths)
+  const intensities = new Set(filters.intensities)
 
   return songs.filter((song) => {
     if (sources.size > 0 && !sources.has(song.source)) return false
     if (genres.size > 0 && !genres.has(song.genre)) return false
-    if (formats.size > 0 && !formats.has(song.format)) return false
+    if (decades.size > 0 && !decades.has(songDecade(song))) return false
+    if (vocals.size > 0 && !vocals.has(song.vocalParts)) return false
+    if (lengths.size > 0 && !lengths.has(lengthBucket(song.lengthSeconds) ?? UNKNOWN)) return false
+
+    // Clamped, so the seven chips cover the whole scale: charts do tier above
+    // six, and `Impossible` has to catch them or they would be selectable by
+    // nothing. Same rule `intensityGroup` files them under.
+    if (intensities.size > 0 && !intensities.has(intensityTier(lensTier(song, lens)) ?? UNKNOWN)) {
+      return false
+    }
+
     // The same judgment the rows show, not the raw `Master` column: a chart
     // credited to `Blondie (WaveGroup)` reads `as made famous by` whatever that
     // column says, and `Originals only` has to hide exactly what it marks.
     if (filters.masterOnly && artistCredit(song).madeFamousBy) return false
 
-    if (filters.minDifficulty !== null) {
-      if (song.bandDifficulty === null || song.bandDifficulty < filters.minDifficulty) return false
-    }
-    if (filters.maxDifficulty !== null) {
-      if (song.bandDifficulty === null || song.bandDifficulty > filters.maxDifficulty) return false
-    }
-
+    // The one dimension that means "all of", not "any of". See `Filters`.
     for (const group of filters.instruments) {
       if (!hasInstrumentGroup(song, group)) return false
     }
@@ -292,7 +444,12 @@ function compareWithinArtist(a: Song, b: Song): number {
   return collator.compare(sortTextFor(a).name, sortTextFor(b).name)
 }
 
-export function sortSongs(songs: Song[], key: SortKey, direction: SortDirection): Song[] {
+export function sortSongs(
+  songs: Song[],
+  key: SortKey,
+  direction: SortDirection,
+  lens: DifficultyLens,
+): Song[] {
   const sorted = [...songs]
 
   sorted.sort((a, b) => {
@@ -305,8 +462,11 @@ export function sortSongs(songs: Song[], key: SortKey, direction: SortDirection)
       case 'length':
         primary = compareNullableNumbers(a.lengthSeconds, b.lengthSeconds, direction)
         break
-      case 'bandDifficulty':
-        primary = compareNullableNumbers(a.bandDifficulty, b.bandDifficulty, direction)
+      // Whichever part the lens is pointed at. `lensTier` caches per song, which
+      // matters here and nowhere else: this comparator runs O(n log n) times and
+      // the uncharted case walks all twenty instrument keys.
+      case 'difficulty':
+        primary = compareNullableNumbers(lensTier(a, lens), lensTier(b, lens), direction)
         break
       // Title, artist and album sort on their filed form; everything below
       // them sorts on what the CSV said. A charter handle is a username and a

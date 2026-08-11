@@ -33,11 +33,13 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
 import { EmptyState, SortArrow, cx } from '../../ui'
-import { ArtistName, BandDifficulty, InstrumentStrip, SourceBadge } from '../../ui/library'
+import { ArtistName, InstrumentStrip, LensDifficulty, SourceBadge } from '../../ui/library'
+import type { DifficultyLens } from '../../lib/difficulty'
+import { LENS_LABELS } from '../../lib/difficulty'
 import { formatDuration, formatYear } from '../../lib/format'
 import { groupSongs } from './grouping'
 import { IndexRail } from './IndexRail'
-import { INDEX_LABELS, buildIndex } from './indexing'
+import { buildIndex, indexLabel } from './indexing'
 import type { SortDirection, SortKey } from './filtering'
 
 /**
@@ -135,15 +137,31 @@ const COLUMNS: Array<{
   // Five fixed slots, so the column reads as a matrix down the page rather
   // than a ragged list. Sorting by it would mean inventing an order over a set.
   { key: null, label: 'parts', className: 'w-28 shrink-0 hidden @4xl/list:flex' },
-  { key: 'bandDifficulty', label: 'diff', className: 'w-20 shrink-0 text-right' },
+  { key: 'difficulty', label: 'diff', className: 'w-20 shrink-0 text-right' },
   { key: 'source', label: 'source', className: 'w-40 shrink-0 hidden @5xl/list:flex' },
 ]
+
+/**
+ * What the difficulty column is called, which is the lens's name or nothing.
+ *
+ * `diff` under the band lens, because the ring below it wears YARG's BAND mark
+ * and the word would be naming what the picture already says. Under an
+ * instrument it becomes `drums` — the column is quoting a different scale from
+ * the one it quoted a moment ago, and 80px is enough for the word that says so.
+ * Not `drums diff`: the ring is the only thing in the column, so what it is
+ * measuring is not in question. Which part is.
+ */
+function difficultyColumnLabel(lens: DifficultyLens): string {
+  return lens === 'band' ? 'diff' : LENS_LABELS[lens].toLowerCase()
+}
 
 interface SongListProps {
   songs: readonly Song[]
   sortKey: SortKey
   sortDirection: SortDirection
   onSort: (key: SortKey) => void
+  /** Which part every difficulty on this surface is about. See `lib/difficulty`. */
+  lens: DifficultyLens
   playingId: string | null
   selection: Selection | null
   onSelect: (song: Song) => void
@@ -158,6 +176,7 @@ export function SongList({
   sortKey,
   sortDirection,
   onSort,
+  lens,
   playingId,
   selection,
   onSelect,
@@ -243,8 +262,8 @@ export function SongList({
    * row has the artist stacked under every title already. See `grouping.ts`.
    */
   const items = useMemo(
-    () => groupSongs(songs, sortKey, isNarrow ? 'narrow' : 'wide'),
-    [songs, sortKey, isNarrow],
+    () => groupSongs(songs, sortKey, isNarrow ? 'narrow' : 'wide', lens),
+    [songs, sortKey, isNarrow, lens],
   )
 
   /**
@@ -329,7 +348,7 @@ export function SongList({
    * the header that opens its run — see `indexing.ts`. Memoized on the same
    * value, so it is recomputed exactly when the grouping is.
    */
-  const marks = useMemo(() => buildIndex(items, sortKey), [items, sortKey])
+  const marks = useMemo(() => buildIndex(items, sortKey, lens), [items, sortKey, lens])
 
   const virtualItems = virtualizer.getVirtualItems()
 
@@ -395,6 +414,7 @@ export function SongList({
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSort={onSort}
+        lens={lens}
         gutter={gutter}
       />
 
@@ -491,6 +511,7 @@ export function SongList({
                 >
                   <SongRow
                     song={item.song}
+                    lens={lens}
                     isPlaying={item.song.id === playingId}
                     isSelected={item.song.id === selection?.id}
                     onSelect={onSelect}
@@ -506,10 +527,10 @@ export function SongList({
             marks={marks}
             currentItem={currentItem}
             onJump={jumpTo}
-            // The ordering in the app's own words. `bandDifficulty` is `diff` in
-            // the column header because a column is 20px wide; a spoken name
-            // has no such excuse.
-            sortLabel={INDEX_LABELS[sortKey] ?? 'section'}
+            // The ordering in the app's own words. `difficulty` is `diff` in the
+            // column header because a column is 80px wide; a spoken name has no
+            // such excuse, and under a lens it says which part it is dividing.
+            sortLabel={indexLabel(sortKey, lens)}
           />
         ) : null}
       </div>
@@ -576,8 +597,9 @@ function SortHeader({
   sortKey,
   sortDirection,
   onSort,
+  lens,
   gutter,
-}: Pick<SongListProps, 'sortKey' | 'sortDirection' | 'onSort'> & { gutter: number }) {
+}: Pick<SongListProps, 'sortKey' | 'sortDirection' | 'onSort' | 'lens'> & { gutter: number }) {
   return (
     <div
       className="yarg-wash-header hidden items-center gap-[15px] px-[25px] py-[10px] @2xl/list:flex"
@@ -592,6 +614,8 @@ function SortHeader({
       {COLUMNS.map((column) => {
         const active = column.key === sortKey
         const alignEnd = column.className.includes('text-right')
+        // One column renames itself; `column.label` stays the stable React key.
+        const text = column.key === 'difficulty' ? difficultyColumnLabel(lens) : column.label
 
         // Not every column is an ordering. `parts` is a set per row, and
         // sorting by a set means inventing a comparison the data doesn't have.
@@ -605,7 +629,7 @@ function SortHeader({
                 alignEnd && 'justify-end',
               )}
             >
-              {column.label}
+              {text}
             </span>
           )
         }
@@ -621,10 +645,10 @@ function SortHeader({
             // button it is inert, so the state goes in the name instead.
             aria-label={
               active
-                ? `Sort by ${column.label}, currently ${
+                ? `Sort by ${text}, currently ${
                     sortDirection === 'asc' ? 'ascending' : 'descending'
                   }. Activate to reverse`
-                : `Sort by ${column.label}`
+                : `Sort by ${text}`
             }
             className={cx(
               column.className,
@@ -638,7 +662,7 @@ function SortHeader({
               'yarg-focusable pointer-coarse:py-[16px]',
             )}
           >
-            <span className="truncate">{column.label}</span>
+            <span className="truncate">{text}</span>
             {active ? <SortArrow direction={sortDirection} /> : null}
           </button>
         )
@@ -649,11 +673,13 @@ function SortHeader({
 
 function SongRow({
   song,
+  lens,
   isPlaying,
   isSelected,
   onSelect,
 }: {
   song: Song
+  lens: DifficultyLens
   isPlaying: boolean
   isSelected: boolean
   onSelect: (song: Song) => void
@@ -764,7 +790,7 @@ function SongRow({
             five slots stop lining up with the label above them. */}
         <InstrumentStrip song={song} className="hidden w-28 shrink-0 @4xl/list:flex" />
         <div className="flex w-20 shrink-0 justify-end">
-          <BandDifficulty tier={song.bandDifficulty} />
+          <LensDifficulty song={song} lens={lens} />
         </div>
         <SourceBadge
           source={song.source}
@@ -804,7 +830,7 @@ function SongRow({
         </span>
         {/* 28px on the phone row, not 32: the narrow row is 60px tall and the
             ring is the only thing in that cluster with real height to it. */}
-        <BandDifficulty tier={song.bandDifficulty} size={28} />
+        <LensDifficulty song={song} lens={lens} size={28} />
       </div>
     </button>
   )

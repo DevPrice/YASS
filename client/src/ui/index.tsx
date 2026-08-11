@@ -181,7 +181,7 @@ export function TextField({ leading, trailing, className, inputRef, ...props }: 
     <div
       className={cx(
         'flex items-center gap-[10px] bg-surface-sunken px-[15px]',
-        'focus-within:shadow-[inset_0_0_0_2px_rgba(69,216,254,0.5)]',
+        'focus-within:shadow-[inset_0_0_0_2px_var(--accent-edge)]',
         'shadow-[inset_0_0_0_2px_var(--color-border-strong)] transition-shadow duration-160',
         // The inset glow reads as the field lighting up, which is the design's
         // own language — but it's a box-shadow, so forced-colors drops it. The
@@ -301,10 +301,13 @@ export function ToggleChip({
       )}
       style={{
         borderRadius: 'var(--radius-pill)',
-        background: active ? 'rgba(69,216,254,0.2)' : 'transparent',
-        boxShadow: active
-          ? 'inset 0 0 0 2px rgba(69,216,254,0.5)'
-          : 'inset 0 0 0 2px var(--color-border-strong)',
+        // Through the named accent compositings in `index.css` rather than as
+        // retyped `rgba(69,216,254,…)` literals — see the rule at the top of
+        // this file, which these three were the longest-standing breach of.
+        background: active ? 'var(--accent-tint)' : 'transparent',
+        boxShadow: `inset 0 0 0 var(--stroke) ${
+          active ? 'var(--accent-edge)' : 'var(--color-border-strong)'
+        }`,
       }}
     >
       {children}

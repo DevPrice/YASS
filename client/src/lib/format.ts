@@ -57,6 +57,14 @@ const INTENSITY_NAMES = [
  * Clamped, so a chart tiered 9 and a chart tiered 6 are both `Impossible` and
  * land in one run rather than three headers all reading the same word.
  */
+/**
+ * Every tier the scale names, which is exactly what the difficulty chips offer.
+ *
+ * Derived from the table rather than written out as `[0,1,2,3,4,5,6]`, so a
+ * seventh name would grow the filter without anyone remembering to.
+ */
+export const INTENSITY_TIERS: readonly number[] = INTENSITY_NAMES.map((_, tier) => tier)
+
 export function intensityTier(tier: number | null): number | null {
   if (tier === null || !Number.isFinite(tier)) return null
 
@@ -86,14 +94,17 @@ export function intensityName(tier: number | null): string {
  * 02:00` up — sitting behind a `UseLegacyLengthLabels` flag that is `true`.
  * Four buckets is what YARG actually ships, so four is what this follows.
  *
- * `short` is the same fact with no room to say it: two or three characters, for
- * the jump rail, where a slot is 38px wide. See `indexing.ts`.
+ * Each bucket says itself at three lengths, because three surfaces have three
+ * different amounts of room. `label` is the whole thing, for a category header
+ * and a filter token. `name` is the bare word, for a chip that shows the range
+ * beside it in its own dimmer type. `short` is two or three characters, for the
+ * jump rail, where a slot is 38px wide. See `indexing.ts`.
  */
 export const LENGTH_BUCKETS = [
-  { belowSeconds: 180, label: 'Short (under 3 min)', short: '<3' },
-  { belowSeconds: 300, label: 'Medium (3–5 min)', short: '3–5' },
-  { belowSeconds: 420, label: 'Long (5–7 min)', short: '5–7' },
-  { belowSeconds: Infinity, label: 'Epic (over 7 min)', short: '7+' },
+  { belowSeconds: 180, name: 'Short', label: 'Short (under 3 min)', short: '<3' },
+  { belowSeconds: 300, name: 'Medium', label: 'Medium (3–5 min)', short: '3–5' },
+  { belowSeconds: 420, name: 'Long', label: 'Long (5–7 min)', short: '5–7' },
+  { belowSeconds: Infinity, name: 'Epic', label: 'Epic (over 7 min)', short: '7+' },
 ] as const
 
 /** Which bucket a length falls in, or null when the CSV omitted it. */

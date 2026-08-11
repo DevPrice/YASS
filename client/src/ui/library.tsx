@@ -7,10 +7,12 @@
 
 import type { CSSProperties, ReactNode } from 'react'
 
-import type { InstrumentGroup, InstrumentKey, Song } from '@shared/types'
+import type { InstrumentGroup, Song } from '@shared/types'
 import { INSTRUMENT_GROUPS, INSTRUMENTS } from '@shared/types'
 
 import { GROUP_ART, INSTRUMENT_ART } from '../design/assets'
+import type { DifficultyLens } from '../lib/difficulty'
+import { LENS_LABELS, groupTier, lensTier } from '../lib/difficulty'
 import { artistCredit, formatVocalParts } from '../lib/format'
 import { resolveSource } from '../lib/sources'
 import { cx } from './index'
@@ -312,42 +314,6 @@ export function InstrumentStrip({
       ))}
     </span>
   )
-}
-
-/**
- * The instrument a player is actually handed for each family.
- *
- * A group's difficulty is not one number — `guitar` spans 5-fret, 6-fret and
- * two Pro Guitar charts, and Pro Guitar routinely tiers three above the
- * standard one. Reporting the hardest would tell a guitarist a song is a 6 when
- * the chart they'll play is a 3; reporting the easiest would do the reverse. So
- * each family reports its standard chart, which is the one that gets picked
- * unless somebody has brought a special controller.
- */
-const PRIMARY_KEY: Record<InstrumentGroup, InstrumentKey> = {
-  guitar: 'guitar5',
-  bass: 'bass5',
-  drums: 'drums4',
-  keys: 'keys',
-  vocals: 'vocals',
-}
-
-/** The standard chart's tier, or the first alternate charted, or null. */
-function groupTier(song: Song, group: InstrumentGroup): number | null {
-  const primary = song.difficulties[PRIMARY_KEY[group]]
-  if (primary !== null) return primary
-
-  // Pro-only charts exist. A song with Pro Drums and no 4-lane still has drums,
-  // and saying "no drums" because the standard chart is missing would be worse
-  // than quoting the chart that does exist.
-  for (const instrument of INSTRUMENTS) {
-    if (instrument.group !== group) continue
-
-    const tier = song.difficulties[instrument.key]
-    if (tier !== null) return tier
-  }
-
-  return null
 }
 
 /**
@@ -689,25 +655,24 @@ export function PartsGrid({ song }: { song: Song }) {
 }
 
 /**
- * Band difficulty, wearing the same ring every part wears — around YARG's own
- * BAND mark.
+ * The row's difficulty, wearing the same ring every part wears — around
+ * whichever mark the lens is pointed at.
  *
  * **The song list is the only thing that renders this.** It was on three
  * surfaces and lost two of them for the same reason: the detail pane shows all
- * five per-part rings, which is what this number summarises, and the banner is
+ * five per-part rings, which is what a summary summarises, and the banner is
  * a strip that says what is playing rather than a place anybody chooses from.
  * A row is where a summary earns its keep — one slot for difficulty, four
  * thousand rows to scan.
  *
- * The middle used to be empty, which is what an empty ring looks like: a
- * loading spinner. Every other ring in the app has an instrument in it, so a
- * bare one read as a ring that had failed to load its glyph rather than as a
- * ring whose subject is the whole band. YARG draws that subject itself, in the
- * same disc-inside-a-ring style as the five instruments — see
- * `design/README.md` for where it came from — so the mark is now the same kind
- * of object as its neighbours. That matters more now than it did: on a phone
- * row there is no column header, and the mark is the only thing saying what the
- * ring is counting.
+ * **The mark in the middle is what makes the lens legible at all.** On a phone
+ * row there is no column header, so the glyph is the only thing saying what the
+ * ring is counting — and once that can be a drum kit rather than YARG's BAND
+ * mark, it is the difference between "this song is a 5" and "the drums on this
+ * song are a 2". The five instrument glyphs and the band mark are the same kind
+ * of object drawn in the same disc-inside-a-ring style (see `design/README.md`
+ * for where the band one came from), so swapping between them changes the
+ * subject without changing the shape.
  *
  * A glyph in the middle also puts an over-6 tier on the badge at the bottom
  * edge rather than in the centre, which is the same place the parts grid puts
@@ -720,13 +685,27 @@ export function PartsGrid({ song }: { song: Song }) {
  * on a guess. Deciding what YARG actually means needs the exporter, not this
  * component; the `title` says so for anything with a pointer.
  */
-export function BandDifficulty({
-  tier,
+export function LensDifficulty({
+  song,
+  lens,
   size = 32,
 }: {
-  tier: number | null
+  song: Song
+  lens: DifficultyLens
   size?: number | string
 }) {
+  const tier = lensTier(song, lens)
+  const art = lens === 'band' ? (INSTRUMENT_ART['band'] ?? '') : groupArt(lens, song)
+
+  /*
+   * "Band difficulty unrated" and "no drums charted" are different facts, and
+   * the sentence has to be the one that is true — an instrument lens over a
+   * song that never had that part is reporting an absence, not a missing
+   * rating. Same distinction `unratedLabel` draws for the filter chip.
+   */
+  const name = lens === 'band' ? 'Band difficulty' : `${LENS_LABELS[lens]} difficulty`
+  const absent = lens === 'band' ? 'Band difficulty unrated' : `No ${LENS_LABELS[lens].toLowerCase()} part`
+
   return (
     <span
       className="inline-flex items-center"
@@ -737,12 +716,10 @@ export function BandDifficulty({
        * place the number survives now, which is the reason it is a sentence and
        * not a digit.
        */}
-      <span className="sr-only">
-        {tier === null ? 'Band difficulty unrated' : `Band difficulty ${tier}`}
-      </span>
+      <span className="sr-only">{tier === null ? absent : `${name} ${tier}`}</span>
       <DifficultyRing tier={tier} size={size}>
         <img
-          src={INSTRUMENT_ART['band'] ?? ''}
+          src={art}
           alt=""
           aria-hidden
           loading="lazy"
