@@ -180,7 +180,14 @@ function clamp(value: number, min: number, max: number): number {
  */
 function applyBounds(centreOn?: number): void {
   const target = popoverWindow()
-  if (!target || !placement) return
+  if (!target) return
+
+  if (!placement) {
+    // Measured before it was ever positioned — the first render happens while
+    // the window is still hidden. Take the height; `position()` will place it.
+    target.setBounds({ width: WIDTH, height })
+    return
+  }
 
   const { x, edge, area } = placement
 

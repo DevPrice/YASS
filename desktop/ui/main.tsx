@@ -76,14 +76,27 @@ function Button({
     },
   }[tone]
 
+  /*
+   * Disabled is its own fill, not the tone at 40% opacity. Fading the accent
+   * pill put its dark text on a dark page at 1.93:1 — the primary action,
+   * illegible in its resting state. WCAG exempts disabled controls, which is
+   * exactly why nothing flagged it.
+   */
+  const inert = {
+    background: 'color-mix(in srgb, var(--yarg-dark-6) 35%, transparent)',
+    boxShadow: 'inset 0 0 0 2px color-mix(in srgb, var(--yarg-dark-6) 70%, transparent)',
+    color: 'var(--yarg-dark-7)',
+  }
+
   return (
     <button
       type="button"
       {...props}
-      style={tones}
+      style={props.disabled ? inert : tones}
       className={cx(
         'yarg-label rounded-[50px] px-3 py-2 text-label tracking-wide',
-        'transition-[filter] hover:brightness-125 disabled:cursor-default disabled:opacity-40 disabled:hover:brightness-100',
+        'transition-[filter] hover:brightness-125',
+        'disabled:cursor-default disabled:hover:brightness-100',
         FOCUS,
         className,
       )}
