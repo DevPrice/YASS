@@ -53,11 +53,10 @@ export const CHANNELS = {
   pickDirectory: 'yass:pick-directory',
   pickFile: 'yass:pick-file',
   restartServer: 'yass:restart-server',
-  reloadClients: 'yass:reload-clients',
   setOpenAtLogin: 'yass:set-open-at-login',
   openInBrowser: 'yass:open-in-browser',
   copyText: 'yass:copy-text',
-  quit: 'yass:quit',
+  resize: 'yass:resize',
   /** Main → renderer: pushed whenever anything above changes. */
   state: 'yass:state',
 } as const
@@ -70,7 +69,6 @@ export interface DesktopApi {
   pickDirectory(current: string): Promise<string | null>
   pickFile(current: string): Promise<string | null>
   restartServer(): Promise<DesktopState>
-  reloadClients(): Promise<boolean>
   setOpenAtLogin(enabled: boolean): Promise<DesktopState>
   openInBrowser(): void
   /**
@@ -81,7 +79,14 @@ export interface DesktopApi {
    * nothing is worse than no copy button.
    */
   copyText(text: string): void
-  quit(): void
+  /**
+   * How tall the content is, so the window can be that tall.
+   *
+   * Only the renderer knows: the height depends on which state the card is in,
+   * whether the settings are folded open, and how many warnings the CSV load
+   * produced. Main clamps it against the work area.
+   */
+  resize(height: number): void
   /** Subscribe to state pushes. Returns an unsubscribe function. */
   onState(listener: (state: DesktopState) => void): () => void
 }

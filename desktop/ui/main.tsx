@@ -85,6 +85,25 @@ function Button({
   )
 }
 
+/** A bordered text button, for things that sit beside content rather than under it. */
+function QuietButton({
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={cx(
+        'yarg-label shrink-0 rounded-[5px] px-2 py-1 text-[10px] text-content-muted',
+        'border border-border-strong hover:text-content',
+        FOCUS,
+        className,
+      )}
+    />
+  )
+}
+
 /**
  * A found/not-found marker.
  *
@@ -108,6 +127,62 @@ function PathStatus({ ok, found, missing }: { ok: boolean; found: string; missin
       />
       {ok ? found : missing}
     </span>
+  )
+}
+
+/**
+ * The settings, folded away.
+ *
+ * A host opens this window to read an address or to fix something; they change
+ * a path maybe twice a year. `<details>` rather than a hand-rolled toggle,
+ * because the keyboard behaviour and the accessibility tree come with it.
+ */
+function Disclosure({
+  summary,
+  flagged,
+  open,
+  onToggle,
+  children,
+}: {
+  summary: string
+  flagged: boolean
+  open: boolean
+  onToggle: (open: boolean) => void
+  children: React.ReactNode
+}) {
+  return (
+    <details
+      open={open}
+      onToggle={(event) => onToggle(event.currentTarget.open)}
+      className="group rounded-[10px] border border-border"
+    >
+      <summary
+        className={cx(
+          'flex cursor-default list-none items-center gap-2 rounded-[10px] px-3 py-2.5',
+          '[&::-webkit-details-marker]:hidden',
+          FOCUS,
+        )}
+      >
+        <span className="yarg-label flex-1 text-[11px] text-content-muted">{summary}</span>
+        {/* Something in here needs looking at, said before it is opened. */}
+        {flagged ? <span aria-hidden className="size-1.5 rounded-full bg-warning" /> : null}
+        <svg
+          viewBox="0 0 12 12"
+          aria-hidden
+          className="size-3 text-content-faint transition-transform group-open:rotate-180"
+        >
+          <path
+            d="M2.5 4.5 6 8l3.5-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </summary>
+      <div className="space-y-3 px-3 pb-3">{children}</div>
+    </details>
   )
 }
 
@@ -150,13 +225,7 @@ function CopyRow({ url }: { url: string }) {
       <code className="selectable min-w-0 flex-1 truncate font-numeric text-[12px] text-accent">
         {url}
       </code>
-      <button
-        type="button"
-        className={cx(
-          'yarg-label shrink-0 rounded-[5px] px-2 py-1 text-[10px] text-content-muted',
-          'border border-border-strong hover:text-content',
-          FOCUS,
-        )}
+      <QuietButton
         onClick={() => {
           window.yass.copyText(url)
           setCopied(true)
@@ -165,7 +234,7 @@ function CopyRow({ url }: { url: string }) {
         }}
       >
         {copied ? 'copied' : 'copy'}
-      </button>
+      </QuietButton>
     </div>
   )
 }
@@ -263,8 +332,12 @@ function StatusBlock({
 
   return (
     <section className="rounded-[10px] bg-surface-card p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
-      <div className="flex items-center justify-between gap-2">
-        <span className={cx('yarg-label text-[13px]', status.tone)}>{status.label}</span>
+      <div className="flex items-center gap-2">
+        <span className={cx('yarg-label flex-1 text-[13px]', status.tone)}>{status.label}</span>
+        {/* Beside the state it acts on, rather than in a row of unrelated verbs. */}
+        {kind === 'ready' ? (
+          <QuietButton onClick={() => window.yass.openInBrowser()}>open</QuietButton>
+        ) : null}
         <Button onClick={onRestart} disabled={busy}>
           {busy ? 'working…' : 'restart server'}
         </Button>
@@ -351,6 +424,13 @@ function StatusBlock({
 
 // --- The form ---------------------------------------------------------------
 
+/**
+ * What the measurement has to add back: `py-4` top and bottom, plus the 1px
+ * border the frameless window wears on each edge. Two pixels short and the
+ * window grows a scrollbar for content that fits.
+ */
+const SCROLLER_PADDING = 32 + 2
+
 /** The bind addresses worth offering; anything else the file already holds. */
 const HOSTS = [
   { value: '0.0.0.0', label: 'Everything on the network' },
@@ -364,6 +444,11 @@ function App() {
   const [saved, setSaved] = useState(false)
   /** The last thing that went wrong, because silence is not a response. */
   const [failure, setFailure] = useState<string | null>(null)
+  /** Null until the host has an opinion; the default is computed from the paths. */
+  const [settingsOpen, setSettingsOpen] = useState<boolean | null>(null)
+
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const footerRef = useRef<HTMLElement>(null)
 
   const apply = useCallback((next: DesktopState) => {
     setState(next)
@@ -383,6 +468,37 @@ function App() {
     void window.yass.getState().then(setState)
     return window.yass.onState(apply)
   }, [apply])
+
+  // A confirmation that never expires stops being a confirmation: the footer
+  // used to still read "saved" ten minutes after a save nobody remembers.
+  useEffect(() => {
+    if (!saved) return
+    const timer = window.setTimeout(() => setSaved(false), 2500)
+    return () => window.clearTimeout(timer)
+  }, [saved])
+
+  /**
+   * Tell main how tall this wants to be.
+   *
+   * Measured first-child-top to last-child-bottom rather than from the
+   * scroller's `scrollHeight`: the scroller is `flex-1`, so its scroll height
+   * can never come out smaller than the window, and the window could grow but
+   * never shrink back.
+   */
+  const measure = useCallback(() => {
+    const scroller = scrollerRef.current
+    const first = scroller?.firstElementChild
+    const last = scroller?.lastElementChild
+    if (!first || !last) return
+
+    const content = last.getBoundingClientRect().bottom - first.getBoundingClientRect().top
+    window.yass.resize(content + SCROLLER_PADDING + (footerRef.current?.offsetHeight ?? 0))
+  }, [])
+
+  // After every render, because every render is a content change.
+  useEffect(measure)
+  // And once more when the faces land, which moves every line of text.
+  useEffect(() => void document.fonts.ready.then(measure), [measure])
 
   const settings: Settings | null = useMemo(
     () => (state ? { ...state.view.settings, ...draft } : null),
@@ -451,14 +567,17 @@ function App() {
   // one that can put the app in a "restart to apply" state.
   const portPending = dirty && (draft.port !== undefined || draft.host !== undefined)
 
+  // Opened for you when a path is wrong, because that is the one time the
+  // settings are the reason you came.
+  const needsAttention = !status.yargDataDirExists || !status.songListCsvExists
+
   return (
     <div className="flex h-full flex-col bg-surface text-content">
-      <header className="flex items-baseline justify-between border-b border-border px-4 py-3">
-        <h1 className="yarg-label text-[18px] text-content">YASS</h1>
-        <span className="font-numeric text-[10px] text-content-faint">v{state.version}</span>
-      </header>
-
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      {/*
+       * No wordmark. You arrived here by clicking an icon you already know the
+       * name of, and the 44px it cost was paid for out of the content below it.
+       */}
+      <div ref={scrollerRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
         <StatusBlock
           state={state}
           busy={busy}
@@ -486,175 +605,183 @@ function App() {
           </p>
         ) : null}
 
-        {!state.liveApply && state.server.status === 'running' ? (
-          <p className="text-[11px] text-content-faint">
-            Bound to one specific address, so changes are written to the settings file and
-            applied on the next restart rather than live.
-          </p>
-        ) : null}
-
-        <Field
-          label="YARG data folder"
-          overridden={overridden('yargDataDir')}
-          hint={
-            <PathStatus
-              ok={status.currentSongJsonExists}
-              found="currentSong.json found"
-              missing={
-                status.yargDataDirExists
-                  ? 'no currentSong.json yet — YARG writes it when it plays'
-                  : 'folder not found'
-              }
-            />
-          }
+        <Disclosure
+          summary="Settings"
+          flagged={needsAttention}
+          open={settingsOpen ?? needsAttention}
+          onToggle={setSettingsOpen}
         >
-          <div className="flex gap-2">
-            <input
-              className={FIELD_CLASS}
-              value={settings.yargDataDir}
-              spellCheck={false}
-              onChange={(event) => edit({ yargDataDir: event.target.value })}
-            />
-            <Button
-              className="shrink-0"
-              onClick={() =>
-                void window.yass
-                  .pickDirectory(settings.yargDataDir)
-                  .then((picked) => {
-                    // Cancel returns null and must leave the field alone.
-                    if (picked) edit({ yargDataDir: picked })
-                  })
-                  .catch(report)
-              }
-            >
-              browse
-            </Button>
-          </div>
-        </Field>
+          {!state.liveApply && state.server.status === 'running' ? (
+            <p className="text-[11px] text-content-faint">
+              Bound to one specific address, so changes are written to the settings file and
+              applied on the next restart rather than live.
+            </p>
+          ) : null}
 
-        <Field
-          label="Song list export"
-          overridden={overridden('songListCsvPath')}
-          hint={
-            settings.songListCsvPath ? (
-              <PathStatus ok={status.songListCsvExists} found="found" missing="file not found" />
-            ) : (
-              "YARG writes this from Settings → Export Songs List. Without it there's no song list."
-            )
-          }
-        >
-          <div className="flex gap-2">
-            <input
-              className={FIELD_CLASS}
-              value={settings.songListCsvPath}
-              spellCheck={false}
-              placeholder="not configured"
-              onChange={(event) => edit({ songListCsvPath: event.target.value })}
-            />
-            <Button
-              className="shrink-0"
-              onClick={() =>
-                void window.yass
-                  .pickFile(settings.songListCsvPath)
-                  .then((picked) => {
-                    if (picked) edit({ songListCsvPath: picked })
-                  })
-                  .catch(report)
-              }
-            >
-              browse
-            </Button>
-          </div>
-        </Field>
-
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <Field label="Port" overridden={overridden('port')}>
-              <input
-                className={cx(FIELD_CLASS, 'font-numeric')}
-                type="number"
-                min={1}
-                max={65535}
-                value={settings.port}
-                onChange={(event) => edit({ port: Number(event.target.value) })}
+          <Field
+            label="YARG data folder"
+            overridden={overridden('yargDataDir')}
+            hint={
+              <PathStatus
+                ok={status.currentSongJsonExists}
+                found="currentSong.json found"
+                missing={
+                  status.yargDataDirExists
+                    ? 'no currentSong.json yet — YARG writes it when it plays'
+                    : 'folder not found'
+                }
               />
-            </Field>
-          </div>
-
-          <div className="flex-1">
-            <Field label="Poll interval" overridden={overridden('pollIntervalMs')}>
-              <input
-                className={cx(FIELD_CLASS, 'font-numeric')}
-                type="number"
-                min={250}
-                max={10000}
-                step={250}
-                value={settings.pollIntervalMs}
-                onChange={(event) => edit({ pollIntervalMs: Number(event.target.value) })}
-              />
-            </Field>
-          </div>
-        </div>
-
-        <Field
-          label="Reachable from"
-          overridden={overridden('host')}
-          hint="Guests need this on the network. Restart the server to change it."
-        >
-          <select
-            className={FIELD_CLASS}
-            value={settings.host}
-            onChange={(event) => edit({ host: event.target.value })}
-          >
-            {HOSTS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-            {/* Whatever the file holds stays selectable, so opening this window
-                can never silently rewrite a hand-edited bind address. */}
-            {HOSTS.every((option) => option.value !== settings.host) ? (
-              <option value={settings.host}>{settings.host}</option>
-            ) : null}
-          </select>
-        </Field>
-
-        <label className="flex items-center gap-2.5 pt-1">
-          <input
-            type="checkbox"
-            className={cx('size-4 accent-[var(--yarg-vivid-sky-blue)]', FOCUS)}
-            checked={state.openAtLogin}
-            onChange={(event) =>
-              void run(() => window.yass.setOpenAtLogin(event.target.checked))
             }
-          />
-          <span className="text-[12px] text-content-muted">Start YASS when I sign in</span>
-        </label>
+          >
+            <div className="flex gap-2">
+              <input
+                className={FIELD_CLASS}
+                value={settings.yargDataDir}
+                spellCheck={false}
+                onChange={(event) => edit({ yargDataDir: event.target.value })}
+              />
+              <Button
+                className="shrink-0"
+                onClick={() =>
+                  void window.yass
+                    .pickDirectory(settings.yargDataDir)
+                    .then((picked) => {
+                      // Cancel returns null and must leave the field alone.
+                      if (picked) edit({ yargDataDir: picked })
+                    })
+                    .catch(report)
+                }
+              >
+                browse
+              </Button>
+            </div>
+          </Field>
+
+          <Field
+            label="Song list export"
+            overridden={overridden('songListCsvPath')}
+            hint={
+              settings.songListCsvPath ? (
+                <PathStatus ok={status.songListCsvExists} found="found" missing="file not found" />
+              ) : (
+                "YARG writes this from Settings → Export Songs List. Without it there's no song list."
+              )
+            }
+          >
+            <div className="flex gap-2">
+              <input
+                className={FIELD_CLASS}
+                value={settings.songListCsvPath}
+                spellCheck={false}
+                placeholder="not configured"
+                onChange={(event) => edit({ songListCsvPath: event.target.value })}
+              />
+              <Button
+                className="shrink-0"
+                onClick={() =>
+                  void window.yass
+                    .pickFile(settings.songListCsvPath)
+                    .then((picked) => {
+                      if (picked) edit({ songListCsvPath: picked })
+                    })
+                    .catch(report)
+                }
+              >
+                browse
+              </Button>
+            </div>
+          </Field>
+
+          <Field
+            label="Reachable from"
+            overridden={overridden('host')}
+            hint="Guests need this on the network. Restart the server to change it."
+          >
+            <select
+              className={FIELD_CLASS}
+              value={settings.host}
+              onChange={(event) => edit({ host: event.target.value })}
+            >
+              {HOSTS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+              {/* Whatever the file holds stays selectable, so opening this window
+                  can never silently rewrite a hand-edited bind address. */}
+              {HOSTS.every((option) => option.value !== settings.host) ? (
+                <option value={settings.host}>{settings.host}</option>
+              ) : null}
+            </select>
+          </Field>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label="Port" overridden={overridden('port')}>
+                <input
+                  className={cx(FIELD_CLASS, 'font-numeric')}
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={settings.port}
+                  onChange={(event) => edit({ port: Number(event.target.value) })}
+                />
+              </Field>
+            </div>
+
+            <div className="flex-1">
+              <Field label="Poll interval" hint="ms" overridden={overridden('pollIntervalMs')}>
+                <input
+                  className={cx(FIELD_CLASS, 'font-numeric')}
+                  type="number"
+                  min={250}
+                  max={10000}
+                  step={250}
+                  value={settings.pollIntervalMs}
+                  onChange={(event) => edit({ pollIntervalMs: Number(event.target.value) })}
+                />
+              </Field>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2.5 pt-1">
+            <input
+              type="checkbox"
+              className={cx('size-4 accent-[var(--yarg-vivid-sky-blue)]', FOCUS)}
+              checked={state.openAtLogin}
+              onChange={(event) =>
+                void run(() => window.yass.setOpenAtLogin(event.target.checked))
+              }
+            />
+            <span className="text-[12px] text-content-muted">Start YASS when I sign in</span>
+          </label>
+
+          <p className="font-numeric text-[11px] text-content-faint">YASS v{state.version}</p>
+        </Disclosure>
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-border px-4 py-3">
-        <Button
-          tone="accent"
-          disabled={!dirty || busy}
-          onClick={() => void save()}
-          className="min-w-[92px]"
-        >
-          {saved && !dirty ? 'saved' : 'save'}
-        </Button>
-        <Button onClick={() => void window.yass.reloadClients()} disabled={!state.liveApply}>
-          reload browsers
-        </Button>
-        <Button
-          onClick={() => window.yass.openInBrowser()}
-          disabled={state.server.status !== 'running'}
-        >
-          open
-        </Button>
-        <span className="flex-1" />
-        <Button tone="danger" onClick={() => window.yass.quit()}>
-          quit
-        </Button>
-      </footer>
+      {/*
+       * Only while there is something to commit. A permanent bar of four verbs
+       * cost 58px of a window that cannot be resized, and three of the four are
+       * in the tray's own menu — including the one that stops the music.
+       */}
+      {dirty || saved ? (
+        <footer ref={footerRef} className="flex items-center gap-3 border-t border-border px-4 py-3">
+          <Button
+            tone="accent"
+            disabled={!dirty || busy}
+            onClick={() => void save()}
+            className="min-w-[92px]"
+          >
+            {busy ? 'saving…' : saved && !dirty ? 'saved' : 'save'}
+          </Button>
+          {dirty ? (
+            <span className="text-[11px] text-content-faint">
+              Unsaved — this window forgets them when it closes.
+            </span>
+          ) : null}
+        </footer>
+      ) : null}
     </div>
   )
 }

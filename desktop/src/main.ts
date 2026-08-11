@@ -28,6 +28,7 @@ import { CHANNELS, type DesktopState } from './ipc.js'
 import {
   createPopover,
   popoverWindow,
+  resizePopover,
   showPopover,
   togglePopover,
   withDialog,
@@ -196,8 +197,6 @@ function registerIpc(): void {
     return buildState()
   })
 
-  ipcMain.handle(CHANNELS.reloadClients, () => reloadClients(server.apiOrigin))
-
   ipcMain.handle(CHANNELS.setOpenAtLogin, async (_event, enabled: boolean) => {
     // Read back from the OS rather than stored in `settings.json`: this is a
     // property of the machine, not of the app's configuration, and the file is
@@ -212,7 +211,9 @@ function registerIpc(): void {
     if (typeof text === 'string' && text.length > 0) clipboard.writeText(text)
   })
 
-  ipcMain.on(CHANNELS.quit, () => void quit())
+  ipcMain.on(CHANNELS.resize, (_event, height: unknown) => {
+    if (typeof height === 'number') resizePopover(height)
+  })
 }
 
 async function openInBrowser(): Promise<void> {

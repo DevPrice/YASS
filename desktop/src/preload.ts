@@ -2,10 +2,14 @@
  * The only thing the popover's renderer can reach.
  *
  * The renderer runs sandboxed with no Node integration, so this is the whole
- * surface: nine verbs and a subscription, each one a message to the main
+ * surface: seven verbs and a subscription, each one a message to the main
  * process. Nothing here does any work — deliberately, because everything this
- * app can do (write the settings file, stop the server, quit) is something a
- * page must never be able to do on its own.
+ * app can do (write the settings file, stop the server) is something a page
+ * must never be able to do on its own.
+ *
+ * Quitting and reloading the guests' browsers are not on it. Both live on the
+ * tray's menu, which is where a window that cannot be resized should be
+ * putting the verbs it does not need to show.
  *
  * CommonJS, and it has to be: an ESM preload is not supported under
  * `sandbox: true`.
@@ -25,12 +29,11 @@ const api: DesktopApi = {
   pickFile: (current: string) =>
     ipcRenderer.invoke(CHANNELS.pickFile, current) as Promise<string | null>,
   restartServer: () => ipcRenderer.invoke(CHANNELS.restartServer) as Promise<DesktopState>,
-  reloadClients: () => ipcRenderer.invoke(CHANNELS.reloadClients) as Promise<boolean>,
   setOpenAtLogin: (enabled: boolean) =>
     ipcRenderer.invoke(CHANNELS.setOpenAtLogin, enabled) as Promise<DesktopState>,
   openInBrowser: () => ipcRenderer.send(CHANNELS.openInBrowser),
   copyText: (text: string) => ipcRenderer.send(CHANNELS.copyText, text),
-  quit: () => ipcRenderer.send(CHANNELS.quit),
+  resize: (height: number) => ipcRenderer.send(CHANNELS.resize, height),
 
   onState: (listener) => {
     const handler = (_event: unknown, state: DesktopState) => listener(state)

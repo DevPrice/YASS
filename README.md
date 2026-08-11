@@ -105,10 +105,15 @@ npm run dist              # -> dist/YASS-0.1.0.exe  (~96 MB, portable, no instal
 npm run build:desktop     # dev build; then: npx electron desktop/dist/main.js
 ```
 
-Left-click the icon for the popover: server status, the LAN addresses to hand to a
-guest, the loaded song count, and the settings form. Right-click for the menu —
-restart the server, reload every connected browser, open the app, copy the LAN address,
-quit.
+Left-click the icon for the popover. It shows one thing at a time and sizes itself to
+it: the address to hand to a guest when the server is up, the remedy when it isn't,
+and the export instruction when the library is empty. The settings sit folded behind a
+disclosure, opened for you when a path is wrong. Right-click for the menu — restart the
+server, reload every connected browser, open the app, copy the LAN address, quit.
+
+Quitting and reloading the guests' browsers are on the menu and not in the window, on
+the grounds that a window which cannot be resized should not spend its height on verbs
+a menu already carries — least of all the one that stops the music.
 
 `npm start` is untouched. Headless is still a supported way to run this; the tray is a
 second front end onto the same server, not a replacement for it.

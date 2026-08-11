@@ -13,7 +13,11 @@ import { app, BrowserWindow, screen, shell, type Tray } from 'electron'
 import { join } from 'node:path'
 
 const WIDTH = 420
-const HEIGHT = 560
+/** Tall enough to show a status card before the renderer has measured anything. */
+const INITIAL_HEIGHT = 320
+/** A popover taller than this stops reading as a popover and starts being a window. */
+const MAX_HEIGHT = 620
+const MIN_HEIGHT = 180
 /** Breathing room between the popover and the screen edge it hangs from. */
 const GAP = 8
 
@@ -21,6 +25,19 @@ const GAP = 8
 const BACKGROUND = '#05060B'
 
 let win: BrowserWindow | null = null
+
+/**
+ * The window is as tall as what it has to say.
+ *
+ * A fixed height meant the settings form was cut off in four states and the
+ * running-and-fine state was two thirds empty. The renderer measures its own
+ * content and says so; everything here does is clamp it and keep the window
+ * against the edge it was hung from.
+ */
+let height = INITIAL_HEIGHT
+/** Where the last `position()` put it, so a resize can grow the right way. */
+let placement: { x: number; edge: 'top' | 'bottom' | 'centre'; area: Electron.Rectangle } | null =
+  null
 
 /**
  * Depth rather than a boolean: pickers can be opened from a menu while one is
@@ -33,7 +50,7 @@ let lastHiddenAt = 0
 export function createPopover(): BrowserWindow {
   win = new BrowserWindow({
     width: WIDTH,
-    height: HEIGHT,
+    height,
     show: false,
     frame: false,
     resizable: false,
@@ -116,36 +133,76 @@ function position(tray: Tray): void {
     .workArea
 
   let x: number
-  let y: number
+  let edge: 'top' | 'bottom' | 'centre'
 
   if (anchor.x < area.x) {
     // Taskbar down the left edge.
     x = area.x + GAP
-    y = anchor.y - HEIGHT / 2
+    edge = 'centre'
   } else if (anchor.x > area.x + area.width) {
     // Taskbar down the right edge.
     x = area.x + area.width - WIDTH - GAP
-    y = anchor.y - HEIGHT / 2
+    edge = 'centre'
   } else {
     x = anchor.x - WIDTH / 2
     // Which half of the work area the icon sits in decides whether the popover
     // hangs below the icon or stands above it.
-    y =
-      anchor.y > area.y + area.height / 2
-        ? area.y + area.height - HEIGHT - GAP
-        : area.y + GAP
+    edge = anchor.y > area.y + area.height / 2 ? 'bottom' : 'top'
   }
 
-  // Mixed-DPI setups produce fractional device-independent pixels, which
-  // Windows will either round for you or jitter over. Round them here.
-  const clamp = (value: number, min: number, max: number) => Math.round(Math.min(Math.max(value, min), max))
+  placement = { x, edge, area }
+  applyBounds(anchor.y)
+}
+
+/** Round to whole device-independent pixels; mixed-DPI setups produce fractions. */
+function clamp(value: number, min: number, max: number): number {
+  return Math.round(Math.min(Math.max(value, min), max))
+}
+
+/**
+ * Put the window where `placement` says, at the current height.
+ *
+ * Bottom-anchored means the bottom edge stays put and the window grows upward,
+ * which is what a menu hanging off a taskbar does; growing downward would walk
+ * it off the screen.
+ */
+function applyBounds(centreOn?: number): void {
+  const target = popoverWindow()
+  if (!target || !placement) return
+
+  const { x, edge, area } = placement
+
+  const y =
+    edge === 'bottom'
+      ? area.y + area.height - height - GAP
+      : edge === 'top'
+        ? area.y + GAP
+        : (centreOn ?? target.getBounds().y + target.getBounds().height / 2) - height / 2
 
   target.setBounds({
     x: clamp(x, area.x + GAP, area.x + area.width - WIDTH - GAP),
-    y: clamp(y, area.y + GAP, area.y + area.height - HEIGHT - GAP),
+    y: clamp(y, area.y + GAP, Math.max(area.y + GAP, area.y + area.height - height - GAP)),
     width: WIDTH,
-    height: HEIGHT,
+    height,
   })
+}
+
+/**
+ * Take the renderer's measurement of its own content.
+ *
+ * Clamped against the work area as well as `MAX_HEIGHT`, because a short
+ * screen is a harder limit than taste is.
+ */
+export function resizePopover(content: number): void {
+  const target = popoverWindow()
+  if (!target || !Number.isFinite(content)) return
+
+  const room = placement ? placement.area.height - GAP * 2 : MAX_HEIGHT
+  const next = clamp(Math.ceil(content), MIN_HEIGHT, Math.min(MAX_HEIGHT, room))
+
+  if (next === height) return
+  height = next
+  applyBounds()
 }
 
 export function showPopover(tray: Tray): void {
