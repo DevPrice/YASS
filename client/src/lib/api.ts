@@ -48,3 +48,23 @@ export function fetchNowPlaying(): Promise<NowPlaying> {
 export function currentArtUrl(hash: string | null): string {
   return `/api/art/current?v=${encodeURIComponent(hash ?? 'none')}`
 }
+
+/**
+ * Album art for any song in the library.
+ *
+ * `sm` is a 256px thumbnail for the list; `lg` is 640px for the detail plate.
+ * Unlike `currentArtUrl` these need no cache-buster — the hash is *in* the URL,
+ * so every song has its own and the server marks them immutable.
+ *
+ * Only call this when `song.hasArt`. It 404s harmlessly otherwise, but a list
+ * of four thousand rows asking for four thousand missing images is four
+ * thousand requests to learn something the payload already said.
+ */
+export function artUrl(hash: string, size: 'sm' | 'lg' = 'sm'): string {
+  return `/api/art/${encodeURIComponent(hash)}?size=${size}`
+}
+
+/** About thirty seconds of a song. See `lib/usePreview.ts`. */
+export function previewUrl(hash: string): string {
+  return `/api/preview/${encodeURIComponent(hash)}`
+}

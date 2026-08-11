@@ -33,7 +33,16 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
 import { EmptyState, SortArrow, cx } from '../../ui'
-import { ArtistName, InstrumentStrip, LensDifficulty, SongTitle, SourceBadge } from '../../ui/library'
+import {
+  AlbumThumb,
+  ArtistName,
+  InstrumentStrip,
+  LensDifficulty,
+  PreviewButton,
+  SongTitle,
+  SourceBadge,
+} from '../../ui/library'
+import { usePreview } from '../../lib/usePreview'
 import type { DifficultyLens } from '../../lib/difficulty'
 import { LENS_LABELS } from '../../lib/difficulty'
 import { formatDuration, formatYear } from '../../lib/format'
@@ -540,7 +549,17 @@ export function SongList({
                   // put gaps in the numbering.
                   aria-setsize={songs.length}
                   aria-posinset={item.position + 1}
-                  className="absolute top-0 left-0 w-full"
+                  /*
+                   * `group` so the row's hover can reveal the play control, and
+                   * `relative` so that control can be positioned over the cover.
+                   *
+                   * The control is a *sibling* of the row rather than a child of
+                   * it, and it has to be: the row is a `<button>`, and a button
+                   * inside a button is invalid HTML that browsers resolve by
+                   * discarding one of them. Two siblings in a positioned
+                   * wrapper gets a real nested control with no nesting.
+                   */
+                  className="group absolute top-0 left-0 w-full"
                   style={placement}
                 >
                   <SongRow
@@ -550,6 +569,7 @@ export function SongList({
                     isSelected={item.song.id === selection?.id}
                     onSelect={onSelect}
                   />
+                  <RowPreviewButton song={item.song} />
                 </div>
               )
             })}
@@ -645,6 +665,19 @@ function SortHeader({
         paddingRight: `calc(25px + ${gutter}px)`,
       }}
     >
+      {/*
+       * The cover's slot, reserved and unlabelled.
+       *
+       * Every row leads with a 48px square before the title column, and this
+       * header is a sibling *above* the scroll container rather than part of
+       * it — so nothing makes the two agree except repeating the measurement.
+       * Without this spacer every label sits 63px left of the column it names.
+       *
+       * Unlabelled because the pictures beneath it are self-evident and there
+       * is no ordering to offer: sorting by album art is not a thing.
+       */}
+      <span aria-hidden className="size-[48px] shrink-0" />
+
       {COLUMNS.map((column) => {
         const active = column.key === sortKey
         const alignEnd = column.className.includes('text-right')
@@ -702,6 +735,51 @@ function SortHeader({
         )
       })}
     </div>
+  )
+}
+
+/**
+ * The play control, laid over the row's cover.
+ *
+ * Positioned rather than laid out, because it lives outside the row element —
+ * see the wrapper above for why. The offsets mirror the row's own box exactly:
+ * a 2px border plus 25px of padding puts the cover's left edge at 27px, and the
+ * cover is 44px square in the narrow layout and 48px in the wide one.
+ *
+ * **It sits in the cover's bottom-left corner, not across the middle of it.**
+ * Centred, it worked on a desktop — where it is invisible until the row is
+ * hovered — and ruined the phone, where a coarse pointer has no hover to reveal
+ * anything so every control is drawn at once. A 28px disc on a 44px cover is
+ * two thirds of its width, and a column of four thousand of them read as a list
+ * of buttons with album art faintly behind them. In the corner, at 22px and
+ * without its ring, the artwork is what you see and the badge is what you tap.
+ *
+ * Nothing is drawn for a song with no cover. The control is an affordance *on*
+ * the artwork; floating one over a row with no picture would be a button
+ * hovering in the middle of the title.
+ */
+function RowPreviewButton({ song }: { song: Song }) {
+  const { isActive, status, toggle } = usePreview(song.hash)
+
+  if (!song.hasPreview || !song.hasArt || song.hash === null) return null
+
+  return (
+    <PreviewButton
+      label={song.name}
+      status={status}
+      isActive={isActive}
+      onToggle={toggle}
+      size={22}
+      subtle
+      // Tucked into the cover's lower-left corner. The cover's left edge is at
+      // 27px (a 2px border plus 25px of padding), and it is centred in a row
+      // whose height the container query below picks out.
+      className={cx(
+        'left-[30px]',
+        'top-[calc(50%+var(--thumb)/2-25px)]',
+        '[--thumb:44px] @2xl/list:[--thumb:48px]',
+      )}
+    />
   )
 }
 
@@ -791,6 +869,19 @@ function SongRow({
 
       {/* Wide layout: aligned columns. */}
       <div className="hidden w-full items-center gap-[15px] @2xl/list:flex">
+        {/*
+         * The cover leads the row, outside the `title` column rather than
+         * inside it.
+         *
+         * Inside, it would eat into the flex-[3] the title is measured against
+         * and change where every column below lands — the sort header opposite
+         * has no cover and would stop naming the thing under it. As its own
+         * fixed 48px slot the table's geometry is untouched, and a song with no
+         * art simply leaves that slot empty rather than shifting the row.
+         */}
+        <div className="size-[48px] shrink-0">
+          <AlbumThumb song={song} size={48} className="size-full" />
+        </div>
         <div
           dir="auto"
           className="min-w-0 flex-[3] truncate-tight text-[22px] leading-none font-semibold text-white"
@@ -834,20 +925,30 @@ function SongRow({
       </div>
 
       {/*
-       * Narrow layout: source, then title over a metadata line.
+       * Narrow layout: a picture, then title over a metadata line.
        *
-       * The icon leads the row rather than sitting in the metadata cluster on
+       * Something leads the row rather than sitting in the metadata cluster on
        * the right. It is the one field on a phone row that is a picture rather
        * than a number, so it reads at a glance from a fixed column down the
        * left edge — where the eye already is when it starts each row — instead
        * of shuffling left and right with the width of the time beside it.
+       *
+       * **The cover takes that place when there is one, and the source icon
+       * keeps it otherwise.** A 60px row has room for exactly one picture, and
+       * between the two the cover wins easily: it identifies the record, which
+       * is what somebody scanning for a song is actually looking for, while the
+       * source identifies which game it was ripped from. The source is still
+       * named in full on the detail sheet, which is one tap away and is where
+       * that question gets asked. For the songs with no art the row is
+       * unchanged from what it has always been.
        */}
-      <SourceBadge
-        source={song.source}
-        size={24}
-        showName={false}
-        className="shrink-0 @2xl/list:hidden"
-      />
+      <span className="shrink-0 @2xl/list:hidden">
+        {song.hasArt ? (
+          <AlbumThumb song={song} size={44} className="size-[44px]" />
+        ) : (
+          <SourceBadge source={song.source} size={24} showName={false} />
+        )}
+      </span>
 
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px] @2xl/list:hidden">
         <span dir="auto" className="truncate-tight text-[17px] leading-none font-semibold text-white">

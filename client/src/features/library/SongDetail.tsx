@@ -12,19 +12,19 @@
  * literally true: `playlist` and `format` are on the wire and are deliberately
  * not drawn. See the note over the fact grid.
  *
- * **Album art is real only for the song YARG is playing right now.** The CSV
- * export carries no chart paths, so the server has nothing to read art out of
- * for the other four thousand songs — see `server/src/core/art.ts`, and the
- * planned YARG-side index in the README, which is what unblocks it. Rather than
- * the same grey disc four thousand times, the plate sets the *album* and the
- * artist as type — the two things a real sleeve says. It is a placeholder that
- * says something, and it says the thing the picture it replaces would.
+ * **Album art is real for the whole library now.** It used to be real for
+ * exactly one song — whichever one YARG was playing — because the CSV export
+ * carries no chart paths and `/api/art/current` was the only route that had
+ * one. `server/src/media/` rebuilds that missing column out of YARG's own
+ * `songcache.bin`, so every song has a location and therefore a cover,
+ * including the ones packed inside `.sng` containers and Xbox CON packages.
  *
- * **The layout is composed as though every song has a cover**, because
- * eventually every song will. The plate is a square image slot standing in for
- * a record it does not have a photograph of yet; nothing below it is arranged
- * around the stand-in being type, and nothing below it moves when real art
- * arrives.
+ * **The plate stays**, and it is still the thing that makes a song with no
+ * cover look composed rather than broken: it sets the *album* and the artist as
+ * type — the two things a real sleeve says. It was always written as a square
+ * image slot standing in for a record it did not have a photograph of yet, and
+ * the whole point of composing it that way is that nothing below it moved when
+ * the photographs arrived. Nothing did.
  *
  * ## Why this stopped being a spreadsheet
  *
@@ -63,8 +63,16 @@ import type { ReactNode } from 'react'
 
 import type { Song } from '@shared/types'
 import { Badge, Button, cx } from '../../ui'
-import { ArtistName, PartsGrid, SongTitle, SourceBadge, hasUntieredPart } from '../../ui/library'
-import { currentArtUrl } from '../../lib/api'
+import {
+  ArtistName,
+  PartsGrid,
+  PreviewButton,
+  SongTitle,
+  SourceBadge,
+  hasUntieredPart,
+} from '../../ui/library'
+import { artUrl, currentArtUrl } from '../../lib/api'
+import { usePreview } from '../../lib/usePreview'
 import { formatDuration, formatYear, titleCredit } from '../../lib/format'
 
 /*
@@ -347,13 +355,34 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
  */
 function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
   const [failed, setFailed] = useState(false)
+  const preview = usePreview(song.hash)
   // The credited title rather than the raw field, so a single whose name
   // carries `(feat. …)` sets the plate with the song and not the credit.
   const record = song.album.trim() === '' ? titleCredit(song).title : song.album
 
+  /*
+   * Two sources for the same square, and the library's comes first.
+   *
+   * `artHash` is the *playing* song's art, served from the file next to the
+   * chart with no resizing — it exists because it always has, and it still
+   * works when there is no chart index and no ffmpeg. `song.hasArt` is the
+   * library route, which covers every song including the packed formats the
+   * other one cannot open. Preferring it means the plate does not change
+   * appearance the moment a song starts playing.
+   */
+  const source =
+    song.hasArt && song.hash !== null
+      ? artUrl(song.hash, 'lg')
+      : artHash !== null
+        ? currentArtUrl(artHash)
+        : null
+
   return (
     <div
       className={cx(
+        // `group` so the play control can reveal itself on hover, the same way
+        // it does over a row's cover.
+        'group',
         // Its own container, so the plate's type is sized against the plate
         // rather than the viewport — the same square is ~340px inside a phone
         // sheet and ~410px inside the desktop pane, and one `clamp()` on
@@ -380,9 +409,9 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
       )}
       style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)' }}
     >
-      {artHash !== null && !failed ? (
+      {source !== null && !failed ? (
         <img
-          src={currentArtUrl(artHash)}
+          src={source}
           // Decorative: the title and artist are set directly below it.
           alt=""
           onError={() => setFailed(true)}
@@ -434,6 +463,29 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
           </p>
         </div>
       )}
+
+      {/*
+       * Hear it.
+       *
+       * Bottom-right rather than centred on the cover: the plate's fallback
+       * sets the album name across the whole square, and a 56px disc through
+       * the middle of MOTÖRHEAD would be sitting on the type. In the corner it
+       * works against both — the artwork it overlays and the words it doesn't.
+       *
+       * It is offered whether or not there is a picture, because a preview is
+       * not a property of the artwork; a song with no cover is exactly the one
+       * you most want to hear before choosing it.
+       */}
+      {song.hasPreview && song.hash !== null ? (
+        <PreviewButton
+          label={song.name}
+          status={preview.status}
+          isActive={preview.isActive}
+          onToggle={preview.toggle}
+          size={56}
+          className="right-[15px] bottom-[15px]"
+        />
+      ) : null}
     </div>
   )
 }

@@ -33,6 +33,7 @@ import { formatTitleCredit } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
+import { prefetchPreview } from './lib/usePreview'
 import { decodeAppState, syncUrl } from './lib/urlState'
 import { FiltersPanel } from './features/library/Filters'
 import type { OpenPanel } from './features/library/Filters'
@@ -185,11 +186,35 @@ export function App() {
   const playingSong = nowPlaying.playing ? nowPlaying.song : null
   const playingId = playingSong?.libraryId ?? null
 
-  /** Only the playing song has art on disk we can reach. See `SongDetail`. */
+  /**
+   * The now-playing route's art, which is now only a fallback.
+   *
+   * This used to be the whole story: `/api/art/current` was the only art the
+   * server could produce, so the detail plate showed a picture for exactly one
+   * song out of 4,168 and typeset the album name for the rest. The chart index
+   * changed that — `song.hasArt` covers the entire library — and `SongDetail`
+   * prefers it.
+   *
+   * It stays because it is the one path that needs no index and no ffmpeg. On a
+   * machine where neither is available, the playing song still has a cover.
+   */
   const detailArtHash =
     selected !== null && playingSong !== null && playingSong.libraryId === selected.id && playingSong.hasArt
       ? playingSong.hash
       : null
+
+  /*
+   * Warm the preview as soon as a song is chosen.
+   *
+   * Generating one costs about a second the first time, and the gap between
+   * choosing a song and deciding to hear it is easily that long — so the work
+   * happens in the gap and the tap that follows finds the file already made.
+   * `HEAD`, so this warms the server's cache without pulling 200 KB of audio to
+   * a phone that may never ask for it.
+   */
+  useEffect(() => {
+    prefetchPreview(selected?.hash ?? null)
+  }, [selected])
 
   const select = useCallback((song: Song, align: Selection['align'] = 'auto') => {
     setSelection({ id: song.id, align })

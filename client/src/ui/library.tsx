@@ -5,16 +5,19 @@
  * now-playing banner need them, and neither owns the other.
  */
 
+import { useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import type { InstrumentGroup, Song } from '@shared/types'
 import { INSTRUMENT_GROUPS, INSTRUMENTS } from '@shared/types'
 
 import { GROUP_ART, INSTRUMENT_ART } from '../design/assets'
+import { artUrl } from '../lib/api'
 import type { DifficultyLens } from '../lib/difficulty'
 import { LENS_LABELS, groupTier, lensTier } from '../lib/difficulty'
 import { artistCredit, formatVocalParts, titleCredit } from '../lib/format'
 import { resolveSource } from '../lib/sources'
+import type { PreviewStatus } from '../lib/usePreview'
 import { cx } from './index'
 
 const GROUP_LABELS: Record<InstrumentGroup, string> = {
@@ -95,6 +98,166 @@ function chartedGroups(song: Song): Set<InstrumentGroup> {
  * list used to render verbatim. `resolveSource` turns that into the name and
  * icon from YARG's own OpenSource registry.
  */
+/**
+ * A song's cover, at the size the list needs it.
+ *
+ * The picture that identifies a *record*, which is why it leads a row: at a
+ * glance across a table it is the fastest thing on screen to recognise, faster
+ * than a title you have to read.
+ *
+ * `loading="lazy"` and `decoding="async"` are not optional at this scale. The
+ * list is virtualized so only ~17 rows exist at once, but scrolling four
+ * thousand songs still walks past every cover in the library, and a synchronous
+ * decode on the main thread is a stutter per row on a phone.
+ *
+ * **When it fails, it disappears.** A song whose art the server promised and
+ * then could not deliver — a chart that moved, a share that dropped — renders
+ * nothing rather than a broken-image glyph or a grey square, so the row falls
+ * back to exactly the layout it had before any of this existed.
+ */
+export function AlbumThumb({
+  song,
+  size,
+  className,
+}: {
+  song: Song
+  size: number
+  className?: string
+}) {
+  const [failed, setFailed] = useState(false)
+
+  if (!song.hasArt || song.hash === null || failed) return null
+
+  return (
+    <img
+      src={artUrl(song.hash, 'sm')}
+      // Decorative: the title and artist sit directly beside it, and a screen
+      // reader announcing "Rumours album cover" before every row title is
+      // noise in a list somebody is moving through one song at a time.
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      className={cx('shrink-0 object-cover', className)}
+      // Not a token: this is an image slot, and the system's card radius is
+      // for surfaces. A cover is a square with its corners eased, matching the
+      // detail plate directly.
+      style={{ borderRadius: 'var(--radius-sm)', background: 'var(--yarg-surface-sunken)' }}
+    />
+  )
+}
+
+/** Play and pause glyphs, sized to whatever box they are dropped into. */
+function PlayGlyph({ paused }: { paused: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="size-[55%]" fill="currentColor">
+      {paused ? (
+        <path d="M8 5v14l11-7z" />
+      ) : (
+        <>
+          <rect x="6" y="5" width="4" height="14" rx="1" />
+          <rect x="14" y="5" width="4" height="14" rx="1" />
+        </>
+      )}
+    </svg>
+  )
+}
+
+/**
+ * The control that plays a song's preview.
+ *
+ * Deliberately a circle over the artwork rather than a button beside it: the
+ * cover is already the song's picture, and a play triangle laid on a sleeve is
+ * the one interface convention that needs no label in any language.
+ *
+ * It stays invisible until the row is hovered or the control is focused, so a
+ * list of four thousand rows is not four thousand play buttons — except while
+ * something is playing, where it has to remain visible to be stoppable.
+ *
+ * `loading` gets the same glyph as `playing` rather than a spinner. A cold
+ * preview takes about a second to generate, and a spinner for one second is a
+ * flash of anxiety; showing the pause state immediately says "this is the one
+ * you picked, it is coming" and is right the moment the audio starts.
+ */
+export function PreviewButton({
+  label,
+  status,
+  isActive,
+  onToggle,
+  size,
+  subtle = false,
+  className,
+}: {
+  /** The song's name, for the accessible label. */
+  label: string
+  status: PreviewStatus
+  isActive: boolean
+  onToggle: () => void
+  size: number
+  /**
+   * Corner badge rather than the full control.
+   *
+   * The row's version has to share 44 pixels with the cover it sits on, and on
+   * a touch device it cannot hide until hovered — there is no hover. Drawn at
+   * full strength that made a phone's song list a column of cyan discs with
+   * album art faintly behind them, which is the opposite of why the art is
+   * there. Subtle drops the ring and leans on the scrim, so the badge reads as
+   * a mark *on* a cover instead of a control *instead of* one.
+   */
+  subtle?: boolean
+  className?: string
+}) {
+  const active = isActive && status !== 'idle'
+
+  return (
+    <button
+      type="button"
+      // The list is the tab stop and rows are walked with the arrow keys, so
+      // this must not reintroduce four thousand entries into the tab sequence.
+      // `-1` keeps it reachable by pointer, by assistive tech and by `focus()`.
+      tabIndex={-1}
+      aria-pressed={active}
+      aria-label={active ? `Stop preview of ${label}` : `Play preview of ${label}`}
+      onClick={(event) => {
+        // The row underneath selects the song; a tap on the play button means
+        // only "play", and should not also move the detail pane.
+        event.stopPropagation()
+        onToggle()
+      }}
+      className={cx(
+        'yarg-focusable absolute z-10 flex cursor-pointer items-center justify-center',
+        'text-white transition-opacity duration-160',
+        // Hidden until wanted. `group-hover` is the row; `focus-visible` is the
+        // keyboard; `active` is the song currently playing.
+        active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+        // A coarse pointer has no hover to reveal anything, so on a phone the
+        // control is simply always there.
+        'pointer-coarse:opacity-100',
+        className,
+      )}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 'var(--radius-round)',
+        // Dark scrim rather than the accent fill a Button would take: this sits
+        // on top of arbitrary artwork, and it has to stay legible over a white
+        // sleeve as readily as a black one. Heavier when subtle, because that
+        // variant has no ring to separate it from what is behind it.
+        background: `color-mix(in srgb, var(--yarg-night) ${subtle ? 72 : 65}%, transparent)`,
+        // The ring is the accent claiming the control. A corner badge on a
+        // 44px cover does not have the room to claim anything, so it earns the
+        // accent only while it is the song actually playing.
+        boxShadow:
+          subtle && !active ? 'none' : 'inset 0 0 0 2px var(--yarg-vivid-sky-blue)',
+      }}
+    >
+      <PlayGlyph paused={!active} />
+    </button>
+  )
+}
+
 export function SourceBadge({
   source,
   size = 20,
