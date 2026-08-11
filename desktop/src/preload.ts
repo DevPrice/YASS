@@ -2,10 +2,10 @@
  * The only thing the popover's renderer can reach.
  *
  * The renderer runs sandboxed with no Node integration, so this is the whole
- * surface: seven verbs and a subscription, each one a message to the main
+ * surface: nine verbs and a subscription, each one a message to the main
  * process. Nothing here does any work — deliberately, because everything this
- * app can do (write the settings file, stop the server) is something a page
- * must never be able to do on its own.
+ * app can do (write the settings file, stop the server, download a hundred
+ * megabytes) is something a page must never be able to do on its own.
  *
  * Quitting and reloading the guests' browsers are not on it. Both live on the
  * tray's menu, which is where a window that cannot be resized should be
@@ -29,6 +29,9 @@ const api: DesktopApi = {
   pickFile: (current: string) =>
     ipcRenderer.invoke(CHANNELS.pickFile, current) as Promise<string | null>,
   restartServer: () => ipcRenderer.invoke(CHANNELS.restartServer) as Promise<DesktopState>,
+  fetchFfmpeg: () => ipcRenderer.invoke(CHANNELS.fetchFfmpeg) as Promise<DesktopState>,
+  rebuildMediaIndex: () =>
+    ipcRenderer.invoke(CHANNELS.rebuildMediaIndex) as Promise<DesktopState>,
   setOpenAtLogin: (enabled: boolean) =>
     ipcRenderer.invoke(CHANNELS.setOpenAtLogin, enabled) as Promise<DesktopState>,
   openInBrowser: () => ipcRenderer.send(CHANNELS.openInBrowser),

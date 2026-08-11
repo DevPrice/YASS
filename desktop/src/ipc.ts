@@ -6,7 +6,13 @@
  * runtime code — the renderer is sandboxed and can't load main's modules.
  */
 
-import type { LanAddress, LibraryMeta, Settings, SettingsView } from '@shared/types.js'
+import type {
+  LanAddress,
+  LibraryMeta,
+  MediaSummary,
+  Settings,
+  SettingsView,
+} from '@shared/types.js'
 
 export type ServerStatusName = 'starting' | 'running' | 'stopped' | 'failed'
 
@@ -28,6 +34,17 @@ export interface DesktopState {
   server: ServerState
   /** The song index as the running server last loaded it. */
   songs: LibraryMeta | null
+  /**
+   * Album art and previews, or null when there is no server to ask.
+   *
+   * Null and "not working" are different states and the popover draws them
+   * differently: with the server down there is nothing to say about media, and
+   * offering to download ffmpeg for a server that isn't running would be a
+   * button that fixes the wrong problem.
+   */
+  media: MediaSummary | null
+  /** True while an ffmpeg download this process started is still running. */
+  fetchingFfmpeg: boolean
   /**
    * Addresses to hand to a guest, reachable ones first. Empty unless the
    * server is bound LAN-wide.
@@ -67,6 +84,8 @@ export const CHANNELS = {
   pickDirectory: 'yass:pick-directory',
   pickFile: 'yass:pick-file',
   restartServer: 'yass:restart-server',
+  fetchFfmpeg: 'yass:fetch-ffmpeg',
+  rebuildMediaIndex: 'yass:rebuild-media-index',
   setOpenAtLogin: 'yass:set-open-at-login',
   openInBrowser: 'yass:open-in-browser',
   copyText: 'yass:copy-text',
@@ -83,6 +102,16 @@ export interface DesktopApi {
   pickDirectory(current: string): Promise<string | null>
   pickFile(current: string): Promise<string | null>
   restartServer(): Promise<DesktopState>
+  /**
+   * Download ffmpeg, which album art and previews need.
+   *
+   * ~110 MB, once, and then never again — it is cached in the app's own
+   * directory. Resolves when the download finishes, which is why the popover
+   * shows progress rather than blocking on it.
+   */
+  fetchFfmpeg(): Promise<DesktopState>
+  /** Re-read YARG's song cache and rebuild the map from songs to files. */
+  rebuildMediaIndex(): Promise<DesktopState>
   setOpenAtLogin(enabled: boolean): Promise<DesktopState>
   openInBrowser(): void
   /**

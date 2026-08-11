@@ -10,16 +10,24 @@
  */
 
 import { app, clipboard, dialog, ipcMain, shell, type Tray } from 'electron'
+import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { ServerStatus, Settings } from '@shared/types.js'
 import { lanAddresses } from '@server/core/net.js'
-import { appConfigDir, defaultYargDataDir } from '@server/core/paths.js'
+import {
+  appConfigDir,
+  defaultYargDataDir,
+  managedBinDir,
+  mediaCacheDir,
+} from '@server/core/paths.js'
 import { bindingChanged } from '@server/core/settings.js'
 
 import {
   apiJson,
+  installFfmpeg,
   readSettingsView,
+  rebuildMediaIndex,
   reloadClients,
   sanitizePatch,
   saveSettings,
@@ -33,8 +41,8 @@ import {
   togglePopover,
   withDialog,
 } from './popover.js'
-import { ServerChild } from './server.js'
-import { createTray } from './tray.js'
+import { ServerChild, logDir } from './server.js'
+import { createTray, type DataFolder } from './tray.js'
 
 /*
  * Before anything touches a Chromium path.
@@ -53,6 +61,8 @@ let tray: Tray | null = null
 let quitting = false
 /** Refreshes the popover's song count while it is actually on screen. */
 let pollTimer: NodeJS.Timeout | null = null
+/** True while an ffmpeg download is running, so the popover can say so. */
+let fetchingFfmpeg = false
 
 /**
  * Where "start with Windows" should point.
@@ -79,6 +89,8 @@ async function buildState(): Promise<DesktopState> {
     view,
     server: serverState,
     songs: status?.songs ?? null,
+    media: status?.media ?? null,
+    fetchingFfmpeg,
     // Only worth showing when the server can actually be reached at them.
     lan: running && server.isLanBound && boundPort ? lanAddresses(boundPort) : [],
     localUrl: running ? server.localUrl : null,
@@ -200,6 +212,38 @@ function registerIpc(): void {
     return buildState()
   })
 
+  /*
+   * The download is long, and the popover is watching.
+   *
+   * `fetchingFfmpeg` is published immediately so the button can go into its
+   * pending state on the click rather than on the reply — which for a 110 MB
+   * download would be a minute later. `publish()` at each end of it keeps the
+   * popover honest whether the download works or fails.
+   */
+  ipcMain.handle(CHANNELS.fetchFfmpeg, async () => {
+    if (fetchingFfmpeg) return buildState()
+
+    fetchingFfmpeg = true
+    void publish()
+
+    try {
+      await installFfmpeg(server.apiOrigin)
+    } finally {
+      fetchingFfmpeg = false
+    }
+
+    const state = await buildState()
+    void publish()
+    return state
+  })
+
+  ipcMain.handle(CHANNELS.rebuildMediaIndex, async () => {
+    await rebuildMediaIndex(server.apiOrigin)
+    const state = await buildState()
+    void publish()
+    return state
+  })
+
   ipcMain.handle(CHANNELS.setOpenAtLogin, async (_event, enabled: boolean) => {
     // Read back from the OS rather than stored in `settings.json`: this is a
     // property of the machine, not of the app's configuration, and the file is
@@ -217,6 +261,40 @@ function registerIpc(): void {
   ipcMain.on(CHANNELS.resize, (_event, height: unknown) => {
     if (typeof height === 'number') resizePopover(height)
   })
+}
+
+/**
+ * Show one of the app's own folders in the file manager.
+ *
+ * Created first if it isn't there. Three of these four are made lazily — `logs`
+ * when the server first starts, `cache` when the first thumbnail is generated,
+ * `bin` only if ffmpeg was ever downloaded — so on a fresh install most of them
+ * do not exist yet, and `shell.openPath` on a missing directory fails with a
+ * message nobody sees. Creating an empty folder someone explicitly asked to look
+ * at is both honest about where the thing will be and better than a menu item
+ * that silently does nothing.
+ */
+async function openDataFolder(folder: DataFolder): Promise<void> {
+  const paths: Record<DataFolder, string> = {
+    config: appConfigDir(),
+    logs: logDir(),
+    media: mediaCacheDir(),
+    bin: managedBinDir(),
+  }
+
+  const path = paths[folder]
+
+  try {
+    await mkdir(path, { recursive: true })
+  } catch (error) {
+    console.error(`[yass] could not create ${path}:`, error)
+    return
+  }
+
+  // Resolves with an empty string on success and an error message otherwise —
+  // it does not reject.
+  const problem = await shell.openPath(path)
+  if (problem) console.error(`[yass] could not open ${path}: ${problem}`)
 }
 
 async function openInBrowser(): Promise<void> {
@@ -244,8 +322,11 @@ async function start(): Promise<void> {
     openSettings: () => tray && showPopover(tray),
     restartServer: () => void server.restart(),
     reloadClients: () => void reloadClients(server.apiOrigin),
+    rebuildMediaIndex: () =>
+      void rebuildMediaIndex(server.apiOrigin).then(() => publish()),
     openInBrowser: () => void openInBrowser(),
     copyLanAddress: () => void copyLanAddress(),
+    openDataFolder: (folder) => void openDataFolder(folder),
     quit: () => void quit(),
   })
 

@@ -6,21 +6,19 @@
  * would put the menu on both buttons and leave the popover unreachable. Linux
  * tray implementations ignore click events entirely and need the context menu
  * set, so that platform gets the other treatment.
+ *
+ * The menu's *contents* live in `trayMenu.ts`, which has no Electron runtime
+ * import and is therefore testable. This file is the part that genuinely needs
+ * a running Electron process.
  */
 
-import { Menu, Tray, nativeImage, type MenuItemConstructorOptions } from 'electron'
+import { Menu, Tray, nativeImage } from 'electron'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-export interface TrayActions {
-  toggle(): void
-  openSettings(): void
-  restartServer(): void
-  reloadClients(): void
-  openInBrowser(): void
-  copyLanAddress(): void
-  quit(): void
-}
+import { trayMenuTemplate, type TrayActions } from './trayMenu.js'
+
+export type { DataFolder, TrayActions } from './trayMenu.js'
 
 /**
  * The same `.ico` the executable wears, which carries a 16px entry for Windows
@@ -42,20 +40,7 @@ export function createTray(actions: TrayActions): Tray {
   const tray = new Tray(image)
   tray.setToolTip('YASS')
 
-  const template: MenuItemConstructorOptions[] = [
-    { label: 'Settings…', click: () => actions.openSettings() },
-    { type: 'separator' },
-    { label: 'Restart server', click: () => actions.restartServer() },
-    { label: 'Reload connected browsers', click: () => actions.reloadClients() },
-    { type: 'separator' },
-    { label: 'Open in browser', click: () => actions.openInBrowser() },
-    { label: 'Copy LAN address', click: () => actions.copyLanAddress() },
-    { type: 'separator' },
-    // Named for what it does to the room, not for what it does to this window.
-    { label: 'Quit YASS (stops the server)', click: () => actions.quit() },
-  ]
-
-  const menu = Menu.buildFromTemplate(template)
+  const menu = Menu.buildFromTemplate(trayMenuTemplate(actions))
 
   if (process.platform === 'linux') {
     tray.setContextMenu(menu)

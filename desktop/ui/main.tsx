@@ -452,6 +452,80 @@ function headline(state: DesktopState, kind: Health): { label: string; tone: str
 /** Enough warnings to recognise the problem by; a malformed CSV has hundreds. */
 const WARNINGS_SHOWN = 3
 
+/**
+ * Album art and previews, in one line and at most one button.
+ *
+ * The popover is a small window that sizes itself to its content, so a feature
+ * gets a line here only when there is something to say or something to do. In
+ * the healthy case — ffmpeg present, index built, thumbnails done — that is a
+ * single sentence, and it sits directly under the song count because it is the
+ * same kind of fact: what the guests are going to see.
+ *
+ * Three states, and only the middle one is a problem:
+ *
+ *  - **ffmpeg missing.** The features are dark. This is the one case that gets
+ *    a button, and it says what it will cost before it costs it — nobody should
+ *    discover a 110 MB download by having started one.
+ *  - **No charts resolved.** ffmpeg works but YARG's song cache told us
+ *    nothing, so there is nothing to extract art *from*. Rebuilding is the
+ *    remedy and it lives on the same line.
+ *  - **Working.** A count, and the progress of the thumbnail pass while it runs.
+ */
+function MediaLine({ state, busy }: { state: DesktopState; busy: boolean }) {
+  const media = state.media
+  if (!media) return null
+
+  if (!media.ffmpeg) {
+    return (
+      <div className="mt-2">
+        <p className="text-body text-content-muted">
+          Album art and previews need ffmpeg, which YASS can fetch once and keep.
+        </p>
+        <div className="mt-2.5">
+          <Button
+            tone="accent"
+            disabled={busy || state.fetchingFfmpeg}
+            onClick={() => void window.yass.fetchFfmpeg()}
+          >
+            {state.fetchingFfmpeg ? 'downloading…' : 'get ffmpeg (110 MB)'}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (media.charts === 0) {
+    return (
+      <div className="mt-2">
+        <p className="text-body text-content-muted">
+          No charts found on disk, so there is no album art to read. YARG writes the map when it
+          scans your library.
+        </p>
+        <div className="mt-2.5">
+          <Button disabled={busy} onClick={() => void window.yass.rebuildMediaIndex()}>
+            rebuild media index
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <p aria-live="polite" className="mt-1.5 text-body text-content-muted">
+      <span className="font-numeric text-content">{media.charts.toLocaleString()}</span> covers
+      {media.precomputing ? (
+        <span className="text-content-faint">
+          {' · '}
+          preparing {media.precomputed.toLocaleString()} of{' '}
+          {media.precomputeTotal.toLocaleString()}
+        </span>
+      ) : (
+        <span className="text-content-faint">{' · previews ready'}</span>
+      )}
+    </p>
+  )
+}
+
 function StatusBlock({
   state,
   busy,
@@ -544,6 +618,8 @@ function StatusBlock({
           ) : null}
         </p>
       ) : null}
+
+      {kind === 'ready' ? <MediaLine state={state} busy={busy} /> : null}
 
       {songs && songs.warnings.length > 0 ? (
         <ul className="mt-1.5 space-y-0.5">

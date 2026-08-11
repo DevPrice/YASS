@@ -29,6 +29,15 @@ import {
 const REQUEST_TIMEOUT_MS = 2500
 
 /**
+ * For the two requests that legitimately take a while.
+ *
+ * Rebuilding the chart index can mean scanning the whole library off a network
+ * share. The instant-or-hung rule above is right for reading settings and wrong
+ * for work the user explicitly asked for and is watching a spinner for.
+ */
+const LONG_REQUEST_TIMEOUT_MS = 5 * 60_000
+
+/**
  * The fields the popover is allowed to set.
  *
  * The renderer is our own code behind a sandbox and a context bridge, but a
@@ -73,9 +82,21 @@ export async function readLocalSettingsView(): Promise<SettingsView> {
  * arrive on loopback) both mean the same thing to every caller — "not
  * available this way, use the other path".
  */
-export async function apiJson<T>(url: string, init?: RequestInit): Promise<T | null> {
+export async function apiJson<T>(
+  url: string,
+  init?: RequestInit & {
+    /** Override the default, or `null` to wait as long as it takes. */
+    timeoutMs?: number | null
+  },
+): Promise<T | null> {
+  const { timeoutMs, ...rest } = init ?? {}
+  const budget = timeoutMs === undefined ? REQUEST_TIMEOUT_MS : timeoutMs
+
   try {
-    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+    const response = await fetch(url, {
+      ...rest,
+      ...(budget === null ? {} : { signal: AbortSignal.timeout(budget) }),
+    })
     if (!response.ok) return null
     return (await response.json()) as T
   } catch {
@@ -133,6 +154,44 @@ export async function reloadClients(origin: string | null): Promise<boolean> {
 
   const result = await apiJson<{ ok: boolean }>(`${origin}/api/clients/reload`, {
     method: 'POST',
+  })
+
+  return result?.ok === true
+}
+
+/**
+ * Ask the server to rebuild the chart index.
+ *
+ * Rebuilding from `songcache.bin` is milliseconds, but the fallback is a walk
+ * of the whole library over a network share — minutes. So this uses the long
+ * timeout, and even then the server may still be scanning when it answers; the
+ * popover's poll is what eventually shows the new count.
+ */
+export async function rebuildMediaIndex(origin: string | null): Promise<boolean> {
+  if (!origin) return false
+
+  return (
+    (await apiJson<unknown>(`${origin}/api/media/reindex`, {
+      method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    })) !== null
+  )
+}
+
+/**
+ * Ask the server to download ffmpeg.
+ *
+ * No timeout at all. It is a 110 MB download over whatever connection the host
+ * has, and a request that gives up after two minutes would abandon a download
+ * that is still running perfectly well in the server process — leaving the
+ * popover saying it failed while the file quietly finishes arriving.
+ */
+export async function installFfmpeg(origin: string | null): Promise<boolean> {
+  if (!origin) return false
+
+  const result = await apiJson<{ ok: boolean }>(`${origin}/api/media/ffmpeg`, {
+    method: 'POST',
+    timeoutMs: null,
   })
 
   return result?.ok === true
