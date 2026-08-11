@@ -38,7 +38,7 @@ function cx(...parts: Array<string | false | null | undefined>): string {
 const FOCUS = 'yarg-focusable'
 
 const FIELD_CLASS = cx(
-  'w-full rounded-[5px] bg-surface-sunken px-2.5 py-1.5 text-[13px] text-content',
+  'w-full rounded-[5px] bg-surface-sunken px-2.5 py-1.5 text-body text-content',
   'border border-border-strong outline-none placeholder:text-content-faint',
   'focus:border-accent',
   // A field the environment is forcing looks like what it is. Editable and
@@ -82,7 +82,7 @@ function Button({
       {...props}
       style={tones}
       className={cx(
-        'yarg-label rounded-[50px] px-3 py-2 text-[11px] tracking-wide',
+        'yarg-label rounded-[50px] px-3 py-2 text-label tracking-wide',
         'transition-[filter] hover:brightness-125 disabled:cursor-default disabled:opacity-40 disabled:hover:brightness-100',
         FOCUS,
         className,
@@ -101,7 +101,7 @@ function QuietButton({
       type="button"
       {...props}
       className={cx(
-        'yarg-label shrink-0 rounded-[5px] px-2 py-1 text-[10px] text-content-muted',
+        'yarg-label shrink-0 rounded-[5px] px-2 py-1 text-label text-content-muted',
         'border border-border-strong hover:text-content',
         FOCUS,
         className,
@@ -122,7 +122,7 @@ function PathStatus({ ok, found, missing }: { ok: boolean; found: string; missin
   return (
     <span
       className={cx(
-        'inline-flex items-center gap-1.5 text-[11px]',
+        'inline-flex items-center gap-1.5 text-note',
         ok ? 'text-success' : 'text-warning',
       )}
     >
@@ -169,7 +169,7 @@ function Disclosure({
           FOCUS,
         )}
       >
-        <span className="yarg-label flex-1 text-[11px] text-content-muted">{summary}</span>
+        <span className="yarg-label flex-1 text-label text-content-muted">{summary}</span>
         {/* Something in here needs looking at, said before it is opened. */}
         {flagged ? <span aria-hidden className="size-1.5 rounded-full bg-warning" /> : null}
         <svg
@@ -207,15 +207,15 @@ function Field({
   return (
     <label className="flex flex-col gap-1.5">
       <span className="flex items-baseline justify-between gap-2">
-        <span className="yarg-label text-[11px] text-content-muted">{label}</span>
+        <span className="yarg-label text-label text-content-muted">{label}</span>
         {/* The variable's own name, rather than a tooltip nobody opens saying
             the words "env override". You cannot unset what you cannot name. */}
         {env ? (
-          <code className="selectable font-numeric text-[11px] text-warning">set by {env}</code>
+          <code className="selectable font-numeric text-label text-warning">set by {env}</code>
         ) : null}
       </span>
       {children}
-      {hint ? <span className="text-[11px] text-content-faint">{hint}</span> : null}
+      {hint ? <span className="text-note text-content-faint">{hint}</span> : null}
     </label>
   )
 }
@@ -244,10 +244,10 @@ function CopyRow({ url, label }: { url: string; label?: string }) {
   return (
     <div className="flex items-center gap-2">
       <div className="min-w-0 flex-1">
-        <code className="selectable block truncate font-numeric text-[12px] text-accent">
+        <code className="selectable block truncate font-numeric text-note text-accent">
           {url}
         </code>
-        {label ? <span className="text-[10px] text-content-faint">{label}</span> : null}
+        {label ? <span className="text-label text-content-faint">{label}</span> : null}
       </div>
       <QuietButton onClick={copy}>{copied ? 'copied' : 'copy'}</QuietButton>
     </div>
@@ -283,11 +283,11 @@ function AddressBlock({ state }: { state: DesktopState }) {
         <QrCode value={url} />
 
         <div className="min-w-0 flex-1">
-          <p className="font-numeric text-[20px] leading-none">
+          <p className="font-numeric text-address leading-none">
             <span className="selectable text-content">{host}</span>
             <span className="text-content-muted">:{port}</span>
           </p>
-          <p className="mt-1.5 text-[11px] text-content-faint">
+          <p className="mt-1.5 text-note text-content-faint">
             {primary ? primary.name : 'this machine only'}
           </p>
           <div className="mt-2.5">
@@ -307,7 +307,7 @@ function AddressBlock({ state }: { state: DesktopState }) {
           <summary
             className={cx(
               'yarg-label inline-flex cursor-default list-none items-center gap-1.5 rounded-[5px]',
-              'text-[10px] text-content-muted hover:text-content',
+              'text-label text-content-muted hover:text-content',
               '[&::-webkit-details-marker]:hidden',
               FOCUS,
             )}
@@ -336,7 +336,7 @@ function AddressBlock({ state }: { state: DesktopState }) {
         </details>
       ) : null}
 
-      <p className="mt-2.5 text-[11px] text-content-faint">
+      <p className="mt-2.5 text-note text-content-faint">
         {primary
           ? "Point a guest's camera at the code. If they can't reach it, the firewall prompt was probably dismissed."
           : 'Bound to this machine only — nothing on the network can reach it.'}
@@ -439,7 +439,7 @@ function StatusBlock({
   return (
     <section className="rounded-[10px] bg-surface-card p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
       <div className="flex items-center gap-2">
-        <span className={cx('yarg-label flex-1 text-[13px]', status.tone)}>{status.label}</span>
+        <span className={cx('yarg-label flex-1 text-body', status.tone)}>{status.label}</span>
         {/* Beside the state it acts on, rather than in a row of unrelated verbs. */}
         {kind === 'ready' ? (
           <QuietButton onClick={() => window.yass.openInBrowser()}>open</QuietButton>
@@ -450,7 +450,7 @@ function StatusBlock({
       </div>
 
       {state.server.message ? (
-        <p className="selectable mt-2 text-[12px] text-danger">{state.server.message}</p>
+        <p className="selectable mt-2 text-body text-danger">{state.server.message}</p>
       ) : null}
 
       {portTaken ? (
@@ -463,7 +463,7 @@ function StatusBlock({
 
       {kind === 'empty' ? (
         <>
-          <p className="mt-2 text-[12px] text-content-muted">
+          <p className="mt-2 text-body text-content-muted">
             YARG writes the list from Settings → Export Songs List. Point YASS at it and the
             guests get a library.
           </p>
@@ -476,7 +476,7 @@ function StatusBlock({
       ) : null}
 
       {kind === 'ready' && songs ? (
-        <p className="mt-2 text-[12px] text-content-muted">
+        <p className="mt-2 text-body text-content-muted">
           <span className="font-numeric text-content">{songs.count.toLocaleString()}</span> songs
           loaded
           {age ? (
@@ -491,12 +491,12 @@ function StatusBlock({
       {songs && songs.warnings.length > 0 ? (
         <ul className="mt-1.5 space-y-0.5">
           {songs.warnings.slice(0, WARNINGS_SHOWN).map((warning) => (
-            <li key={warning} className="selectable text-[11px] text-warning">
+            <li key={warning} className="selectable text-note text-warning">
               {warning}
             </li>
           ))}
           {hidden > 0 ? (
-            <li className="text-[11px] text-content-faint">and {hidden} more like it</li>
+            <li className="text-note text-content-faint">and {hidden} more like it</li>
           ) : null}
         </ul>
       ) : null}
@@ -628,7 +628,7 @@ function App() {
   const dirty = Object.keys(draft).length > 0
 
   if (!state || !settings) {
-    return <div className="grid h-full place-items-center text-[12px] text-content-faint">…</div>
+    return <div className="grid h-full place-items-center text-note text-content-faint">…</div>
   }
 
   const { status, envOverrides } = state.view
@@ -711,7 +711,7 @@ function App() {
 
         {failure ? (
           <p
-            className="selectable rounded-[5px] px-3 py-2 text-[12px] text-danger"
+            className="selectable rounded-[5px] px-3 py-2 text-body text-danger"
             style={{ background: 'color-mix(in srgb, var(--yarg-imperial-red) 12%, transparent)' }}
           >
             {failure}
@@ -720,7 +720,7 @@ function App() {
 
         {pending ? (
           <p
-            className="rounded-[5px] px-3 py-2 text-[12px] text-warning"
+            className="rounded-[5px] px-3 py-2 text-body text-warning"
             style={{ background: 'color-mix(in srgb, var(--yarg-mustard) 12%, transparent)' }}
           >
             {pending}
@@ -734,7 +734,7 @@ function App() {
           onToggle={setSettingsOpen}
         >
           {!state.liveApply && state.server.status === 'running' ? (
-            <p className="text-[11px] text-content-faint">
+            <p className="text-note text-content-faint">
               Bound to one specific address, so changes are written to the settings file and
               applied on the next restart rather than live.
             </p>
@@ -882,10 +882,10 @@ function App() {
                 void run(() => window.yass.setOpenAtLogin(event.target.checked))
               }
             />
-            <span className="text-[12px] text-content-muted">Start YASS when I sign in</span>
+            <span className="text-body text-content-muted">Start YASS when I sign in</span>
           </label>
 
-          <p className="font-numeric text-[11px] text-content-faint">YASS v{state.version}</p>
+          <p className="font-numeric text-note text-content-faint">YASS v{state.version}</p>
         </Disclosure>
       </div>
 
@@ -905,11 +905,11 @@ function App() {
             {busy ? 'saving…' : 'save'}
           </Button>
           {dirty ? (
-            <span className="text-[11px] text-content-faint">
+            <span className="text-note text-content-faint">
               Unsaved — this window forgets them when it closes.
             </span>
           ) : saved ? (
-            <span className="text-[11px] text-success">{saved}</span>
+            <span className="text-note text-success">{saved}</span>
           ) : null}
         </footer>
       ) : null}
