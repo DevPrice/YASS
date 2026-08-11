@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    /* One config covers both halves of the workspace: `src/` runs in Electron's
+       main process (Node) and `ui/` in its renderer (DOM), so both libraries
+       have to be present. They are separate bundles and never import each
+       other's runtime — only types. */
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+
+    "noEmit": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["../shared/src/*"],
+      /* The tray reuses the server's own settings loading, validation and path
+         defaults rather than reimplementing them. tsup/esbuild resolves the
+         `.js`-suffixed TypeScript imports inside those modules exactly the way
+         the server's own build already does. */
+      "@server/*": ["../server/src/*"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "ui/**/*.ts",
+    "ui/**/*.tsx",
+    "../shared/src/**/*.ts",
+    "../server/src/core/settings.ts",
+    "../server/src/core/paths.ts",
+    "../server/src/core/net.ts"
+  ]
+}

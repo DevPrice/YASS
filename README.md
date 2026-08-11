@@ -39,16 +39,17 @@ npm start            # single process, single port
 
 ## Configuration
 
-**There is no settings screen.** Edit the file or set the environment variables below.
+**There is no settings screen in the web app.** Use the tray app, or edit the file, or
+set the environment variables below.
 
 The app is opened by a room full of guests, and configuration is not something they
 should be able to find. It was host-only before — `/api/settings` 404s for anyone whose
 request didn't arrive over loopback without proxy headers, and it still does — but that
 check was the last line of the argument rather than the whole of it, and it put the one
 control that acts on the host's machine into the same UI as the song list. Configuration
-belongs to the tray app, and until that exists it belongs to a text editor.
+belongs to the tray app, which is what [`desktop/`](#the-tray-app) now is.
 
-The endpoints remain for the tray process to use. Nothing in the browser calls them.
+Those endpoints exist for the tray process. Nothing in the browser calls them.
 
 Settings live in `%APPDATA%/yass/settings.json` (Windows), `~/Library/Application
 Support/yass` (macOS), or `$XDG_CONFIG_HOME/yass` (Linux) — outside the repo, so a
@@ -93,11 +94,56 @@ It is a snapshot, but not a stale one: the server watches the file and re-reads 
 within half a second of a re-export, then pushes the new list to every connected phone.
 Adding songs to YARG means exporting again and nothing else.
 
+## The tray app
+
+One portable executable that sits in the notification area, owns configuration behind
+native file pickers, and runs the server as a child process. It is the answer to "there
+is no settings screen" — the settings screen exists, it just isn't on the LAN.
+
+```bash
+npm run dist              # -> dist/YASS-0.1.0.exe  (~96 MB, portable, no installer)
+npm run build:desktop     # dev build; then: npx electron desktop/dist/main.js
+```
+
+Left-click the icon for the popover: server status, the LAN addresses to hand to a
+guest, the loaded song count, and the settings form. Right-click for the menu —
+restart the server, reload every connected browser, open the app, copy the LAN address,
+quit.
+
+`npm start` is untouched. Headless is still a supported way to run this; the tray is a
+second front end onto the same server, not a replacement for it.
+
+Three things about it are worth knowing:
+
+- **It writes settings through the running server**, not around it. While the server is
+  up, saving goes out as `PUT /api/settings` over loopback, so a new song list or poll
+  interval applies live and the phones already browsing never notice. Only when the
+  server is down does the tray write the file itself. The two writers are mutually
+  exclusive by construction, and both run the same `normalizeSettings`.
+- **Only `host` and `port` need a restart**, because only the listening socket is fixed
+  for the life of the process. The popover says so when they change, rather than saving
+  a port that silently isn't in force.
+- **The server child is a `utilityProcess`**, which ties its lifetime to the app at the
+  OS level. Kill the tray from Task Manager and the server goes with it — on Windows a
+  plain child would survive, and an invisible process holding port 4321 is the worst
+  failure this app could have.
+
+Configuration still lives in `%APPDATA%\yass\settings.json`; the tray only edits it.
+Chromium's own caches are pinned to `%APPDATA%\yass\electron\` so they can't land on top
+of it, and the server's output is kept in `%APPDATA%\yass\logs\server.log` — rotated on
+each start, so a server that failed to bind leaves evidence a packaged build would
+otherwise swallow.
+
+The tray and executable wear YARG's own logo, generated from the OpenSource submodule at
+build time. It is public domain and unmistakably the right subject, but it is YARG's
+identity rather than YASS's — a mark of its own is the honest end state.
+
 ## Architecture
 
 ```
 client/   Vite + React 19 + Tailwind 4 SPA
 server/   Hono on Node — JSON API and, in production, the built client
+desktop/  Electron tray app: the host's settings UI, and the server's parent process
 shared/   Types used by both (aliased as @shared/*, not an npm workspace)
 fixtures/ Real captures from a live YARG install, used by the tests
 ```
@@ -112,13 +158,18 @@ proxy needs a single upstream. All client URLs are relative.
 | `GET /api/songs` | Full library + facets + metadata (ETag-cached) |
 | `POST /api/songs/reload` | Force a re-read of the CSV — **host-only**, 404 otherwise |
 | `GET /api/now-playing` | Current state, one shot |
-| `GET /api/events` | SSE stream: `now-playing`, `library`, `venue`, `ping` |
+| `GET /api/events` | SSE stream: `now-playing`, `library`, `venue`, `reload`, `ping` |
 | `GET /api/art/current` | Album art for the playing song |
+| `GET /api/health` | Liveness, unauthenticated — how the tray knows the bind succeeded |
 | `GET /api/capabilities` | Whether this caller is the host — no browser consumer, kept for the tray |
+| `GET /api/status` | Song count, bound address, restart-required — **host-only**, 404 otherwise |
+| `POST /api/clients/reload` | Tell every connected browser to reload — **host-only**, 404 otherwise |
 | `GET /api/settings` · `PUT /api/settings` | Read/write configuration — **host-only**, 404 otherwise |
 
-The last three exist for the tray process. The browser client binds none of them: it
-reads the library, the now-playing state and the event stream, and nothing else.
+The host-only four exist for the tray process. The browser client binds none of them: it
+reads the library, the now-playing state and the event stream, and nothing else. The one
+thing the tray can push at a guest's phone is a page reload, and even that arrives as an
+event on the stream the phone already holds.
 
 ### The song list reloads itself
 
@@ -229,10 +280,11 @@ reference. Re-capture `fixtures/currentSong.playing.json` after a YARG upgrade.
 - **Design system.** `client/src/ui/` and the tokens in `client/src/index.css` are
   placeholders. The YARG design system will become the authority; feature components
   are written against the primitives so adopting it is a contained change.
-- **Tray app owns configuration.** Including a native file picker for the two paths,
-  which is why there's no Browse button in the web UI — a browser can't read a real
-  filesystem path, and a picker triggered from a phone would open a dialog on the host.
-- **Distribution.** An installer with a system-tray executable. The server bundles to
-  a single dependency-free `dist/index.js` and resolves paths without relying on
-  `cwd`, so it can be wrapped as a Node SEA, or an Electron/Tauri sidecar. Windows
-  first, but nothing is Windows-only.
+- **Code signing.** The portable executable is unsigned, so Windows SmartScreen warns
+  on first run — on every machine, forever, until there's a certificate behind it.
+- **macOS and Linux builds.** Nothing in the tray app is Windows-only except the `.ico`
+  and the portable target, but only Windows is built and only Windows is tested.
+- **Self-hosted fonts.** `client/src/index.css` still pulls Red Hat Display, Barlow and
+  Inter from Google Fonts, so an offline machine renders the web client in `system-ui`.
+  The tray's popover already declines those imports for exactly that reason; vendoring
+  the three as woff2 would fix both.

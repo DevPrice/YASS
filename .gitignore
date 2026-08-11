@@ -9,6 +9,9 @@ dist/
 .cache/
 art-cache/
 
+# Generated from vendor/opensource at build time by desktop/scripts/make-icon.mjs
+desktop/build/
+
 # OS noise
 Thumbs.db
 .DS_Store

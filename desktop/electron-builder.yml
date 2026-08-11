@@ -1,0 +1,45 @@
+# A single portable .exe — a file you can hand to somebody, or drop on the
+# machine that runs the party, with nothing to install and nothing left behind
+# but `%APPDATA%\yass`.
+appId: com.yarg.yass
+productName: YASS
+copyright: ''
+
+directories:
+  output: ../dist
+  buildResources: build
+
+# Main, preload and the popover's built UI go inside the asar: only Electron
+# reads them, and its patched `fs` handles the archive transparently. The icon
+# rides along because the tray reads it at runtime through `nativeImage`, which
+# understands asar paths.
+files:
+  - dist/**/*
+  - build/icon.ico
+  - package.json
+
+# These two stay *outside* the asar, and that is the whole point of listing
+# them here. The server is a real Node process spawned from a path — plain Node
+# cannot load a module out of an asar archive — and its static file handler
+# reads the client with `stat` and `createReadStream`, which want ordinary
+# files rather than synthetic archive entries.
+#
+# `.mjs` on the way in: the bundle is ESM only because `server/package.json`
+# sits next to it saying so, and that file does not come along. The extension
+# is what carries the module system into the packaged layout.
+extraResources:
+  - from: ../server/dist/index.js
+    to: server/index.mjs
+  - from: ../client/dist
+    to: client
+
+asar: true
+
+win:
+  target:
+    - target: portable
+      arch: [x64]
+  icon: build/icon.ico
+
+portable:
+  artifactName: YASS-${version}.exe

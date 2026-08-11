@@ -1,0 +1,87 @@
+/*
+ * The popover's styles.
+ *
+ * Same authority as the web client: the YARG design system's own token files,
+ * imported from `client/src/design/tokens/` rather than copied, so there is one
+ * set of values and re-vendoring moves both apps at once. The token files are
+ * imported individually because upstream's `styles.css` uses relative
+ * `@import`s that PostCSS would resolve against *this* file's directory.
+ *
+ * What is deliberately NOT imported: the three Google Fonts `@import` lines
+ * that `client/src/index.css` carries. This is a desktop app on a machine
+ * that is about to host a party, quite possibly with the router busy or the
+ * internet off, and a settings window must not render differently for it. The
+ * tokens' own `system-ui` fallbacks take over. Self-hosting Red Hat Display,
+ * Barlow and Inter as woff2 is the clean follow-up.
+ */
+@import '../../client/src/design/tokens/colors.css';
+@import '../../client/src/design/tokens/typography.css';
+@import '../../client/src/design/tokens/layout.css';
+@import '../../client/src/design/tokens/base.css';
+@import 'tailwindcss';
+
+@theme {
+  --color-surface: var(--yarg-surface-app);
+  --color-surface-card: var(--yarg-surface-card);
+  --color-surface-sunken: var(--yarg-surface-sunken);
+
+  /*
+   * The same two deviations the client documents and for the same reason:
+   * the design system's control stroke sits at 1.69:1, well under the 3:1
+   * WCAG 1.4.11 asks of an interactive boundary. Cool Gray is the first rung
+   * of the dark ramp that clears it.
+   */
+  --color-border: var(--yarg-border-card);
+  --color-border-strong: var(--yarg-dark-7);
+
+  --color-content: var(--yarg-text-primary);
+  --color-content-muted: color-mix(in oklab, var(--yarg-dark-7) 80%, var(--yarg-white));
+  --color-content-faint: var(--yarg-dark-7);
+
+  --color-accent: var(--yarg-vivid-sky-blue);
+  --color-accent-content: var(--yarg-night);
+  --color-danger: var(--yarg-imperial-red);
+  --color-success: var(--yarg-emerald);
+  --color-warning: var(--yarg-mustard);
+
+  --font-sans: var(--font-ui);
+  --font-heading: var(--font-display);
+  --font-numeric: var(--font-data);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    /* The window is frameless, so this border is the whole edge of it. */
+    border: 1px solid var(--yarg-dark-6);
+    overflow: hidden;
+    /* A popover is chrome, not a document — selecting its labels is noise. */
+    user-select: none;
+  }
+
+  /* Except the things you might genuinely want to copy out. */
+  input,
+  .selectable {
+    user-select: text;
+  }
+}
+
+@layer components {
+  /* Display type is uppercase throughout the design system. */
+  .yarg-label {
+    font-family: var(--font-display);
+    font-weight: var(--weight-extrabold);
+    text-transform: uppercase;
+    line-height: 100%;
+  }
+
+  .yarg-focusable:focus-visible {
+    outline: var(--stroke) solid var(--yarg-vivid-sky-blue);
+    outline-offset: 2px;
+  }
+}

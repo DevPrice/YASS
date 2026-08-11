@@ -1,0 +1,37 @@
+{
+  "name": "@yass/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tray application: owns configuration behind native pickers and runs the YASS server as a child process",
+  "//": "CommonJS on purpose, and only here. Electron preload scripts cannot be ESM under `sandbox: true`, and CJS sidesteps the app.whenReady()-vs-async-ESM ordering traps in main. The rest of the repo — including the server bundle this spawns — stays ESM.",
+  "//electron": "Pinned, not ranged. electron-builder downloads the platform binaries for one exact release and refuses to guess from a range — and with npm workspaces hoisting electron to the repo root, it cannot read the installed version to resolve one either.",
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "author": "DevPrice",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsup && vite build && node scripts/make-icon.mjs",
+    "build:main": "tsup",
+    "build:ui": "vite build",
+    "dist": "electron-builder --config electron-builder.yml",
+    "start": "electron dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "43.3.0",
+    "electron-builder": "^26.15.3",
+    "png-to-ico": "^3.0.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwindcss": "^4.3.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3"
+  }
+}
