@@ -246,6 +246,12 @@ export function parseCsvLibrary(text: string): ParseCsvLibraryResult {
       difficulties,
       bandDifficulty: parseDifficulty(at(row, 'Band Difficulty')),
       format: parseFormat(at(row, 'Format')),
+      // The CSV has no column that could answer these — it carries no paths at
+      // all. `AppState` stamps them from the chart index once the library is
+      // loaded; until then, every song looks like it has no media, which is
+      // exactly what the app showed before the index existed.
+      hasArt: false,
+      hasPreview: false,
     }
 
     // Skip rows that carry no identifying text at all.

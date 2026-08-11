@@ -61,7 +61,7 @@ Other paths in the same directory that may be useful:
 | Path | Contents |
 |---|---|
 | `playlists/` | User playlists as JSON (see §5) |
-| `songcache.bin` | Binary song cache — proprietary format, do not attempt to parse |
+| `songcache.bin` | Binary song cache — see §9; this is where chart *locations* live |
 | `badsongs.txt` | Scan error log |
 
 ---
@@ -604,3 +604,58 @@ them from `YARG.Core` if you need the ints.
 | Hash type | `YARG.Core/YARG.Core/Song/Entries/Types/HashWrapper.cs` |
 | `SortString` type | `YARG.Core/YARG.Core/Song/Entries/Types/SortString.cs` |
 | Enums | `YARG.Core/YARG.Core/Song/Entries/SongEnums.cs` |
+
+---
+
+## 9. `songcache.bin` — where the charts actually are
+
+An earlier version of this document said "proprietary format, do not attempt to parse".
+That was wrong in a way worth correcting, because this file answers the one question no
+export format does: **where each song lives on disk**. Without it, album art works for
+exactly the song `currentSong.json` names and for nothing else.
+
+YARG rewrites it on every scan. Two properties make a read-only parser cheap and safe:
+
+1. **Everything is length-prefixed.** Groups and entries are `int32 length` followed by
+   that many bytes, so a reader can take the two or three fields at the head of each
+   entry and skip a metadata tail it does not understand — by arithmetic, not by guessing.
+2. **The encodings are plain .NET.** Little-endian scalars, strings as a 7-bit-encoded
+   (LEB128) length plus UTF-8, and the SHA-1 as 20 raw bytes.
+
+```
+  int32   CACHE_VERSION            refuse anything unverified — see below
+  bool    fullDirectoryPlaylists
+  9 ×     string table             int32 byteLength, then int32 count + strings
+  array   update directories       ─┐
+  array   unpacked upgrades         ├─ skippable by their length prefixes
+  array   packed upgrades          ─┘
+  array   ini groups               base directory + relative paths
+  array   CON groups               package path + per-entry shortname
+```
+
+where `array` is `int32 count` followed by that many independently length-prefixed
+slices (`CacheLoopable`).
+
+**The version check is not paranoia.** `CACHE_VERSION` is a `YY_MM_DD_RR` stamp and the
+layout genuinely changes shape between values — the CON group header's type field is an
+`int32` enum today and was a `bool` before. YARG's own full-scan reader (`ReadCONGroup`)
+still carries the 1-byte read that change left behind, so **follow the writer and
+`QuickReadCONGroup`, not `ReadCONGroup`**. Verify a new version by diffing
+`Song/Cache/` and `Song/Entries/` between the two commits; if every change lands after
+the hash, the head layout is unaffected.
+
+Two traps worth naming:
+
+- The DTA node name and the `subName` are **different strings** and both are stored. Most
+  packages use the same value for both; at least one in a 4,000-song library does not,
+  keeping its files under `songs/seven/` and its DTA node under `sevenfnf`.
+- The hash for a CON song is `SHA1(mainMidi ++ updateMidi ++ upgradeMidi)`, not
+  `SHA1(mid)`, whenever an RBCON update or upgrade applies. Recomputing it independently
+  is only exact for songs with neither.
+
+[VERIFIED — `YARG.Core/Song/Cache/CacheHandler.cs`, `CacheLoopable.cs`,
+`CacheGroups/*.cs`, and the `ForceDeserialize` methods on each entry type. Implemented in
+`server/src/media/cache.ts`, checked against a 4,168-song library where every hash in the
+CSV export resolves.]
+
+---

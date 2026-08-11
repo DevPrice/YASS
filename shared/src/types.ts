@@ -90,6 +90,23 @@ export interface Song {
   bandDifficulty: number | null
 
   format: SongFormat
+
+  /**
+   * True when the server can reach this chart's files on disk.
+   *
+   * Both are answers about *availability*, not about what has been generated
+   * yet — art is derived on demand and cached, so promising only what already
+   * exists would leave the whole library grey until something asked. False
+   * means there is genuinely nothing to fetch: the chart index has no entry for
+   * this hash, or the media pipeline is unavailable, and the client should draw
+   * what it drew before any of this existed.
+   *
+   * The CSV carries no paths, so these are set server-side from the chart index
+   * (`server/src/media/`) after the library loads. Filesystem paths themselves
+   * never cross the wire — every media URL is keyed by hash.
+   */
+  hasArt: boolean
+  hasPreview: boolean
 }
 
 /** Aggregate facets for the filter UI, computed once when the index loads. */
@@ -213,6 +230,29 @@ export interface ServerStatus {
   port: number
   /** True when the saved host/port no longer match the bound ones. */
   restartRequired: boolean
+  /** Album art and previews: whether they work, and how far along they are. */
+  media: MediaSummary
+}
+
+/**
+ * What the tray needs to say about album art and previews.
+ *
+ * Deliberately not paths. `ffmpeg` is a boolean rather than the location of the
+ * binary — the popover only has to answer "is this working", and the location
+ * would be one more absolute path travelling somewhere it isn't needed.
+ */
+export interface MediaSummary {
+  /** False when the media features are dark, which the tray offers to fix. */
+  ffmpeg: boolean
+  /** Charts the index resolved — i.e. how many songs can have art. */
+  charts: number
+  /** Where the index came from. `none` means neither strategy produced one. */
+  source: 'cache' | 'scan' | 'none'
+  /** True while thumbnails are still being generated in the background. */
+  precomputing: boolean
+  /** Progress through that pass, for a line the popover can show. */
+  precomputed: number
+  precomputeTotal: number
 }
 
 /** Settings plus read-only context the UI needs to render the settings screen. */

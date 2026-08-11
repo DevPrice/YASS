@@ -52,6 +52,23 @@ export function settingsFilePath(): string {
   return join(appConfigDir(), 'settings.json')
 }
 
+/**
+ * Derived media — thumbnails, previews, and the chart index.
+ *
+ * Here rather than in `media/store.ts` so that every directory the app writes
+ * to is named in one file. The tray offers to open these, and a second spelling
+ * of `'cache'` somewhere else is how a menu item ends up pointing at a folder
+ * nothing uses.
+ */
+export function mediaCacheDir(): string {
+  return join(appConfigDir(), 'cache')
+}
+
+/** Binaries the app fetched for itself, which today means ffmpeg. */
+export function managedBinDir(): string {
+  return join(appConfigDir(), 'bin')
+}
+
 /** The now-playing file inside a YARG data directory. */
 export function currentSongJsonPath(yargDataDir: string): string {
   return join(yargDataDir, 'currentSong.json')

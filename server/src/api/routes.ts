@@ -6,14 +6,13 @@
  * behind a reverse proxy on a custom domain.
  */
 
-import { createReadStream } from 'node:fs'
-import { Readable } from 'node:stream'
-
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 
 import type { ServerStatus, Settings } from '@shared/types.js'
 import type { AppState } from '../state.js'
+import { isArtSize } from '../media/store.js'
+import { serveFile } from '../static.js'
 import { isLocalRequest, localOnly } from './local.js'
 
 /** Heartbeat interval for the SSE stream, to keep proxies from idling it out. */
@@ -51,14 +50,61 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
   api.get('/status', localOnly, (c) => {
     c.header('Cache-Control', 'no-store')
 
+    const media = state.media.status
+
     const status: ServerStatus = {
       songs: state.library.meta,
       host: binding.host,
       port: binding.port,
       restartRequired: state.bindingChanged(state.settingsView, binding.host, binding.port),
+      media: {
+        // A boolean, not the path: the tray asks "does this work", and the
+        // location of the binary is one more absolute path with nowhere to be.
+        ffmpeg: media.ffmpeg !== null,
+        charts: media.charts,
+        source: state.charts.meta.source,
+        precomputing: media.precomputing,
+        precomputed: media.precomputed,
+        precomputeTotal: media.precomputeTotal,
+      },
     }
 
     return c.json(status)
+  })
+
+  // --- Media -----------------------------------------------------------------
+  //
+  // Host-only, like the settings endpoints. Both of these spend real resources
+  // on the host's machine — a 110 MB download and a rescan of the library — and
+  // neither is something a guest browsing on their phone should be able to
+  // start.
+
+  /**
+   * Rebuild the chart index from `songcache.bin`, or by scanning.
+   *
+   * The server watches the cache file and rebuilds on its own, so this is the
+   * manual override for the case the watcher can't see: songs added to a folder
+   * YARG has not rescanned yet.
+   */
+  api.post('/media/reindex', localOnly, async (c) => {
+    return c.json(await state.rebuildChartIndex(true))
+  })
+
+  /**
+   * Download ffmpeg into the app's own directory.
+   *
+   * Long-running by nature — it is a 110 MB download — so the tray's request
+   * carries no timeout and the response is the outcome, not progress. There is
+   * exactly one of these at a time; a second caller joins the first.
+   */
+  api.post('/media/ffmpeg', localOnly, async (c) => {
+    try {
+      const path = await state.installFfmpeg()
+      return c.json({ ok: true, installed: path !== null })
+    } catch (error) {
+      console.error('[media] ffmpeg install failed:', error)
+      return c.json({ ok: false, error: String(error) }, 500)
+    }
   })
 
   // --- Library ------------------------------------------------------------
@@ -66,9 +112,22 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
   api.get('/songs', (c) => {
     const library = state.library
 
-    // The index only changes when the CSV is reloaded, so let the browser
-    // revalidate cheaply rather than re-downloading a few MB of JSON.
-    const etag = `W/"songs-${library.meta.generatedAt ?? 0}-${library.meta.count}"`
+    /*
+     * Cheap revalidation, keyed on everything that can change the payload.
+     *
+     * The CSV's own identity is not enough. `hasArt` and `hasPreview` are
+     * stamped onto each song from the chart index, which is built *after* the
+     * library loads and rebuilt whenever YARG rescans — so a browser that
+     * fetched the list during the second before the index landed would
+     * revalidate, get a 304, and hold a library where every song says it has no
+     * cover. The whole list would stay grey until something forced a reload.
+     *
+     * `builtAt` moves on every rebuild, including ones that changed nothing.
+     * That costs an occasional re-download of a payload the client asked to
+     * revalidate anyway, which is the right side to be wrong on.
+     */
+    const media = state.charts.meta
+    const etag = `W/"songs-${library.meta.generatedAt ?? 0}-${library.meta.count}-${media.builtAt}-${media.count}"`
     if (c.req.header('if-none-match') === etag) {
       return c.body(null, 304)
     }
@@ -188,29 +247,87 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
   /**
    * Album art for the currently playing song.
    *
-   * Only `.ini` charts expose art as a sibling file; packed containers 404 and
-   * the client falls back to a placeholder.
+   * Reads the file next to the chart directly rather than going through the
+   * media cache, because this route predates the chart index and still works
+   * when there isn't one — no ffmpeg, no derived thumbnail, just the bytes
+   * YARG is looking at. `/art/:hash` is the route for everything else.
    */
-  api.get('/art/current', (c) => {
+  api.get('/art/current', async (c) => {
     const art = state.watcher.currentArt
     if (!art) return c.body(null, 404)
 
     // Identity is the file itself, so a strong ETag lets the browser hold the
     // image across song changes and back again with a cheap 304.
-    const etag = `"art-${art.mtimeMs}-${art.size}"`
-    if (c.req.header('if-none-match') === etag) {
-      return c.body(null, 304)
+    const response = await serveFile(c, art.path, {
+      contentType: art.contentType,
+      etag: `"art-${art.mtimeMs}-${art.size}"`,
+    })
+
+    return response ?? c.body(null, 404)
+  })
+
+  /**
+   * Album art for any song in the library, by hash.
+   *
+   * `size=sm` is a 256px thumbnail, precomputed for the whole library after
+   * startup; `size=lg` is 640px and made the first time a song is opened. Both
+   * are derived on demand if they are missing, so a cold cache costs the first
+   * viewer a second rather than costing everyone a blank list.
+   *
+   * A 404 here is ordinary and expected: no chart on disk for that hash, no
+   * cover inside it, or no ffmpeg to resize with. The client already knows how
+   * to draw a song without a cover — it did that for every song until now.
+   */
+  api.get('/art/:hash', async (c) => {
+    const requested = c.req.query('size') ?? 'sm'
+    if (!isArtSize(requested)) {
+      return c.json({ error: 'size must be sm or lg.' }, 400)
     }
 
-    c.header('ETag', etag)
-    c.header('Content-Type', art.contentType)
-    c.header('Content-Length', String(art.size))
-    // Private: this is one user's local library behind their own proxy.
-    c.header('Cache-Control', 'private, max-age=3600, must-revalidate')
+    const path = await state.media.artFile(c.req.param('hash'), requested)
+    if (path === null) return c.body(null, 404)
 
-    if (c.req.method === 'HEAD') return c.body(null, 200)
+    /*
+     * `immutable`, and honestly so.
+     *
+     * Unlike a Vite asset URL, where the hash is a fingerprint of a build, here
+     * the hash *is* the identity of the chart and the size is the identity of
+     * the rendering. The same URL cannot come to mean a different picture — a
+     * re-charted song is a different SHA-1 and therefore a different URL.
+     *
+     * `private`, because this is one person's local library, possibly behind
+     * their own reverse proxy, and none of it should land in a shared cache.
+     */
+    const response = await serveFile(c, path, { immutable: true, privateCache: true })
+    return response ?? c.body(null, 404)
+  })
 
-    return c.body(Readable.toWeb(createReadStream(art.path)) as ReadableStream)
+  // --- Previews -------------------------------------------------------------
+
+  /**
+   * About thirty seconds of a song, as Opus.
+   *
+   * Generated on first request and cached forever after, so the first person to
+   * open a song waits roughly a second and nobody else does. The client hides
+   * even that by prefetching with a `HEAD` as soon as a song is selected.
+   *
+   * **Range support is load-bearing here.** iOS Safari refuses to play an
+   * `<audio>` source from a server that answers a range request with a `200`,
+   * so `serveFile` handles `Range`, `206` and `416` — see `static.ts`.
+   */
+  api.get('/preview/:hash', async (c) => {
+    const path = await state.media.previewFile(c.req.param('hash'))
+    if (path === null) return c.body(null, 404)
+
+    // Same reasoning as art: the hash is the content key, so this URL can never
+    // come to mean different audio.
+    const response = await serveFile(c, path, {
+      immutable: true,
+      privateCache: true,
+      contentType: 'audio/ogg',
+    })
+
+    return response ?? c.body(null, 404)
   })
 
   // --- Settings -------------------------------------------------------------

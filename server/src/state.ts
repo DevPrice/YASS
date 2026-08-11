@@ -7,10 +7,13 @@
  */
 
 import type { LibraryMeta, Settings, SettingsView, SongLibrary } from '@shared/types.js'
-import { CsvWatcher } from './core/csvWatcher.js'
+import { FileWatcher } from './core/fileWatcher.js'
 import { emptyLibrary, loadLibraryFromCsv } from './core/library.js'
 import { NowPlayingWatcher } from './core/nowPlaying.js'
 import { VenueStream } from './core/venueStream.js'
+import { fetchFfmpeg } from './media/ffmpeg.js'
+import { buildChartIndex, songCachePath, ChartIndex, type ChartIndexMeta } from './media/index.js'
+import { MediaService } from './media/service.js'
 import {
   applyEnvOverrides,
   bindingChanged,
@@ -35,7 +38,22 @@ export class AppState {
   /** hash → song id, for joining now-playing to the library. */
   #byHash = new Map<string, string>()
   #watcher: NowPlayingWatcher
-  #csvWatcher: CsvWatcher
+  #csvWatcher: FileWatcher
+  /**
+   * hash → the chart's location on disk, which is what makes album art and
+   * previews possible for songs other than the one YARG is playing.
+   *
+   * Built from `songcache.bin`, or scanned when that can't be read. Never sent
+   * to a client: it holds absolute paths. See `media/types.ts`.
+   */
+  #charts = new ChartIndex()
+  #chartWatcher: FileWatcher
+  /** Serialises index rebuilds so a burst of events can't start three. */
+  #indexing: Promise<ChartIndexMeta> | null = null
+  /** Art and preview generation, caching and concurrency. */
+  #media = new MediaService(this.#charts)
+  /** In-flight ffmpeg download, so two clicks don't become two downloads. */
+  #installingFfmpeg: Promise<string> | null = null
   /**
    * Venue lighting, if YARG is broadcasting it.
    *
@@ -56,13 +74,25 @@ export class AppState {
       resolveLibraryId: (hash) => (hash ? (this.#byHash.get(hash) ?? null) : null),
     })
 
-    this.#csvWatcher = new CsvWatcher({
+    this.#csvWatcher = new FileWatcher({
       getPath: () => this.#effective.songListCsvPath,
       onChange: async () => {
         await this.reloadLibrary()
       },
       onError: (error) => {
         console.error('[yass] song list watch:', error)
+      },
+    })
+
+    // YARG rewrites its cache whenever it rescans, which is exactly when songs
+    // gain or lose the files this index points at.
+    this.#chartWatcher = new FileWatcher({
+      getPath: () => songCachePath(this.#effective.yargDataDir),
+      onChange: async () => {
+        await this.rebuildChartIndex()
+      },
+      onError: (error) => {
+        console.error('[yass] song cache watch:', error)
       },
     })
   }
@@ -72,8 +102,74 @@ export class AppState {
     await state.reloadLibrary()
     state.#watcher.start()
     await state.#csvWatcher.start()
+    await state.#chartWatcher.start()
     state.#venue.start()
+
+    /*
+     * The index is built after the server is otherwise ready, and not awaited.
+     *
+     * Reading `songcache.bin` takes milliseconds, but the fallback is a walk of
+     * the whole library over a network share — minutes. Blocking startup on the
+     * bad case would mean the song list, the now-playing banner and the whole
+     * app wait on a feature that degrades to a placeholder. It fills in behind
+     * the list instead.
+     */
+    void state.rebuildChartIndex()
+
     return state
+  }
+
+  /** The chart index. Server-side only — it carries absolute paths. */
+  get charts(): ChartIndex {
+    return this.#charts
+  }
+
+  get media(): MediaService {
+    return this.#media
+  }
+
+  /**
+   * Rebuild the chart index from whichever source is available.
+   *
+   * Concurrent callers share one build: the tray's "rebuild" button, the cache
+   * watcher and startup can all land at once, and a scan is far too expensive
+   * to run three times.
+   */
+  async rebuildChartIndex(force = false): Promise<ChartIndexMeta> {
+    if (this.#indexing !== null) return this.#indexing
+
+    // A pass over the old index is describing a library that no longer exists.
+    this.#media.stopPrecompute()
+
+    this.#indexing = buildChartIndex(this.#charts, {
+      yargDataDir: this.#effective.yargDataDir,
+      force,
+    })
+      .then((meta) => {
+        // The library payload carries `hasArt` / `hasPreview`, so a newly built
+        // index means the songs the client is holding are out of date.
+        this.#decorateLibrary()
+        this.#publishLibrary()
+
+        // Thumbnails for whatever the CSV actually lists, rather than for every
+        // chart on disk: the list is what anybody can see.
+        void this.#media.precomputeArt(
+          this.#library.songs
+            .map((song) => song.hash)
+            .filter((hash): hash is string => hash !== null),
+        )
+
+        return meta
+      })
+      .catch((error) => {
+        console.error('[media] index build failed:', error)
+        return this.#charts.meta
+      })
+      .finally(() => {
+        this.#indexing = null
+      })
+
+    return this.#indexing
   }
 
   /**
@@ -147,9 +243,76 @@ export class AppState {
       }
     }
 
+    this.#decorateLibrary()
+
+    // The CSV is the only place a song's length is known without opening its
+    // audio, and the preview window needs one for songs whose audio can't be
+    // probed cheaply.
+    this.#media.setSongLengths(
+      this.#library.songs
+        .filter((song): song is typeof song & { hash: string } => song.hash !== null)
+        .map((song) => [song.hash, song.lengthSeconds] as const),
+    )
+
     // A song may already be playing; re-resolve its library link.
     this.#watcher.refreshLibraryJoin()
 
+    this.#publishLibrary()
+
+    return this.#library
+  }
+
+  /**
+   * Stamp each song with whether media exists for it.
+   *
+   * Two booleans on a payload the client already fetches conditionally, and the
+   * alternative is 4,168 speculative requests that mostly 404. `hasArt` is
+   * "there is a chart on disk we could extract art from" rather than "art has
+   * been extracted" — the route generates on demand, and promising only what is
+   * already cached would leave every cover dark until something asked for it.
+   */
+  #decorateLibrary(): void {
+    for (const song of this.#library.songs) {
+      const ref = this.#charts.get(song.hash)
+      song.hasArt = ref !== null
+      song.hasPreview = ref !== null
+    }
+  }
+
+  /**
+   * Fetch and install ffmpeg, then start using it.
+   *
+   * Deduplicated here rather than in the route: the download is 110 MB, and two
+   * clicks on the tray's button must not become two of them. Returns the
+   * installed path, or null if the media features were already working.
+   */
+  async installFfmpeg(): Promise<string | null> {
+    if (this.#installingFfmpeg !== null) return this.#installingFfmpeg
+
+    this.#installingFfmpeg = fetchFfmpeg()
+      .then(async (path) => {
+        console.log(`[media] installed ffmpeg to ${path}`)
+        this.#media.invalidateFfmpeg()
+
+        // Everything that was refused for want of ffmpeg can now happen, and
+        // the whole library's thumbnails are the bulk of it.
+        void this.#media.precomputeArt(
+          this.#library.songs
+            .map((song) => song.hash)
+            .filter((hash): hash is string => hash !== null),
+        )
+
+        return path
+      })
+      .finally(() => {
+        this.#installingFfmpeg = null
+      })
+
+    return this.#installingFfmpeg
+  }
+
+  /** Tell every connected browser the library metadata moved. */
+  #publishLibrary(): void {
     for (const listener of this.#librarySubscribers) {
       // One bad subscriber must not stop the others from being told, and must
       // not propagate out of a filesystem event into an unhandled rejection.
@@ -159,8 +322,6 @@ export class AppState {
         console.error('[yass] library subscriber:', error)
       }
     }
-
-    return this.#library
   }
 
   /**
@@ -173,6 +334,7 @@ export class AppState {
    */
   async updateSettings(patch: Partial<Settings>): Promise<SettingsView> {
     const previousCsvPath = this.#effective.songListCsvPath
+    const previousDataDir = this.#effective.yargDataDir
 
     this.#stored = await saveStoredSettings({ ...this.#stored, ...patch })
     this.#effective = applyEnvOverrides(this.#stored)
@@ -181,6 +343,13 @@ export class AppState {
       await this.reloadLibrary()
       // Follow the file — the old directory is no longer interesting.
       await this.#csvWatcher.start()
+    }
+
+    // A new data directory is a different YARG install, and so a different
+    // `songcache.bin` describing a different library.
+    if (this.#effective.yargDataDir !== previousDataDir) {
+      await this.#chartWatcher.start()
+      void this.rebuildChartIndex(true)
     }
 
     return this.settingsView
@@ -194,6 +363,8 @@ export class AppState {
   stop(): void {
     this.#watcher.stop()
     this.#csvWatcher.stop()
+    this.#chartWatcher.stop()
+    this.#media.stopPrecompute()
     this.#venue.stop()
   }
 }

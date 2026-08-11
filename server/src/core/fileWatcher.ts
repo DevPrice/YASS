@@ -1,28 +1,32 @@
 /**
- * Watches the exported song-list CSV and reloads when it changes.
+ * Watches one file that YARG rewrites, and calls back when it settles.
  *
- * The CSV is a snapshot YARG writes on demand, so before this the only way to
- * pick up a re-export was a button in the UI. Nobody at a party is going to
- * press it, and guests shouldn't have a control that acts on the host's server
- * anyway — so the server notices instead.
+ * Two files need this and they need exactly the same thing. The **song-list
+ * CSV** is a snapshot YARG writes on demand, so before this the only way to
+ * pick up a re-export was a button in the UI — and nobody at a party is going
+ * to press it, nor should a guest have a control that acts on the host's
+ * server. The **`songcache.bin`** is rewritten whenever YARG rescans the
+ * library, which is when new songs gain art and previews.
  *
- * Three things shape the implementation:
+ * Three things shape the implementation, and all three are properties of "a
+ * file another program replaces" rather than of either file in particular:
  *
- *  1. **Watch the directory, not the file.** An export replaces the CSV rather
- *     than appending to it. On Windows a file watch follows the inode and goes
- *     deaf the moment the original is unlinked, so a `fs.watch` on the path
- *     itself would work exactly once. Watching the parent and filtering by
+ *  1. **Watch the directory, not the file.** Both writers replace their file
+ *     rather than appending to it. On Windows a file watch follows the inode
+ *     and goes deaf the moment the original is unlinked, so a `fs.watch` on the
+ *     path itself would work exactly once. Watching the parent and filtering by
  *     basename survives replacement, and also catches the file appearing for
  *     the first time when the configured path doesn't exist yet.
  *
- *  2. **Debounce, then confirm by stat.** A CSV write is not atomic and fires a
- *     burst of events, some of them mid-write. We wait for quiet, then only
- *     reload if size or mtime actually moved — editors and backup tools touch
- *     directories constantly, and a 4,000-row reparse is not free.
+ *  2. **Debounce, then confirm by stat.** Neither write is atomic, and both
+ *     fire a burst of events with some of them mid-write. We wait for quiet,
+ *     then only act if size or mtime actually moved — editors and backup tools
+ *     touch directories constantly, and neither a 4,000-row reparse nor an
+ *     index rebuild is free.
  *
- *  3. **Never throw into the watcher.** A reload failure is reported and the
- *     watcher keeps running; an unreadable file usually means we caught the
- *     export half-written, and the next event will be the good one.
+ *  3. **Never throw into the watcher.** A failure is reported and the watcher
+ *     keeps running; an unreadable file usually means we caught the write
+ *     half-finished, and the next event will be the good one.
  */
 
 import { watch, type FSWatcher } from 'node:fs'
@@ -51,7 +55,7 @@ async function fingerprint(path: string): Promise<Fingerprint | null> {
 const same = (a: Fingerprint | null, b: Fingerprint | null): boolean =>
   a === null || b === null ? a === b : a.size === b.size && a.mtimeMs === b.mtimeMs
 
-export interface CsvWatcherOptions {
+export interface FileWatcherOptions {
   /** Read fresh each time — the path changes when settings are saved. */
   getPath: () => string
   /** Called after the file settles at a new fingerprint. */
@@ -59,8 +63,8 @@ export interface CsvWatcherOptions {
   onError?: (error: unknown) => void
 }
 
-export class CsvWatcher {
-  #options: CsvWatcherOptions
+export class FileWatcher {
+  #options: FileWatcherOptions
   #watcher: FSWatcher | null = null
   /** The directory currently being watched, so a no-op re-arm stays a no-op. */
   #watchedDir: string | null = null
@@ -71,7 +75,7 @@ export class CsvWatcher {
   /** A change that landed while a reload was in flight. */
   #pending = false
 
-  constructor(options: CsvWatcherOptions) {
+  constructor(options: FileWatcherOptions) {
     this.#options = options
   }
 

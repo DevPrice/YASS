@@ -166,7 +166,11 @@ proxy needs a single upstream. All client URLs are relative.
 | `POST /api/songs/reload` | Force a re-read of the CSV — **host-only**, 404 otherwise |
 | `GET /api/now-playing` | Current state, one shot |
 | `GET /api/events` | SSE stream: `now-playing`, `library`, `venue`, `reload`, `ping` |
-| `GET /api/art/current` | Album art for the playing song |
+| `GET /api/art/current` | Album art for the playing song, straight off disk |
+| `GET /api/art/:hash?size=sm\|lg` | Album art for any song — 256px or 640px WebP |
+| `GET /api/preview/:hash` | ~30s Opus preview, with `Range` support |
+| `POST /api/media/reindex` | Rebuild the chart index — **host-only**, 404 otherwise |
+| `POST /api/media/ffmpeg` | Download ffmpeg — **host-only**, 404 otherwise |
 | `GET /api/health` | Liveness, unauthenticated — how the tray knows the bind succeeded |
 | `GET /api/capabilities` | Whether this caller is the host — no browser consumer, kept for the tray |
 | `GET /api/status` | Song count, bound address, restart-required — **host-only**, 404 otherwise |
@@ -254,18 +258,37 @@ behaviors, each verified against a live capture:
 Sentinels are mapped to `null` on the way in: `-1` for an uncharted instrument,
 `int.MaxValue` (`2147483647`) for an unknown year or track number.
 
-### Album art
+### Album art and previews
 
-Only the **currently playing** song has art today, because the CSV export has no path
-column and art lives next to the chart. Packed containers (`.sng`/`.yargsong`, CON)
-keep art inside the archive and fall back to a placeholder.
+Every song has a cover and a ~30 second preview, in all three chart formats. The CSV
+export still has no path column — what changed is that YARG turns out to publish the
+missing one already, in `songcache.bin`, which it rewrites on every scan. `server/src/media/`
+reads that into a `hash → location` map and everything else follows from it.
 
-Library-list art needs chart paths, which arrive with the YARG-side index below.
+- **`media/cache.ts`** parses the cache. Every group and entry is length-prefixed, so it
+  reads the two or three fields at the head of each and skips the ~90-field metadata
+  tail. It refuses any layout version it has not been checked against by hand.
+- **`media/scan.ts`** is the fallback: walk the folders from YARG's `settings.json` and
+  `SHA1` the chart files, which is exactly how YARG derives the same hashes. Slower, and
+  it means a YARG format change costs a slow first scan rather than the feature.
+- **`media/{sng,yargsong,con,dxt,dta}.ts`** open the packed formats — the SNG mask, the
+  `.yargsong` outer cipher, Xbox STFS block addressing, and the DXT textures inside a CON.
+- **ffmpeg** does every resize and every mix. It is fetched once into `%APPDATA%\yass\bin`,
+  verified against a pinned SHA-256, and cached forever; when it is missing the media
+  features stay dark and the client draws what it always drew.
 
-Until then the song detail view fills the art slot with the song's own title, set large
-in the display face over the selected-row wash. Four thousand identical grey discs would
-have been the honest answer to "we don't have this" and the wrong one; a typographic
-plate is still a placeholder, but it is a placeholder that tells you what you tapped.
+Thumbnails are precomputed for the whole library in the background after startup — about
+70 seconds and 67 MB for 4,168 songs — so the list is interactive immediately and the
+covers fill in behind it. Previews are generated on demand and kept under an LRU cap,
+because 4,168 of them would be ~600 MB for a party that plays thirty songs.
+
+A preview mixes every stem except the crowd, which is what YARG plays: `song.ogg` alone is
+the *backing track*, measured 7 dB below the seven-stem sum. The window is ported from
+`PreviewContext.cs`, so a preview starts where YARG would start it.
+
+The typographic plate stays, and is still what a song with no cover gets. It was always
+written as a square image slot standing in for a record it did not have a photograph of
+yet — so nothing below it moved when the photographs arrived.
 
 ## Testing
 
@@ -277,13 +300,28 @@ Tests run against `fixtures/`, captured from a live YARG install rather than wri
 from the spec — the schema is unstable enough that real bytes are the only reliable
 reference. Re-capture `fixtures/currentSong.playing.json` after a YARG upgrade.
 
+The binary formats under `server/src/media/` are covered by synthetic unit vectors, since
+their real inputs cannot be committed: `songcache.bin` bakes in absolute paths carrying
+the Windows account name, and the charts are gigabytes of copyrighted music. An opt-in
+pass reads a real library instead, and is skipped everywhere else:
+
+```bash
+YASS_MEDIA_FIXTURE_YARG_DIR="$LOCALAPPDATA/../LocalLow/YARC/YARG/release" \
+YASS_MEDIA_FIXTURE_CSV="N:/path/to/songs.csv" \
+npm test --workspace=server
+```
+
+It asserts the claim the whole feature rests on: every hash in the CSV export resolves to
+a chart on disk, and every packed chart re-hashes to what the cache recorded.
+
 ## Planned
 
 - **Publish the song index from YARG.** The intended replacement for the manual CSV:
-  patch YARG to write a JSON index after each scan. That uses YARG's real scanner, so
-  it covers `.sng` and CON charts, carries hashes and chart paths (enabling
-  library-wide album art), and never goes stale. `loadLibraryFromCsv` is isolated
-  behind the `SongLibrary` type precisely so this is a drop-in swap.
+  patch YARG to write a JSON index after each scan. That uses YARG's real scanner and
+  never goes stale, so it would remove the "re-export the CSV" step entirely.
+  `loadLibraryFromCsv` is isolated behind the `SongLibrary` type precisely so this is a
+  drop-in swap. **This is no longer what unblocks album art** — reading `songcache.bin`
+  did that without touching YARG; what is left here is the staleness of the song *list*.
 - **Design system.** `client/src/ui/` and the tokens in `client/src/index.css` are
   placeholders. The YARG design system will become the authority; feature components
   are written against the primitives so adopting it is a contained change.
