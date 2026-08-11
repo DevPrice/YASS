@@ -35,8 +35,6 @@ export interface DesktopState {
   lan: LanAddress[]
   /** The host's own URL, which exists whatever the bind address is. */
   localUrl: string | null
-  /** The saved host/port have moved past what's bound; only a restart applies them. */
-  restartRequired: boolean
   /**
    * Whether a save will reach the running server and apply without a restart.
    *
@@ -47,6 +45,19 @@ export interface DesktopState {
   liveApply: boolean
   openAtLogin: boolean
   version: string
+}
+
+/**
+ * What a save actually did.
+ *
+ * `applied` was computed by `config.ts` from the start and thrown away by the
+ * IPC handler, so "saved" read identically whether the running server took the
+ * change live or it only reached the file — in the one state where the
+ * difference is the entire point.
+ */
+export interface SaveOutcome {
+  state: DesktopState
+  applied: boolean
 }
 
 /** Channel names, in one place so a typo can't silently do nothing. */
@@ -67,7 +78,7 @@ export const CHANNELS = {
 /** The surface `preload.ts` puts on `window.yass`. */
 export interface DesktopApi {
   getState(): Promise<DesktopState>
-  saveSettings(patch: Partial<Settings>): Promise<DesktopState>
+  saveSettings(patch: Partial<Settings>): Promise<SaveOutcome>
   /** Absolute path, or null if the picker was cancelled. */
   pickDirectory(current: string): Promise<string | null>
   pickFile(current: string): Promise<string | null>

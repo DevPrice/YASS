@@ -11,7 +11,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import type { Settings, SettingsView } from '@shared/types.js'
+import { ENV_VARS, type Settings, type SettingsView } from '@shared/types.js'
 import {
   appConfigDir,
   currentSongJsonPath,
@@ -154,15 +154,8 @@ export function bindingChanged(settings: Settings, boundHost: string, boundPort:
 
 /** Which fields the environment is currently overriding, for the settings UI. */
 export function envOverriddenFields(): Array<keyof Settings> {
-  const overridden: Array<keyof Settings> = []
-
-  if (process.env.YASS_YARG_DATA_DIR) overridden.push('yargDataDir')
-  if (process.env.YASS_SONG_LIST_CSV) overridden.push('songListCsvPath')
-  if (process.env.YASS_POLL_INTERVAL_MS) overridden.push('pollIntervalMs')
-  if (process.env.YASS_HOST) overridden.push('host')
-  if (process.env.YASS_PORT) overridden.push('port')
-
-  return overridden
+  const fields = Object.keys(ENV_VARS) as Array<keyof Settings>
+  return fields.filter((field) => Boolean(process.env[ENV_VARS[field]]))
 }
 
 /**

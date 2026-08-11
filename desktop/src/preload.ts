@@ -18,12 +18,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 import type { Settings } from '@shared/types.js'
-import { CHANNELS, type DesktopApi, type DesktopState } from './ipc.js'
+import { CHANNELS, type DesktopApi, type DesktopState, type SaveOutcome } from './ipc.js'
 
 const api: DesktopApi = {
   getState: () => ipcRenderer.invoke(CHANNELS.getState) as Promise<DesktopState>,
   saveSettings: (patch: Partial<Settings>) =>
-    ipcRenderer.invoke(CHANNELS.saveSettings, patch) as Promise<DesktopState>,
+    ipcRenderer.invoke(CHANNELS.saveSettings, patch) as Promise<SaveOutcome>,
   pickDirectory: (current: string) =>
     ipcRenderer.invoke(CHANNELS.pickDirectory, current) as Promise<string | null>,
   pickFile: (current: string) =>

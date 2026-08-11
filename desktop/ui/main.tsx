@@ -14,7 +14,7 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import type { Settings } from '@shared/types.js'
+import { ENV_VARS, type Settings } from '@shared/types.js'
 // Type-only, and it has to stay that way: `src/` is main-process code, and the
 // renderer has no way to run any of it. The import is erased at build time.
 import type { DesktopApi, DesktopState } from '../src/ipc.js'
@@ -41,6 +41,10 @@ const FIELD_CLASS = cx(
   'w-full rounded-[5px] bg-surface-sunken px-2.5 py-1.5 text-[13px] text-content',
   'border border-border-strong outline-none placeholder:text-content-faint',
   'focus:border-accent',
+  // A field the environment is forcing looks like what it is. Editable and
+  // inert is the state this window used to offer, and then say "saved" about.
+  'read-only:text-content-muted read-only:border-border',
+  'disabled:text-content-muted disabled:border-border',
   FOCUS,
 )
 
@@ -191,22 +195,23 @@ function Disclosure({
 function Field({
   label,
   hint,
-  overridden,
+  env,
   children,
 }: {
   label: string
   hint?: React.ReactNode
-  overridden?: boolean
+  /** The environment variable forcing this field, if one is. */
+  env?: string
   children: React.ReactNode
 }) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="flex items-baseline justify-between gap-2">
         <span className="yarg-label text-[11px] text-content-muted">{label}</span>
-        {overridden ? (
-          <span className="text-[10px] text-warning" title="Set by an environment variable">
-            env override
-          </span>
+        {/* The variable's own name, rather than a tooltip nobody opens saying
+            the words "env override". You cannot unset what you cannot name. */}
+        {env ? (
+          <code className="selectable font-numeric text-[11px] text-warning">set by {env}</code>
         ) : null}
       </span>
       {children}
@@ -517,11 +522,46 @@ const HOSTS = [
   { value: '127.0.0.1', label: 'This machine only' },
 ]
 
+function hostLabel(value: string): string {
+  return HOSTS.find((option) => option.value === value)?.label ?? value
+}
+
+/**
+ * What the socket is on, against what the settings say — in a sentence that
+ * names whichever one actually moved.
+ *
+ * The banner used to announce "the bind address only takes effect when the
+ * server starts" whenever the *port* changed, which is a message about a field
+ * the host did not touch. The draft is merged over the saved values, so this is
+ * equally true before the save and after it, and it disappears by itself if you
+ * edit the value back to what is already bound.
+ */
+function bindingPending(state: DesktopState, draft: Partial<Settings>): string | null {
+  const bound = state.server
+  if (bound.host === null || bound.port === null) return null
+
+  const effective = { ...state.view.settings, ...draft }
+  const portMoved = effective.port !== bound.port
+  const hostMoved = effective.host !== bound.host
+
+  if (portMoved && hostMoved) {
+    return `The server is still on ${bound.host}:${bound.port}. Restart it to move to ${effective.host}:${effective.port}.`
+  }
+  if (portMoved) {
+    return `The server is still on port ${bound.port}. Restart it to move to ${effective.port}.`
+  }
+  if (hostMoved) {
+    return `The server is still reachable from “${hostLabel(bound.host)}”. Restart it to move.`
+  }
+  return null
+}
+
 function App() {
   const [state, setState] = useState<DesktopState | null>(null)
   const [draft, setDraft] = useState<Partial<Settings>>({})
   const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState(false)
+  /** What the last save actually did, or null. */
+  const [saved, setSaved] = useState<string | null>(null)
   /** The last thing that went wrong, because silence is not a response. */
   const [failure, setFailure] = useState<string | null>(null)
   /** Null until the host has an opinion; the default is computed from the paths. */
@@ -553,7 +593,7 @@ function App() {
   // used to still read "saved" ten minutes after a save nobody remembers.
   useEffect(() => {
     if (!saved) return
-    const timer = window.setTimeout(() => setSaved(false), 2500)
+    const timer = window.setTimeout(() => setSaved(null), 2500)
     return () => window.clearTimeout(timer)
   }, [saved])
 
@@ -592,10 +632,12 @@ function App() {
   }
 
   const { status, envOverrides } = state.view
-  const overridden = (key: keyof Settings) => envOverrides.includes(key)
+  const locked = (key: keyof Settings) => envOverrides.includes(key)
+  const envVar = (key: keyof Settings) => (locked(key) ? ENV_VARS[key] : undefined)
+
   const edit = (patch: Partial<Settings>) => {
     setDraft((current) => ({ ...current, ...patch }))
-    setSaved(false)
+    setSaved(null)
   }
 
   /** Every rejection reaches a person, rather than resolving into nothing. */
@@ -619,10 +661,13 @@ function App() {
 
   const save = () =>
     run(async () => {
-      const next = await window.yass.saveSettings(draft)
+      const outcome = await window.yass.saveSettings(draft)
       setDraft({})
-      setSaved(true)
-      return next
+      // Which of the two things a save can mean. `host` and `port` are the only
+      // settings a running server can't take live, and the banner below says
+      // which one is waiting.
+      setSaved(outcome.applied ? 'saved and applied' : 'saved to the settings file')
+      return outcome.state
     })
 
   /** The remedy for a taken port: move one along, then go there. */
@@ -630,7 +675,7 @@ function App() {
     run(async () => {
       await window.yass.saveSettings({ port })
       setDraft({})
-      setSaved(false)
+      setSaved(null)
       return window.yass.restartServer()
     })
 
@@ -640,12 +685,10 @@ function App() {
       const picked = await window.yass.pickFile(settings.songListCsvPath)
       if (!picked) return
       setDraft({})
-      return window.yass.saveSettings({ songListCsvPath: picked })
+      return (await window.yass.saveSettings({ songListCsvPath: picked })).state
     })
 
-  // The port is the only setting that can't be applied live, so it is the only
-  // one that can put the app in a "restart to apply" state.
-  const portPending = dirty && (draft.port !== undefined || draft.host !== undefined)
+  const pending = bindingPending(state, draft)
 
   // Opened for you when a path is wrong, because that is the one time the
   // settings are the reason you came.
@@ -675,13 +718,12 @@ function App() {
           </p>
         ) : null}
 
-        {state.restartRequired || portPending ? (
+        {pending ? (
           <p
             className="rounded-[5px] px-3 py-2 text-[12px] text-warning"
             style={{ background: 'color-mix(in srgb, var(--yarg-mustard) 12%, transparent)' }}
           >
-            The bind address only takes effect when the server starts. Restart it to move to
-            the new one.
+            {pending}
           </p>
         ) : null}
 
@@ -700,7 +742,7 @@ function App() {
 
           <Field
             label="YARG data folder"
-            overridden={overridden('yargDataDir')}
+            env={envVar('yargDataDir')}
             hint={
               <PathStatus
                 ok={status.currentSongJsonExists}
@@ -718,10 +760,12 @@ function App() {
                 className={FIELD_CLASS}
                 value={settings.yargDataDir}
                 spellCheck={false}
+                readOnly={locked('yargDataDir')}
                 onChange={(event) => edit({ yargDataDir: event.target.value })}
               />
               <Button
                 className="shrink-0"
+                disabled={locked('yargDataDir')}
                 onClick={() =>
                   void window.yass
                     .pickDirectory(settings.yargDataDir)
@@ -739,7 +783,7 @@ function App() {
 
           <Field
             label="Song list export"
-            overridden={overridden('songListCsvPath')}
+            env={envVar('songListCsvPath')}
             hint={
               settings.songListCsvPath ? (
                 <PathStatus ok={status.songListCsvExists} found="found" missing="file not found" />
@@ -754,10 +798,12 @@ function App() {
                 value={settings.songListCsvPath}
                 spellCheck={false}
                 placeholder="not configured"
+                readOnly={locked('songListCsvPath')}
                 onChange={(event) => edit({ songListCsvPath: event.target.value })}
               />
               <Button
                 className="shrink-0"
+                disabled={locked('songListCsvPath')}
                 onClick={() =>
                   void window.yass
                     .pickFile(settings.songListCsvPath)
@@ -774,12 +820,13 @@ function App() {
 
           <Field
             label="Reachable from"
-            overridden={overridden('host')}
+            env={envVar('host')}
             hint="Guests need this on the network. Restart the server to change it."
           >
             <select
               className={FIELD_CLASS}
               value={settings.host}
+              disabled={locked('host')}
               onChange={(event) => edit({ host: event.target.value })}
             >
               {HOSTS.map((option) => (
@@ -797,12 +844,13 @@ function App() {
 
           <div className="flex gap-3">
             <div className="flex-1">
-              <Field label="Port" overridden={overridden('port')}>
+              <Field label="Port" env={envVar('port')}>
                 <input
                   className={cx(FIELD_CLASS, 'font-numeric')}
                   type="number"
                   min={1}
                   max={65535}
+                  readOnly={locked('port')}
                   value={settings.port}
                   onChange={(event) => edit({ port: Number(event.target.value) })}
                 />
@@ -810,13 +858,14 @@ function App() {
             </div>
 
             <div className="flex-1">
-              <Field label="Poll interval" hint="ms" overridden={overridden('pollIntervalMs')}>
+              <Field label="Poll interval" hint="ms" env={envVar('pollIntervalMs')}>
                 <input
                   className={cx(FIELD_CLASS, 'font-numeric')}
                   type="number"
                   min={250}
                   max={10000}
                   step={250}
+                  readOnly={locked('pollIntervalMs')}
                   value={settings.pollIntervalMs}
                   onChange={(event) => edit({ pollIntervalMs: Number(event.target.value) })}
                 />
@@ -853,12 +902,14 @@ function App() {
             onClick={() => void save()}
             className="min-w-[92px]"
           >
-            {busy ? 'saving…' : saved && !dirty ? 'saved' : 'save'}
+            {busy ? 'saving…' : 'save'}
           </Button>
           {dirty ? (
             <span className="text-[11px] text-content-faint">
               Unsaved — this window forgets them when it closes.
             </span>
+          ) : saved ? (
+            <span className="text-[11px] text-success">{saved}</span>
           ) : null}
         </footer>
       ) : null}

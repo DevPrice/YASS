@@ -216,6 +216,21 @@ export interface ServerStatus {
 }
 
 /** Settings plus read-only context the UI needs to render the settings screen. */
+/**
+ * The environment variable that forces each field.
+ *
+ * Here rather than in the server, because the settings UI has to name the
+ * variable to the person looking at a field it will not let them edit — and a
+ * second copy of these strings is a second thing to get wrong.
+ */
+export const ENV_VARS: Record<keyof Settings, string> = {
+  yargDataDir: 'YASS_YARG_DATA_DIR',
+  songListCsvPath: 'YASS_SONG_LIST_CSV',
+  pollIntervalMs: 'YASS_POLL_INTERVAL_MS',
+  host: 'YASS_HOST',
+  port: 'YASS_PORT',
+}
+
 export interface SettingsView {
   /** The effective values — the settings file with environment overrides applied. */
   settings: Settings

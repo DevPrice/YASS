@@ -24,7 +24,7 @@ import {
   sanitizePatch,
   saveSettings,
 } from './config.js'
-import { CHANNELS, type DesktopState } from './ipc.js'
+import { CHANNELS, type DesktopState, type SaveOutcome } from './ipc.js'
 import {
   createPopover,
   popoverWindow,
@@ -82,11 +82,6 @@ async function buildState(): Promise<DesktopState> {
     // Only worth showing when the server can actually be reached at them.
     lan: running && server.isLanBound && boundPort ? lanAddresses(boundPort) : [],
     localUrl: running ? server.localUrl : null,
-    // Nothing is pending against a socket that isn't open.
-    restartRequired:
-      running && boundHost !== null && boundPort !== null
-        ? bindingChanged(view.settings, boundHost, boundPort)
-        : false,
     liveApply: origin !== null,
     openAtLogin: app.getLoginItemSettings({ path: launchPath() }).openAtLogin,
     version: app.getVersion(),
@@ -156,12 +151,12 @@ function registerIpc(): void {
   ipcMain.handle(CHANNELS.getState, () => buildState())
 
   ipcMain.handle(CHANNELS.saveSettings, async (_event, patch: Partial<Settings>) => {
-    await saveSettings(sanitizePatch(patch), server.apiOrigin)
+    const { applied } = await saveSettings(sanitizePatch(patch), server.apiOrigin)
     const state = await buildState()
     // The popover gets the result as a return value; everything else that
     // renders state — the tooltip — needs telling too.
     void publish()
-    return state
+    return { state, applied } satisfies SaveOutcome
   })
 
   ipcMain.handle(CHANNELS.pickDirectory, (_event, current: string) =>
