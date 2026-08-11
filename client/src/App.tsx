@@ -210,10 +210,11 @@ export function App() {
   /**
    * Identifies the *query*, not the result.
    *
-   * The list scrolls back to the top when this changes. Keying that off the
-   * songs array instead would also fire whenever the library reloads — and now
-   * that a re-export pushes a reload to every connected phone, that would yank
-   * a reader back to the A's mid-scroll for something they didn't do.
+   * The list re-anchors when this changes — on the selected song if the new
+   * filters kept it, at the top if there is nothing left to hold on to. Keying
+   * that off the songs array instead would also fire whenever the library
+   * reloads, and now that a re-export pushes a reload to every connected phone,
+   * that would move a reader mid-scroll for something they didn't do.
    */
   // Built from the deferred filters, not the live ones: this is what returns
   // the list to the top, and it has to change on the commit that shows the new

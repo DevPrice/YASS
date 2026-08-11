@@ -38,6 +38,7 @@ import type { DifficultyLens } from '../../lib/difficulty'
 import { LENS_LABELS } from '../../lib/difficulty'
 import { formatDuration, formatYear } from '../../lib/format'
 import { groupSongs } from './grouping'
+import type { ListItem } from './grouping'
 import { IndexRail } from './IndexRail'
 import { buildIndex, indexLabel } from './indexing'
 import type { SortDirection, SortKey } from './filtering'
@@ -107,6 +108,17 @@ const TOP_EDGE_SLACK = 1
 export interface Selection {
   id: string
   align: 'auto' | 'center'
+}
+
+/**
+ * Where a song sits among the *rendered* items — headers included, because that
+ * is the unit the virtualizer measures and scrolls in.
+ *
+ * Returns -1 for a song the current filters have hidden, which both callers
+ * read as "there is nothing to scroll to".
+ */
+function indexOfSong(items: readonly ListItem[], id: string): number {
+  return items.findIndex((item) => item.kind === 'song' && item.song.id === id)
 }
 
 /**
@@ -309,35 +321,57 @@ export function SongList({
     virtualizer.measure()
   }, [isNarrow, virtualizer])
 
-  // Return to the top when the *query* changes, so narrowing a filter doesn't
-  // leave the user scrolled into empty space.
-  //
-  // Keyed on the query rather than the songs array: `sortSongs` returns a new
-  // array every render pass, and the library now reloads on its own whenever
-  // the CSV is re-exported. Watching the array would jump a reader back to the
-  // top for something they didn't do.
-  useEffect(() => {
-    virtualizer.scrollToOffset(0)
-  }, [queryKey, virtualizer])
-
   /**
-   * The list is read inside the reveal effect, never watched by it.
+   * Both scroll effects read the list and the selection; neither watches them.
    *
-   * Depending on `songs` would make a filter change reveal the selection —
-   * immediately undoing the scroll-to-top above, which runs from the same
-   * commit. The selection changing is the only thing that should move the list.
+   * Watching `items` would fire on things nobody did: `sortSongs` returns a new
+   * array every render pass, the library reloads on its own whenever the CSV is
+   * re-exported, and the grouping rebuilds when the list crosses 672px. Only a
+   * new query or a new selection should ever move the page.
    */
   const itemsRef = useRef(items)
   itemsRef.current = items
 
+  const selectionRef = useRef(selection)
+  selectionRef.current = selection
+
+  /**
+   * A new query keeps your place when your place still exists.
+   *
+   * Changing a filter used to return the list to the top unconditionally, which
+   * is right when there is nothing to hold on to and destructive when there is.
+   * A selected song is a place in the library: it is what the detail pane is
+   * showing, what the arrow keys walk from, and — because narrowing is how
+   * anybody explores — the one row somebody has already decided they care
+   * about. Throwing it away to answer "did adding *drums* change anything"
+   * meant losing the answer and the question together.
+   *
+   * So the selection anchors the list across the change, and the top is the
+   * fallback for when it cannot: no selection, or a selection the new filters
+   * have hidden. That pair also makes the round trip symmetric — narrow a song
+   * out of the list and clear the filter again, and you land back on it.
+   *
+   * **Centred rather than wherever it happened to be sitting.** Holding its
+   * exact pixel offset would be truer to "keep it on screen" and is the wrong
+   * trade: it needs the row's pre-change position captured every scroll frame,
+   * and it degrades into a jump anyway near either end of the list, where the
+   * offset cannot be honoured. Centred is one call, lands the same way every
+   * time, and puts the song's *new* neighbours either side of it — which is the
+   * thing a filter change was asked to show.
+   */
+  useEffect(() => {
+    const selected = selectionRef.current
+    const index = selected === null ? -1 : indexOfSong(itemsRef.current, selected.id)
+
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: 'center' })
+    else virtualizer.scrollToOffset(0)
+  }, [queryKey, virtualizer])
+
+  /** Selecting a song reveals it, however the selection was made. */
   useEffect(() => {
     if (selection === null) return
 
-    // The index is into the rendered items, headers included — the same units
-    // the virtualizer measures in.
-    const index = itemsRef.current.findIndex(
-      (item) => item.kind === 'song' && item.song.id === selection.id,
-    )
+    const index = indexOfSong(itemsRef.current, selection.id)
     if (index >= 0) virtualizer.scrollToIndex(index, { align: selection.align })
   }, [selection, virtualizer])
 
