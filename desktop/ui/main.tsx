@@ -172,24 +172,94 @@ function CopyRow({ url }: { url: string }) {
 
 // --- Status -----------------------------------------------------------------
 
-const STATUS_TEXT: Record<DesktopState['server']['status'], { label: string; tone: string }> = {
-  starting: { label: 'Starting…', tone: 'text-content-muted' },
-  running: { label: 'Running', tone: 'text-success' },
-  stopped: { label: 'Stopped', tone: 'text-content-muted' },
-  failed: { label: 'Not running', tone: 'text-danger' },
+const WAITING_TEXT: Record<DesktopState['server']['status'], string> = {
+  starting: 'Starting…',
+  running: 'Loading the song list…',
+  stopped: 'Stopped',
+  failed: 'Not running',
 }
+
+/**
+ * What the card should be *about* — a different question from what the process
+ * is doing.
+ *
+ * A server that bound its socket and loaded nothing is `running`, and saying so
+ * in emerald above an address to hand out is true and useless: the guest opens
+ * an empty app. Zero is not a count, it is a failure with a number in it, so it
+ * gets its own case and its own remedy.
+ */
+type Health = 'failed' | 'empty' | 'ready' | 'waiting'
+
+function health(state: DesktopState): Health {
+  if (state.server.status === 'failed') return 'failed'
+  if (state.server.status !== 'running' || state.songs === null) return 'waiting'
+  return state.songs.count === 0 ? 'empty' : 'ready'
+}
+
+/**
+ * How old the export is, in the units somebody would say out loud.
+ *
+ * The server watches the CSV, so the file being current is never in doubt — but
+ * nothing watches YARG, and the list is exported by hand. "You installed songs
+ * and last exported three weeks ago" is the single most likely reason a host is
+ * looking at this window at all.
+ */
+function exportedAgo(at: number | null): { text: string; stale: boolean } | null {
+  if (at === null) return null
+
+  const days = Math.floor((Date.now() - at) / 86_400_000)
+  if (days < 2) return null
+
+  const stale = days >= 21
+  if (days < 14) return { text: `exported ${days} days ago`, stale }
+  if (days < 60) return { text: `exported ${Math.round(days / 7)} weeks ago`, stale }
+  return { text: `exported ${Math.round(days / 30)} months ago`, stale }
+}
+
+/**
+ * The headline word, said about the health rather than about the process.
+ *
+ * "Running" in emerald over an empty library is the exact sentence this window
+ * used to open with, and it is the reason a host hands out an address to an app
+ * with nothing in it.
+ */
+function headline(state: DesktopState, kind: Health): { label: string; tone: string } {
+  if (kind === 'ready') return { label: 'Running', tone: 'text-success' }
+  if (kind === 'empty') return { label: 'No songs', tone: 'text-warning' }
+  if (kind === 'failed') return { label: 'Not running', tone: 'text-danger' }
+  return { label: WAITING_TEXT[state.server.status], tone: 'text-content-muted' }
+}
+
+/** Enough warnings to recognise the problem by; a malformed CSV has hundreds. */
+const WARNINGS_SHOWN = 3
 
 function StatusBlock({
   state,
-  onRestart,
   busy,
+  onRestart,
+  onTryPort,
+  onChooseExport,
 }: {
   state: DesktopState
-  onRestart: () => void
   busy: boolean
+  onRestart: () => void
+  onTryPort: (port: number) => void
+  onChooseExport: () => void
 }) {
-  const status = STATUS_TEXT[state.server.status]
   const songs = state.songs
+  const kind = health(state)
+  const status = headline(state, kind)
+  const age = exportedAgo(songs?.generatedAt ?? null)
+
+  /*
+   * The remedy is offered only for the failure it actually remedies. A port one
+   * number along fixes a collision and does nothing at all for a permissions
+   * error, and a button that quietly fails twice is worse than no button.
+   */
+  const portTaken = kind === 'failed' && (state.server.message?.includes('already in use') ?? false)
+  const nextPort = Math.min(65535, state.view.settings.port + 1)
+
+  const hidden = songs ? songs.warnings.length - WARNINGS_SHOWN : 0
 
   return (
     <section className="rounded-[10px] bg-surface-card p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
@@ -204,29 +274,57 @@ function StatusBlock({
         <p className="selectable mt-2 text-[12px] text-danger">{state.server.message}</p>
       ) : null}
 
-      {state.server.status === 'running' ? (
+      {portTaken ? (
+        <div className="mt-2.5">
+          <Button tone="accent" disabled={busy} onClick={() => onTryPort(nextPort)}>
+            try port {nextPort}
+          </Button>
+        </div>
+      ) : null}
+
+      {kind === 'empty' ? (
         <>
           <p className="mt-2 text-[12px] text-content-muted">
-            {songs === null ? (
-              'Loading the song list…'
-            ) : (
-              <>
-                <span className="font-numeric text-content">{songs.count.toLocaleString()}</span>{' '}
-                songs loaded
-              </>
-            )}
+            YARG writes the list from Settings → Export Songs List. Point YASS at it and the
+            guests get a library.
           </p>
+          <div className="mt-2.5">
+            <Button tone="accent" disabled={busy} onClick={onChooseExport}>
+              choose the export…
+            </Button>
+          </div>
+        </>
+      ) : null}
 
-          {songs?.warnings.length ? (
-            <ul className="mt-1.5 space-y-0.5">
-              {songs.warnings.map((warning) => (
-                <li key={warning} className="selectable text-[11px] text-warning">
-                  {warning}
-                </li>
-              ))}
-            </ul>
+      {kind === 'ready' && songs ? (
+        <p className="mt-2 text-[12px] text-content-muted">
+          <span className="font-numeric text-content">{songs.count.toLocaleString()}</span> songs
+          loaded
+          {age ? (
+            <span className={age.stale ? 'text-warning' : 'text-content-faint'}>
+              {' · '}
+              {age.text}
+            </span>
           ) : null}
+        </p>
+      ) : null}
 
+      {songs && songs.warnings.length > 0 ? (
+        <ul className="mt-1.5 space-y-0.5">
+          {songs.warnings.slice(0, WARNINGS_SHOWN).map((warning) => (
+            <li key={warning} className="selectable text-[11px] text-warning">
+              {warning}
+            </li>
+          ))}
+          {hidden > 0 ? (
+            <li className="text-[11px] text-content-faint">and {hidden} more like it</li>
+          ) : null}
+        </ul>
+      ) : null}
+
+      {/* Only once there is something at the other end of it to browse. */}
+      {kind === 'ready' ? (
+        <>
           <div className="mt-3 space-y-1.5">
             {state.lanUrls.length > 0 ? (
               state.lanUrls.map((url) => <CopyRow key={url} url={url} />)
@@ -264,6 +362,8 @@ function App() {
   const [draft, setDraft] = useState<Partial<Settings>>({})
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  /** The last thing that went wrong, because silence is not a response. */
+  const [failure, setFailure] = useState<string | null>(null)
 
   const apply = useCallback((next: DesktopState) => {
     setState(next)
@@ -302,11 +402,20 @@ function App() {
     setSaved(false)
   }
 
+  /** Every rejection reaches a person, rather than resolving into nothing. */
+  const report = (error: unknown) =>
+    setFailure(error instanceof Error ? error.message : String(error))
+
   const run = async (action: () => Promise<DesktopState | void>) => {
     setBusy(true)
+    setFailure(null)
     try {
       const next = await action()
       if (next) apply(next)
+    } catch (error) {
+      // Without this the window's response to a failed save is that the button
+      // stops saying "working…" and nothing else happens anywhere.
+      report(error)
     } finally {
       setBusy(false)
     }
@@ -318,6 +427,24 @@ function App() {
       setDraft({})
       setSaved(true)
       return next
+    })
+
+  /** The remedy for a taken port: move one along, then go there. */
+  const tryPort = (port: number) =>
+    run(async () => {
+      await window.yass.saveSettings({ port })
+      setDraft({})
+      setSaved(false)
+      return window.yass.restartServer()
+    })
+
+  /** The remedy for an empty library: the picker, straight from the card. */
+  const chooseExport = () =>
+    run(async () => {
+      const picked = await window.yass.pickFile(settings.songListCsvPath)
+      if (!picked) return
+      setDraft({})
+      return window.yass.saveSettings({ songListCsvPath: picked })
     })
 
   // The port is the only setting that can't be applied live, so it is the only
@@ -336,7 +463,18 @@ function App() {
           state={state}
           busy={busy}
           onRestart={() => void run(() => window.yass.restartServer())}
+          onTryPort={(port) => void tryPort(port)}
+          onChooseExport={() => void chooseExport()}
         />
+
+        {failure ? (
+          <p
+            className="selectable rounded-[5px] px-3 py-2 text-[12px] text-danger"
+            style={{ background: 'color-mix(in srgb, var(--yarg-imperial-red) 12%, transparent)' }}
+          >
+            {failure}
+          </p>
+        ) : null}
 
         {state.restartRequired || portPending ? (
           <p
@@ -380,10 +518,13 @@ function App() {
             <Button
               className="shrink-0"
               onClick={() =>
-                void window.yass.pickDirectory(settings.yargDataDir).then((picked) => {
-                  // Cancel returns null and must leave the field alone.
-                  if (picked) edit({ yargDataDir: picked })
-                })
+                void window.yass
+                  .pickDirectory(settings.yargDataDir)
+                  .then((picked) => {
+                    // Cancel returns null and must leave the field alone.
+                    if (picked) edit({ yargDataDir: picked })
+                  })
+                  .catch(report)
               }
             >
               browse
@@ -413,9 +554,12 @@ function App() {
             <Button
               className="shrink-0"
               onClick={() =>
-                void window.yass.pickFile(settings.songListCsvPath).then((picked) => {
-                  if (picked) edit({ songListCsvPath: picked })
-                })
+                void window.yass
+                  .pickFile(settings.songListCsvPath)
+                  .then((picked) => {
+                    if (picked) edit({ songListCsvPath: picked })
+                  })
+                  .catch(report)
               }
             >
               browse
