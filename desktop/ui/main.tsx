@@ -11,7 +11,7 @@
  * from `src/preload.ts`. There is no `fetch`, no filesystem, no Node.
  */
 
-import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { StrictMode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ENV_VARS, type Settings } from '@shared/types.js'
@@ -101,8 +101,10 @@ function QuietButton({
       type="button"
       {...props}
       className={cx(
-        'yarg-label shrink-0 rounded-[5px] px-2 py-1 text-label text-content-muted',
-        'border border-border-strong hover:text-content',
+        // `min-h-6` is SC 2.5.8's 24px floor: this was a 45×20 target, three
+        // times over on a machine with several network adapters.
+        'yarg-label inline-flex min-h-6 shrink-0 items-center rounded-[5px] px-2.5 text-label',
+        'border border-border-strong text-content-muted hover:text-content',
         FOCUS,
         className,
       )}
@@ -192,6 +194,16 @@ function Disclosure({
   )
 }
 
+/**
+ * A labelled control.
+ *
+ * The label wraps nothing, on purpose. It used to enclose the control *and* its
+ * browse button *and* its hint, so the accessible name Chrome computed for the
+ * path field was the whole lot run together — "YARG DATA FOLDER BROWSE
+ * currentSong.json found". Now the label points at one control by id and the
+ * surrounding prose is attached as a description, which is what a description
+ * is for.
+ */
 function Field({
   label,
   hint,
@@ -202,21 +214,34 @@ function Field({
   hint?: React.ReactNode
   /** The environment variable forcing this field, if one is. */
   env?: string
-  children: React.ReactNode
+  children: (control: { id: string; 'aria-describedby': string | undefined }) => React.ReactNode
 }) {
+  const id = useId()
+  const hintId = hint ? `${id}-hint` : undefined
+  const envId = env ? `${id}-env` : undefined
+  const describedBy = [envId, hintId].filter(Boolean).join(' ') || undefined
+
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="yarg-label text-label text-content-muted">{label}</span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className="yarg-label text-label text-content-muted">
+          {label}
+        </label>
         {/* The variable's own name, rather than a tooltip nobody opens saying
             the words "env override". You cannot unset what you cannot name. */}
         {env ? (
-          <code className="selectable font-numeric text-label text-warning">set by {env}</code>
+          <code id={envId} className="selectable font-numeric text-label text-warning">
+            set by {env}
+          </code>
         ) : null}
-      </span>
-      {children}
-      {hint ? <span className="text-note text-content-faint">{hint}</span> : null}
-    </label>
+      </div>
+      {children({ id, 'aria-describedby': describedBy })}
+      {hint ? (
+        <span id={hintId} className="text-note text-content-faint">
+          {hint}
+        </span>
+      ) : null}
+    </div>
   )
 }
 
@@ -249,7 +274,11 @@ function CopyRow({ url, label }: { url: string; label?: string }) {
         </code>
         {label ? <span className="text-label text-content-faint">{label}</span> : null}
       </div>
-      <QuietButton onClick={copy}>{copied ? 'copied' : 'copy'}</QuietButton>
+      {/* Three buttons named exactly "copy" used to sit in the tab order with
+          their addresses in adjacent non-focusable elements. */}
+      <QuietButton aria-label={`Copy ${url}`} onClick={copy}>
+        {copied ? 'copied' : 'copy'}
+      </QuietButton>
     </div>
   )
 }
@@ -291,7 +320,9 @@ function AddressBlock({ state }: { state: DesktopState }) {
             {primary ? primary.name : 'this machine only'}
           </p>
           <div className="mt-2.5">
-            <QuietButton onClick={copy}>{copied ? 'copied' : 'copy'}</QuietButton>
+            <QuietButton aria-label={`Copy ${url}`} onClick={copy}>
+              {copied ? 'copied' : 'copy'}
+            </QuietButton>
           </div>
         </div>
       </div>
@@ -306,8 +337,8 @@ function AddressBlock({ state }: { state: DesktopState }) {
         <details className="group mt-2.5">
           <summary
             className={cx(
-              'yarg-label inline-flex cursor-default list-none items-center gap-1.5 rounded-[5px]',
-              'text-label text-content-muted hover:text-content',
+              'yarg-label inline-flex min-h-6 cursor-default list-none items-center gap-1.5',
+              'rounded-[5px] pr-1 text-label text-content-muted hover:text-content',
               '[&::-webkit-details-marker]:hidden',
               FOCUS,
             )}
@@ -439,10 +470,21 @@ function StatusBlock({
   return (
     <section className="rounded-[10px] bg-surface-card p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
       <div className="flex items-center gap-2">
-        <span className={cx('yarg-label flex-1 text-body', status.tone)}>{status.label}</span>
+        {/*
+         * A live region, because this window's entire purpose is telling you
+         * what state the server is in and it used to announce none of it.
+         */}
+        <span role="status" className={cx('yarg-label flex-1 text-body', status.tone)}>
+          {status.label}
+        </span>
         {/* Beside the state it acts on, rather than in a row of unrelated verbs. */}
         {kind === 'ready' ? (
-          <QuietButton onClick={() => window.yass.openInBrowser()}>open</QuietButton>
+          <QuietButton
+            aria-label="Open YASS in the browser"
+            onClick={() => window.yass.openInBrowser()}
+          >
+            open
+          </QuietButton>
         ) : null}
         <Button onClick={onRestart} disabled={busy}>
           {busy ? 'working…' : 'restart server'}
@@ -450,7 +492,9 @@ function StatusBlock({
       </div>
 
       {state.server.message ? (
-        <p className="selectable mt-2 text-body text-danger">{state.server.message}</p>
+        <p role="alert" className="selectable mt-2 text-body text-danger">
+          {state.server.message}
+        </p>
       ) : null}
 
       {portTaken ? (
@@ -476,7 +520,7 @@ function StatusBlock({
       ) : null}
 
       {kind === 'ready' && songs ? (
-        <p className="mt-2 text-body text-content-muted">
+        <p aria-live="polite" className="mt-2 text-body text-content-muted">
           <span className="font-numeric text-content">{songs.count.toLocaleString()}</span> songs
           loaded
           {age ? (
@@ -567,7 +611,7 @@ function App() {
   /** Null until the host has an opinion; the default is computed from the paths. */
   const [settingsOpen, setSettingsOpen] = useState<boolean | null>(null)
 
-  const scrollerRef = useRef<HTMLDivElement>(null)
+  const scrollerRef = useRef<HTMLElement>(null)
   const footerRef = useRef<HTMLElement>(null)
 
   const apply = useCallback((next: DesktopState) => {
@@ -700,7 +744,7 @@ function App() {
        * No wordmark. You arrived here by clicking an icon you already know the
        * name of, and the 44px it cost was paid for out of the content below it.
        */}
-      <div ref={scrollerRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+      <main ref={scrollerRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
         <StatusBlock
           state={state}
           busy={busy}
@@ -711,6 +755,7 @@ function App() {
 
         {failure ? (
           <p
+            role="alert"
             className="selectable rounded-[5px] px-3 py-2 text-body text-danger"
             style={{ background: 'color-mix(in srgb, var(--yarg-imperial-red) 12%, transparent)' }}
           >
@@ -755,30 +800,34 @@ function App() {
               />
             }
           >
-            <div className="flex gap-2">
-              <input
-                className={FIELD_CLASS}
-                value={settings.yargDataDir}
-                spellCheck={false}
-                readOnly={locked('yargDataDir')}
-                onChange={(event) => edit({ yargDataDir: event.target.value })}
-              />
-              <Button
-                className="shrink-0"
-                disabled={locked('yargDataDir')}
-                onClick={() =>
-                  void window.yass
-                    .pickDirectory(settings.yargDataDir)
-                    .then((picked) => {
-                      // Cancel returns null and must leave the field alone.
-                      if (picked) edit({ yargDataDir: picked })
-                    })
-                    .catch(report)
-                }
-              >
-                browse
-              </Button>
-            </div>
+            {(control) => (
+              <div className="flex gap-2">
+                <input
+                  {...control}
+                  className={FIELD_CLASS}
+                  value={settings.yargDataDir}
+                  spellCheck={false}
+                  readOnly={locked('yargDataDir')}
+                  onChange={(event) => edit({ yargDataDir: event.target.value })}
+                />
+                <Button
+                  className="shrink-0"
+                  aria-label="Browse for the YARG data folder"
+                  disabled={locked('yargDataDir')}
+                  onClick={() =>
+                    void window.yass
+                      .pickDirectory(settings.yargDataDir)
+                      .then((picked) => {
+                        // Cancel returns null and must leave the field alone.
+                        if (picked) edit({ yargDataDir: picked })
+                      })
+                      .catch(report)
+                  }
+                >
+                  browse
+                </Button>
+              </div>
+            )}
           </Field>
 
           <Field
@@ -792,30 +841,34 @@ function App() {
               )
             }
           >
-            <div className="flex gap-2">
-              <input
-                className={FIELD_CLASS}
-                value={settings.songListCsvPath}
-                spellCheck={false}
-                placeholder="not configured"
-                readOnly={locked('songListCsvPath')}
-                onChange={(event) => edit({ songListCsvPath: event.target.value })}
-              />
-              <Button
-                className="shrink-0"
-                disabled={locked('songListCsvPath')}
-                onClick={() =>
-                  void window.yass
-                    .pickFile(settings.songListCsvPath)
-                    .then((picked) => {
-                      if (picked) edit({ songListCsvPath: picked })
-                    })
-                    .catch(report)
-                }
-              >
-                browse
-              </Button>
-            </div>
+            {(control) => (
+              <div className="flex gap-2">
+                <input
+                  {...control}
+                  className={FIELD_CLASS}
+                  value={settings.songListCsvPath}
+                  spellCheck={false}
+                  placeholder="not configured"
+                  readOnly={locked('songListCsvPath')}
+                  onChange={(event) => edit({ songListCsvPath: event.target.value })}
+                />
+                <Button
+                  className="shrink-0"
+                  aria-label="Browse for the song list export"
+                  disabled={locked('songListCsvPath')}
+                  onClick={() =>
+                    void window.yass
+                      .pickFile(settings.songListCsvPath)
+                      .then((picked) => {
+                        if (picked) edit({ songListCsvPath: picked })
+                      })
+                      .catch(report)
+                  }
+                >
+                  browse
+                </Button>
+              </div>
+            )}
           </Field>
 
           <Field
@@ -823,57 +876,67 @@ function App() {
             env={envVar('host')}
             hint="Guests need this on the network. Restart the server to change it."
           >
-            <select
-              className={FIELD_CLASS}
-              value={settings.host}
-              disabled={locked('host')}
-              onChange={(event) => edit({ host: event.target.value })}
-            >
-              {HOSTS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-              {/* Whatever the file holds stays selectable, so opening this window
-                  can never silently rewrite a hand-edited bind address. */}
-              {HOSTS.every((option) => option.value !== settings.host) ? (
-                <option value={settings.host}>{settings.host}</option>
-              ) : null}
-            </select>
+            {(control) => (
+              <select
+                {...control}
+                className={FIELD_CLASS}
+                value={settings.host}
+                disabled={locked('host')}
+                onChange={(event) => edit({ host: event.target.value })}
+              >
+                {HOSTS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+                {/* Whatever the file holds stays selectable, so opening this
+                    window can never silently rewrite a hand-edited address. */}
+                {HOSTS.every((option) => option.value !== settings.host) ? (
+                  <option value={settings.host}>{settings.host}</option>
+                ) : null}
+              </select>
+            )}
           </Field>
 
           <div className="flex gap-3">
             <div className="flex-1">
               <Field label="Port" env={envVar('port')}>
-                <input
-                  className={cx(FIELD_CLASS, 'font-numeric')}
-                  type="number"
-                  min={1}
-                  max={65535}
-                  readOnly={locked('port')}
-                  value={settings.port}
-                  onChange={(event) => edit({ port: Number(event.target.value) })}
-                />
+                {(control) => (
+                  <input
+                    {...control}
+                    className={cx(FIELD_CLASS, 'font-numeric')}
+                    type="number"
+                    min={1}
+                    max={65535}
+                    readOnly={locked('port')}
+                    value={settings.port}
+                    onChange={(event) => edit({ port: Number(event.target.value) })}
+                  />
+                )}
               </Field>
             </div>
 
             <div className="flex-1">
               <Field label="Poll interval" hint="ms" env={envVar('pollIntervalMs')}>
-                <input
-                  className={cx(FIELD_CLASS, 'font-numeric')}
-                  type="number"
-                  min={250}
-                  max={10000}
-                  step={250}
-                  readOnly={locked('pollIntervalMs')}
-                  value={settings.pollIntervalMs}
-                  onChange={(event) => edit({ pollIntervalMs: Number(event.target.value) })}
-                />
+                {(control) => (
+                  <input
+                    {...control}
+                    className={cx(FIELD_CLASS, 'font-numeric')}
+                    type="number"
+                    min={250}
+                    max={10000}
+                    step={250}
+                    readOnly={locked('pollIntervalMs')}
+                    value={settings.pollIntervalMs}
+                    onChange={(event) => edit({ pollIntervalMs: Number(event.target.value) })}
+                  />
+                )}
               </Field>
             </div>
           </div>
 
-          <label className="flex items-center gap-2.5 pt-1">
+          {/* `min-h-6` so the click target clears SC 2.5.8; the box itself is 16px. */}
+          <label className="flex min-h-6 items-center gap-2.5 pt-1">
             <input
               type="checkbox"
               className={cx('size-4 accent-[var(--yarg-vivid-sky-blue)]', FOCUS)}
@@ -887,7 +950,7 @@ function App() {
 
           <p className="font-numeric text-note text-content-faint">YASS v{state.version}</p>
         </Disclosure>
-      </div>
+      </main>
 
       {/*
        * Only while there is something to commit. A permanent bar of four verbs
@@ -909,7 +972,9 @@ function App() {
               Unsaved — this window forgets them when it closes.
             </span>
           ) : saved ? (
-            <span className="text-note text-success">{saved}</span>
+            <span role="status" className="text-note text-success">
+              {saved}
+            </span>
           ) : null}
         </footer>
       ) : null}

@@ -83,6 +83,18 @@ export function createPopover(): BrowserWindow {
   })
   win.webContents.on('will-navigate', (event) => event.preventDefault())
 
+  /*
+   * Escape dismisses it, the way every other menu hanging off a tray icon does.
+   *
+   * Handled here rather than in the renderer because it has to work while focus
+   * is inside a text field, and because it is a property of the window, not of
+   * the page: there was previously no way out of this popover at all without a
+   * mouse.
+   */
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape') hidePopover()
+  })
+
   win.on('blur', () => {
     // A native file picker takes focus from its parent window, which would
     // otherwise hide the popover out from under an open dialog — and hiding it

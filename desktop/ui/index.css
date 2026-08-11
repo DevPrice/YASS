@@ -107,6 +107,20 @@
     line-height: 1.15;
   }
 
+}
+
+/*
+ * The focus ring belongs in `utilities`, not in `components`.
+ *
+ * `FIELD_CLASS` carries Tailwind's `outline-none` to suppress the UA ring, and
+ * that utility sits in `@layer utilities` — a later layer, which beats any
+ * specificity in `components`. So this rule lost to it, silently, on all five
+ * form controls: both text inputs, both number inputs and the select had
+ * `outline-style: none` when focused, leaving a 1px border colour change at
+ * 2.34:1 as the only focus signal. Same layer, and specificity decides — which
+ * `.yarg-focusable:focus-visible` wins.
+ */
+@layer utilities {
   .yarg-focusable:focus-visible {
     outline: var(--stroke) solid var(--yarg-vivid-sky-blue);
     outline-offset: 2px;
