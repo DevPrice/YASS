@@ -36,6 +36,7 @@ import {
   intensityName,
   intensityTier,
   lengthBucket,
+  titleCredit,
 } from '../../lib/format'
 import { resolveSource } from '../../lib/sources'
 import { NUMBER, SYMBOL, initialGroup } from './grouping'
@@ -198,7 +199,9 @@ function lengthMark(song: Song): Mark {
  * the rail does not appear, and the list takes the width back.
  */
 const MARKERS: Partial<Record<SortKey, (song: Song, lens: DifficultyLens) => Mark>> = {
-  name: (song) => letterMark(song.name, 'Untitled'),
+  // The filed title, not the raw one, for the same reason the header beside it
+  // uses it: a rail slot has to land on the run it names.
+  name: (song) => letterMark(titleCredit(song).title, 'Untitled'),
   // The credited artist, not the raw field — the name the rows show, the name
   // the sort ordered by, and so the letter the run actually begins under.
   artist: (song) => letterMark(artistCredit(song).name, 'Unknown artist'),

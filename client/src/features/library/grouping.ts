@@ -51,6 +51,7 @@ import {
   intensityName,
   intensityTier,
   lengthBucket,
+  titleCredit,
   LENGTH_BUCKETS,
 } from '../../lib/format'
 import { sourceName } from '../../lib/sources'
@@ -194,9 +195,13 @@ function lengthGroup(song: Song): Group {
  * than a table with an exception in it.
  */
 const GROUPERS: Partial<Record<SortKey, (song: Song, lens: DifficultyLens) => Group>> = {
-  name: (song) => initialGroup(song.name, UNTITLED),
+  // The initial of the title the sort filed it under, credit and all removed —
+  // otherwise the letter a header claims and the letter the row landed at can
+  // disagree, which is the one thing a header must never do.
+  name: (song) => initialGroup(titleCredit(song).title, UNTITLED),
   // Headed by the artist the rows name, which is the one without the cover
-  // house's parenthetical on it — and the one the sort put the run in order by.
+  // house's parenthetical or a guest credit on it — and the one the sort put
+  // the run in order by.
   artist: (song) => valueGroup(artistCredit(song).name, 'Unknown artist'),
   album: (song) => valueGroup(song.album, 'No album'),
   genre: (song) => valueGroup(song.genre, 'No genre'),

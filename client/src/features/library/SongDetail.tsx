@@ -16,13 +16,14 @@
  * export carries no chart paths, so the server has nothing to read art out of
  * for the other four thousand songs — see `server/src/core/art.ts`, and the
  * planned YARG-side index in the README, which is what unblocks it. Rather than
- * the same grey disc four thousand times, the plate sets the song's own title as
- * type. It is a placeholder that says something.
+ * the same grey disc four thousand times, the plate sets the *album* and the
+ * artist as type — the two things a real sleeve says. It is a placeholder that
+ * says something, and it says the thing the picture it replaces would.
  *
  * **The layout is composed as though every song has a cover**, because
- * eventually every song will. The plate is a square image slot that happens to
- * be standing in for itself today; nothing below it is arranged around the fact
- * that the stand-in repeats the title, and nothing below it moves when real art
+ * eventually every song will. The plate is a square image slot standing in for
+ * a record it does not have a photograph of yet; nothing below it is arranged
+ * around the stand-in being type, and nothing below it moves when real art
  * arrives.
  *
  * ## Why this stopped being a spreadsheet
@@ -62,9 +63,9 @@ import type { ReactNode } from 'react'
 
 import type { Song } from '@shared/types'
 import { Badge, Button, cx } from '../../ui'
-import { ArtistName, PartsGrid, SourceBadge, hasUntieredPart } from '../../ui/library'
+import { ArtistName, PartsGrid, SongTitle, SourceBadge, hasUntieredPart } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
-import { formatDuration, formatYear } from '../../lib/format'
+import { formatDuration, formatYear, titleCredit } from '../../lib/format'
 
 /*
  * `FORMAT_LABELS` used to live here — the map that turned YARG's `EntryType`
@@ -125,8 +126,14 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
          * read them. This is that somewhere: titles wrap, values wrap, and
          * "Through the Fire and Flames" arrives whole.
          */}
+        {/*
+         * The one surface that gives the title's asides a line of their own.
+         * Every other housing is a single line that truncates, so the credit
+         * and the version note trail the title there and take width off it;
+         * here nothing truncates and the line is free. See `SongTitle`.
+         */}
         <h2 dir="auto" className="text-[30px] leading-[1.05] font-semibold break-words text-white">
-          {song.name}
+          <SongTitle song={song} notes="block" />
         </h2>
         {/*
          * 20px, not 19: `--text-artist-sm` is a real rung on the type scale and
@@ -319,7 +326,20 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
 }
 
 /**
- * Album art, or the song's own name set as type.
+ * Album art, or the record it belongs to set as type.
+ *
+ * **The plate names the album, not the song.** It stands in for a cover, and a
+ * cover is a picture of a *record*: it says `Rumours` and `Fleetwood Mac`, and
+ * it says the same thing on all eleven of its tracks. Setting the song's own
+ * title here made the plate change with every row and printed the title twice
+ * inside 400px — the pane's `<h2>` is directly beneath it — which is a third of
+ * what the last review meant by "the detail states the same title three times".
+ * Naming the album instead makes the stand-in behave the way the real art will:
+ * the same square for the same record, and one more fact on screen rather than
+ * the same one again.
+ *
+ * A song with no album falls back to its own title, which is not a compromise —
+ * that is a single, and a single's sleeve carries the song's name.
  *
  * `onError` covers the third case: the server said it had art, and then the
  * chart moved or the network share the library lives on dropped between the
@@ -327,6 +347,9 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
  */
 function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
   const [failed, setFailed] = useState(false)
+  // The credited title rather than the raw field, so a single whose name
+  // carries `(feat. …)` sets the plate with the song and not the credit.
+  const record = song.album.trim() === '' ? titleCredit(song).title : song.album
 
   return (
     <div
@@ -367,8 +390,9 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
         />
       ) : (
         <div
-          // The title and artist repeat the header below, so announcing them
-          // twice would be the only thing this adds to a screen reader.
+          // The album and artist are both printed in the header below, so
+          // announcing them twice would be the only thing this adds to a
+          // screen reader.
           aria-hidden
           className="yarg-plate absolute inset-0 flex flex-col justify-end gap-[10px] p-[25px]"
         >
@@ -400,7 +424,7 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
              */
             className="yarg-label line-clamp-4 pt-[0.2em] -mt-[0.2em] text-[clamp(24px,13cqw,72px)] leading-[0.95] break-words text-white"
           >
-            {song.name}
+            {record}
           </p>
           <p
             dir="auto"

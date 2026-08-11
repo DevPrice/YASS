@@ -16,9 +16,9 @@ import type { CSSProperties, ReactNode } from 'react'
 
 import type { NowPlaying } from '@shared/types'
 import { Badge, ChevronRight, cx } from '../../ui'
-import { ArtistName, SourceBadge } from '../../ui/library'
+import { ArtistName, SongTitle, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
-import { formatArtistCredit, formatDuration } from '../../lib/format'
+import { formatArtistCredit, formatDuration, formatTitleCredit } from '../../lib/format'
 import { useVenue } from '../../lib/useVenue'
 import { useVenueWash } from './venueWash'
 import type { VenueWash } from './venueWash'
@@ -92,7 +92,10 @@ export function NowPlayingBar({
            */}
           <Content
             onSelect={onSelect}
-            label={`Show details for ${song.name} ${formatArtistCredit(song)}`}
+            // The normalized title, not the raw field: with the credit lifted
+            // out of both, a song whose title *and* artist named the guest
+            // would otherwise have this sentence say her name twice.
+            label={`Show details for ${formatTitleCredit(song)} ${formatArtistCredit(song)}`}
           >
             <div className="mb-[5px] flex items-center gap-[10px]">
               <Badge tone="accent">Now playing</Badge>
@@ -116,7 +119,7 @@ export function NowPlayingBar({
             </div>
 
             <p dir="auto" className="truncate-tight text-[22px] leading-none font-semibold text-white">
-              {song.name}
+              <SongTitle song={song} />
             </p>
             <p
               dir="auto"

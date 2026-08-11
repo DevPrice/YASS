@@ -33,7 +33,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
 import { EmptyState, SortArrow, cx } from '../../ui'
-import { ArtistName, InstrumentStrip, LensDifficulty, SourceBadge } from '../../ui/library'
+import { ArtistName, InstrumentStrip, LensDifficulty, SongTitle, SourceBadge } from '../../ui/library'
 import type { DifficultyLens } from '../../lib/difficulty'
 import { LENS_LABELS } from '../../lib/difficulty'
 import { formatDuration, formatYear } from '../../lib/format'
@@ -795,7 +795,7 @@ function SongRow({
           dir="auto"
           className="min-w-0 flex-[3] truncate-tight text-[22px] leading-none font-semibold text-white"
         >
-          {song.name}
+          <SongTitle song={song} />
         </div>
         {/*
          * Unclipped, and the truncation moved onto the name inside: the cover
@@ -851,7 +851,7 @@ function SongRow({
 
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px] @2xl/list:hidden">
         <span dir="auto" className="truncate-tight text-[17px] leading-none font-semibold text-white">
-          {song.name}
+          <SongTitle song={song} />
         </span>
         <span className="min-w-0 text-[14px] leading-none font-medium text-content-secondary italic">
           <ArtistName song={song} credit="label" />

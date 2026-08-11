@@ -9,7 +9,14 @@ import type { FacetCount, InstrumentGroup, Song } from '@shared/types'
 import { INSTRUMENTS } from '@shared/types'
 import type { DifficultyLens } from '../../lib/difficulty'
 import { lensTier } from '../../lib/difficulty'
-import { LENGTH_BUCKETS, artistCredit, foldForSearch, intensityTier, lengthBucket } from '../../lib/format'
+import {
+  LENGTH_BUCKETS,
+  artistCredit,
+  foldForSearch,
+  intensityTier,
+  lengthBucket,
+  titleCredit,
+} from '../../lib/format'
 
 export type SortKey =
   | 'name'
@@ -226,6 +233,9 @@ function searchTextFor(song: Song): string {
   const cached = searchTextCache.get(song)
   if (cached !== undefined) return cached
 
+  // The raw fields, deliberately — a guest whose name the display moved out of
+  // the artist column and into the title stays findable from either, because
+  // this never saw the move.
   const text = foldForSearch(
     [song.name, song.artist, song.album, song.charter, song.genre, song.year].join(' '),
   )
@@ -378,10 +388,15 @@ function sortTextFor(song: Song): SortText {
   if (cached !== undefined) return cached
 
   const text: SortText = {
-    name: normalizeForSort(song.name),
+    // The title without its guest credit, so `Numb/Encore feat. Jay-Z` files
+    // under N with the rest of the Ns. A credit is a fact about the recording
+    // rather than part of the name, and leaving it in put a handful of songs
+    // wherever their guest's spelling happened to land them.
+    name: normalizeForSort(titleCredit(song).title),
     // The displayed artist, not the raw field: a cover filed as
     // `Blondie (WaveGroup)` sorts into Blondie's run, where the name the row
     // shows says it belongs — and where the artist headers can then find it.
+    // Same for `Eminem feat. Rihanna`, which is one of Eminem's songs.
     artist: normalizeForSort(artistCredit(song).name),
     album: normalizeForSort(song.album),
   }

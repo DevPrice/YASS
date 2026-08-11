@@ -29,6 +29,7 @@ import type { Ref } from 'react'
 import type { Song } from '@shared/types'
 import { EmptyState, HelperBar, cx } from './ui'
 import type { DifficultyLens } from './lib/difficulty'
+import { formatTitleCredit } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
@@ -539,7 +540,7 @@ export function App() {
        * is still a dialog waiting to trap focus.
        */}
       {!twoPane && selected ? (
-        <SongDetailSheet label={selected.name} onClose={() => setSelection(null)}>
+        <SongDetailSheet label={formatTitleCredit(selected)} onClose={() => setSelection(null)}>
           <SongDetail
             song={selected}
             isPlaying={selected.id === playingId}

@@ -13,7 +13,7 @@ import { INSTRUMENT_GROUPS, INSTRUMENTS } from '@shared/types'
 import { GROUP_ART, INSTRUMENT_ART } from '../design/assets'
 import type { DifficultyLens } from '../lib/difficulty'
 import { LENS_LABELS, groupTier, lensTier } from '../lib/difficulty'
-import { artistCredit, formatVocalParts } from '../lib/format'
+import { artistCredit, formatVocalParts, titleCredit } from '../lib/format'
 import { resolveSource } from '../lib/sources'
 import { cx } from './index'
 
@@ -151,6 +151,85 @@ export function SourceBadge({
         <span className="sr-only">{resolved.name}</span>
       )}
     </span>
+  )
+}
+
+/**
+ * The song's name, and the asides that qualify it set quieter than it is.
+ *
+ * Two things get attached to a title in a YARG library and neither is part of
+ * the name: who guests on the recording, and which recording it is.
+ * `Love the Way You Lie (feat. Rihanna)`, `Tom Sawyer (Original Version)`. At
+ * the title's own 22px semibold white they read as half the name — and in the
+ * one column four thousand rows are scanned by, that is 40% of the headline
+ * spent on the part nobody is looking for. `titleCredit` has already done the
+ * reading, including pulling a credit out of the *artist* field when that is
+ * where the library put it. This decides only how loud the result is.
+ *
+ * Emits no wrapper, for the same reason `ArtistName` doesn't: five housings set
+ * their own size, colour, direction and truncation on the element around this,
+ * and a `<span>` here would be one more layer for `truncate` to reach through.
+ */
+export function SongTitle({
+  song,
+  notes = 'inline',
+}: {
+  song: { name: string; artist: string }
+  /**
+   * Where the asides go.
+   *
+   * `inline` trails them on the title's own line, sized in `em` so one rule
+   * serves a 22px table cell, a 17px phone row and a 22px banner. That is every
+   * surface that has one line and has to truncate.
+   *
+   * `block` drops them underneath, and belongs only to the detail pane — the
+   * one surface with room to spare and the one that refuses to truncate
+   * anything, on the grounds that a long title is unreadable everywhere else.
+   * Given a line of their own they stop competing with the title for width,
+   * which is what the pane can afford and a row cannot.
+   */
+  notes?: 'inline' | 'block'
+}) {
+  const { title, featuring, version } = titleCredit(song)
+
+  // Credit first, then the version note — the order a sleeve prints them in.
+  const aside = [featuring, version].filter((note) => note !== null).join(' ')
+
+  if (aside === '') return <>{title}</>
+
+  /*
+   * `<bdi>` around the aside, not `dir` on it.
+   *
+   * Every housing sets `dir="auto"`, which reads the first strong character of
+   * the whole string — so a Hebrew title stays right-to-left, and an unisolated
+   * `(feat. …)` dropped into it would have its brackets flipped around it.
+   * Isolating the aside gives it its own reading without overruling the
+   * title's, which is the same trade `ArtistName` makes for an RTL name inside
+   * an English preamble.
+   */
+  if (notes === 'block') {
+    return (
+      <>
+        {title}
+        {/* 5px, against the 10px the pane puts between its own lines — so this
+            reads as attached to the title above it rather than as the first of
+            the three quieter lines below. */}
+        <bdi className="mt-[5px] block text-[15px] leading-tight font-normal text-content-muted">
+          {aside}
+        </bdi>
+      </>
+    )
+  }
+
+  return (
+    <>
+      {title}{' '}
+      {/* Down a step in size, all the way down in weight, and off white. Three
+          moves rather than one because the title beside it is 22px semibold in
+          pure white, and a single step off that still reads as part of the
+          name — which is the thing this exists to stop. */}
+      <bdi className="text-[0.82em] font-normal text-content-muted">{aside}</bdi>
+    </>
   )
 }
 

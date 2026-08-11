@@ -15,7 +15,7 @@
     "build": "npm run build --workspace=client && npm run build --workspace=server",
     "start": "node server/dist/index.js",
     "typecheck": "npm run typecheck --workspace=server && npm run typecheck --workspace=client",
-    "test": "npm run test --workspace=server"
+    "test": "npm run test --workspace=server && npm run test --workspace=client"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
