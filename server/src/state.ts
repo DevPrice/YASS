@@ -13,6 +13,7 @@ import { NowPlayingWatcher } from './core/nowPlaying.js'
 import { VenueStream } from './core/venueStream.js'
 import {
   applyEnvOverrides,
+  bindingChanged,
   describeSettings,
   loadStoredSettings,
   saveStoredSettings,
@@ -43,6 +44,7 @@ export class AppState {
    */
   #venue = new VenueStream()
   #librarySubscribers = new Set<(meta: LibraryMeta) => void>()
+  #reloadSubscribers = new Set<() => void>()
 
   private constructor(stored: Settings) {
     this.#stored = stored
@@ -84,6 +86,31 @@ export class AppState {
   subscribeLibrary(listener: (meta: LibraryMeta) => void): () => void {
     this.#librarySubscribers.add(listener)
     return () => this.#librarySubscribers.delete(listener)
+  }
+
+  /**
+   * Listen for "reload yourself" being asked of every connected browser.
+   *
+   * There is no payload: the whole message is the instruction. It exists for
+   * the host, who can see the phones in the room and knows when one is showing
+   * something stale — a guest can't trigger it, because the endpoint behind it
+   * is host-only.
+   */
+  subscribeReload(listener: () => void): () => void {
+    this.#reloadSubscribers.add(listener)
+    return () => this.#reloadSubscribers.delete(listener)
+  }
+
+  broadcastReload(): void {
+    for (const listener of this.#reloadSubscribers) {
+      // Same contract as the library fan-out: one broken stream must not stop
+      // the other browsers in the room from being told.
+      try {
+        listener()
+      } catch (error) {
+        console.error('[yass] reload subscriber:', error)
+      }
+    }
   }
 
   /** The values actually in force. */
@@ -161,7 +188,7 @@ export class AppState {
 
   /** True when the bind address needs a restart to take effect. */
   bindingChanged(view: SettingsView, boundHost: string, boundPort: number): boolean {
-    return view.settings.host !== boundHost || view.settings.port !== boundPort
+    return bindingChanged(view.settings, boundHost, boundPort)
   }
 
   stop(): void {

@@ -180,6 +180,23 @@ export interface Settings {
   port: number
 }
 
+/**
+ * What `GET /api/status` returns.
+ *
+ * Host-only, and written for the tray: it answers "is this thing up, what is it
+ * bound to, and did it load the songs" in one request, so the popover can be
+ * filled from a single poll.
+ */
+export interface ServerStatus {
+  /** The library as last loaded — count, warnings and the export's timestamp. */
+  songs: LibraryMeta
+  /** The address actually bound, which the saved settings may have moved past. */
+  host: string
+  port: number
+  /** True when the saved host/port no longer match the bound ones. */
+  restartRequired: boolean
+}
+
 /** Settings plus read-only context the UI needs to render the settings screen. */
 export interface SettingsView {
   /** The effective values — the settings file with environment overrides applied. */

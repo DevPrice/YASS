@@ -7,7 +7,6 @@
  */
 
 import { existsSync } from 'node:fs'
-import { networkInterfaces } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -15,6 +14,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 
 import { createApiRoutes } from './api/routes.js'
+import { lanAddresses } from './core/net.js'
 import { settingsFilePath } from './core/paths.js'
 import { AppState } from './state.js'
 import { serveClient } from './static.js'
@@ -37,27 +37,15 @@ function findClientDist(): string | null {
   return candidates.find((path) => existsSync(join(path, 'index.html'))) ?? null
 }
 
-/** LAN addresses to print at startup, so you know what to point a phone at. */
-function lanAddresses(port: number): string[] {
-  const urls: string[] = []
-
-  for (const addresses of Object.values(networkInterfaces())) {
-    for (const address of addresses ?? []) {
-      if (address.family !== 'IPv4' || address.internal) continue
-      urls.push(`http://${address.address}:${port}`)
-    }
-  }
-
-  return urls
-}
-
 async function main(): Promise<void> {
   const state = await AppState.create()
   const { host, port } = state.settings
 
   const app = new Hono()
 
-  app.route('/api', createApiRoutes(state))
+  // The binding is fixed for the life of the process — settings saved after
+  // this point are what `/api/status` compares against to say "restart me".
+  app.route('/api', createApiRoutes(state, { host, port }))
 
   const clientDist = findClientDist()
   if (clientDist) {
@@ -96,6 +84,23 @@ async function main(): Promise<void> {
       console.warn(`  ! ${warning}`)
     }
     console.log()
+  })
+
+  /*
+   * Say why the bind failed, in one line.
+   *
+   * Without this, `EADDRINUSE` arrives as an unhandled `error` event and exits
+   * with a stack trace. That is readable enough in a terminal, but the tray
+   * reads this stream out of a log file to tell the user what went wrong — and
+   * "port 4321 is already in use" is the answer, not the call site.
+   */
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[yass] EADDRINUSE: port ${port} is already in use on ${host}`)
+    } else {
+      console.error('[yass] server error:', err)
+    }
+    process.exit(1)
   })
 
   const shutdown = () => {

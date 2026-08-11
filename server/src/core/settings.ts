@@ -137,6 +137,21 @@ export async function saveStoredSettings(settings: Settings): Promise<Settings> 
   return normalized
 }
 
+/**
+ * Does this configuration need a restart to take effect?
+ *
+ * Everything else applies live — the watchers read their paths and their poll
+ * interval through closures, so a saved change is picked up on the next tick.
+ * Only the listening socket is fixed for the life of the process.
+ *
+ * Pure and parameterised rather than a method on the running server, because
+ * the tray asks the same question from another process entirely and must get
+ * the same answer.
+ */
+export function bindingChanged(settings: Settings, boundHost: string, boundPort: number): boolean {
+  return settings.host !== boundHost || settings.port !== boundPort
+}
+
 /** Which fields the environment is currently overriding, for the settings UI. */
 export function envOverriddenFields(): Array<keyof Settings> {
   const overridden: Array<keyof Settings> = []

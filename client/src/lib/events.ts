@@ -64,6 +64,18 @@ function open(): void {
       dispatch(event, (raw as MessageEvent<string>).data)
     })
   }
+
+  /*
+   * The host, through the tray, asking this page to reload.
+   *
+   * Handled here rather than fanned out to a subscriber because nothing in the
+   * app has an opinion about it — there is no state to save and no component
+   * that would do anything different. Only the host can send it; the endpoint
+   * behind it 404s for anyone who isn't on loopback.
+   */
+  stream.addEventListener('reload', () => {
+    location.reload()
+  })
 }
 
 function closeIfIdle(): void {

@@ -13,7 +13,7 @@
  * configuration to the party is not.
  */
 
-import type { Context } from 'hono'
+import type { Context, MiddlewareHandler } from 'hono'
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
@@ -51,4 +51,20 @@ export function isLocalRequest(c: Context): boolean {
  */
 export function requireLocal(c: Context): Response | null {
   return isLocalRequest(c) ? null : c.json({ error: 'Not found' }, 404)
+}
+
+/**
+ * `requireLocal` as middleware, which is the form these routes want.
+ *
+ * Passing `requireLocal` itself to `app.post(path, …)` looks like it works and
+ * does not: returning `null` for an allowed request neither finalizes the
+ * context nor calls `next()`, so Hono raises "Context is not finalized" and
+ * every *permitted* caller gets a 500 while blocked ones get their 404. The
+ * guard has to hand control on explicitly.
+ */
+export const localOnly: MiddlewareHandler = async (c, next) => {
+  const denied = requireLocal(c)
+  if (denied) return denied
+
+  await next()
 }

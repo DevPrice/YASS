@@ -12,14 +12,20 @@ import { Readable } from 'node:stream'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 
-import type { Settings } from '@shared/types.js'
+import type { ServerStatus, Settings } from '@shared/types.js'
 import type { AppState } from '../state.js'
-import { isLocalRequest, requireLocal } from './local.js'
+import { isLocalRequest, localOnly } from './local.js'
 
 /** Heartbeat interval for the SSE stream, to keep proxies from idling it out. */
 const SSE_KEEPALIVE_MS = 15_000
 
-export function createApiRoutes(state: AppState): Hono {
+/** The address this process listens on, which no amount of saving can change. */
+export interface Binding {
+  host: string
+  port: number
+}
+
+export function createApiRoutes(state: AppState, binding: Binding): Hono {
   const api = new Hono()
 
   api.get('/health', (c) => c.json({ ok: true }))
@@ -33,6 +39,26 @@ export function createApiRoutes(state: AppState): Hono {
   api.get('/capabilities', (c) => {
     c.header('Cache-Control', 'no-store')
     return c.json({ settings: isLocalRequest(c) })
+  })
+
+  /**
+   * Everything the tray's popover shows about the running server.
+   *
+   * Host-only, like the settings endpoints: the song count is harmless, but the
+   * bound address is the tray's own business and this sits beside `/settings`
+   * in what it is for.
+   */
+  api.get('/status', localOnly, (c) => {
+    c.header('Cache-Control', 'no-store')
+
+    const status: ServerStatus = {
+      songs: state.library.meta,
+      host: binding.host,
+      port: binding.port,
+      restartRequired: state.bindingChanged(state.settingsView, binding.host, binding.port),
+    }
+
+    return c.json(status)
   })
 
   // --- Library ------------------------------------------------------------
@@ -60,8 +86,23 @@ export function createApiRoutes(state: AppState): Hono {
    * guest browsing on their phone should be able to trigger on the host's
    * machine.
    */
-  api.post('/songs/reload', requireLocal, async (c) => {
+  api.post('/songs/reload', localOnly, async (c) => {
     return c.json(await state.reloadLibrary())
+  })
+
+  // --- Connected browsers ---------------------------------------------------
+
+  /**
+   * Tell every open page to reload itself.
+   *
+   * Host-only, and the reason it has to be: this reaches into a phone in
+   * somebody else's hand. It is the tray's escape hatch for the party case
+   * where a guest's tab has been open for hours and is showing something the
+   * app can no longer talk it out of.
+   */
+  api.post('/clients/reload', localOnly, (c) => {
+    state.broadcastReload()
+    return c.json({ ok: true })
   })
 
   // --- Now playing --------------------------------------------------------
@@ -85,6 +126,7 @@ export function createApiRoutes(state: AppState): Hono {
    *   `library`      just the metadata, when the CSV is re-exported; the
    *                  client refetches `/api/songs` conditionally
    *   `venue`        YARG's stage lighting, at most twice a second
+   *   `reload`       the host, via the tray, asking this page to reload
    *   `ping`         keepalive, so idle proxies don't hang up
    */
   api.get('/events', (c) => {
@@ -120,6 +162,12 @@ export function createApiRoutes(state: AppState): Hono {
         void send('venue', next)
       })
 
+      // The instruction is the whole message, but SSE frames still need a body
+      // the client can `JSON.parse`, so send the timestamp it happened at.
+      const unsubscribeReload = state.subscribeReload(() => {
+        void send('reload', { at: Date.now() })
+      })
+
       try {
         while (open) {
           await stream.sleep(SSE_KEEPALIVE_MS)
@@ -130,6 +178,7 @@ export function createApiRoutes(state: AppState): Hono {
         unsubscribeNowPlaying()
         unsubscribeLibrary()
         unsubscribeVenue()
+        unsubscribeReload()
       }
     })
   })
@@ -170,18 +219,12 @@ export function createApiRoutes(state: AppState): Hono {
   // user's account, and the PUT repoints the whole app — neither belongs on a
   // LAN-facing surface a room full of people is browsing.
 
-  api.get('/settings', (c) => {
-    const denied = requireLocal(c)
-    if (denied) return denied
-
+  api.get('/settings', localOnly, (c) => {
     c.header('Cache-Control', 'no-store')
     return c.json(state.settingsView)
   })
 
-  api.put('/settings', async (c) => {
-    const denied = requireLocal(c)
-    if (denied) return denied
-
+  api.put('/settings', localOnly, async (c) => {
     let patch: Partial<Settings>
     try {
       patch = (await c.req.json()) as Partial<Settings>
