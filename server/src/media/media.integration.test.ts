@@ -25,6 +25,7 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
+import { findMappingsDir, loadGenreTable, readGenrelizerMode } from '../core/genrelizer.js'
 import { loadLibraryFromCache } from '../core/library.js'
 import { readSongCache } from './cache.js'
 import { openConPackage, findConListing, isContiguous } from './stfs.js'
@@ -123,6 +124,46 @@ describe('songcache.bin against a real library', options, () => {
     }
 
     assert.deepEqual(problems.slice(0, 10), [], `${problems.length} songs came out malformed`)
+  })
+
+  /*
+   * The genre check that unit vectors cannot make.
+   *
+   * Genrelizing is a port of YARG's own algorithm against YARG's own downloaded
+   * data, and the failure mode is not an exception — it is a library that looks
+   * fine while quietly filing half of itself under `Other`. So this asserts the
+   * property the whole feature exists for: after normalization, every genre in
+   * the library is one of the closed set YARG sorts by. A single raw
+   * `Classicrock` surviving would fail it.
+   */
+  it('normalizes every genre to one YARG would sort by', async (t) => {
+    const mappings = await findMappingsDir()
+    if (mappings === null) {
+      t.skip('YARG has not downloaded the Genrelizer mappings on this machine')
+      return
+    }
+
+    const mode = await readGenrelizerMode(YARG_DIR!)
+    if (mode !== 'genrelize') {
+      t.skip(`YARG's Genrelizer setting is "${mode}", so genres are not normalized this way`)
+      return
+    }
+
+    const library = await loadLibraryFromCache(YARG_DIR!)
+    const table = await loadGenreTable(mappings)
+
+    // The official list, plus the two answers Genrelizer gives when it has none.
+    const official = new Set([...table.display.values(), 'Other', 'Unknown Genre'])
+    const strays = [...new Set(library.songs.map((song) => song.genre))].filter(
+      (genre) => !official.has(genre),
+    )
+
+    assert.deepEqual(strays, [], 'these genres are not on YARG\'s official list')
+    // And the point of it: far fewer genres than there are ways of writing them.
+    assert.ok(
+      new Set(library.songs.map((song) => song.genre)).size <= official.size,
+      'more distinct genres than the official list has entries',
+    )
   })
 
   it('agrees with the chart index on how many songs there are', async () => {

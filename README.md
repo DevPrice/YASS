@@ -92,11 +92,29 @@ re-reads it within half a second of a scan, then pushes the new list to every co
 phone.
 
 This replaced a CSV export the user had to produce by hand from Settings → Export Songs
-List. Two consequences of the switch are worth knowing, because both are visible in the
-UI. **Genres read as authored** — `Alt. Rock` rather than `Alternative` — because YARG
-normalizes them against a downloaded mapping *after* it writes the cache. And **nothing is
-hidden**: the export dropped anything above YARG's Max Song Rating setting, where the
-cache holds the whole library.
+List. One consequence is worth knowing: **nothing is hidden any more.** The export dropped
+anything above YARG's Max Song Rating setting, where the cache holds the whole library.
+
+### Genres
+
+The cache stores the genre a charter typed, because YARG normalizes genres *after* writing
+it. Left alone that means `Alt Rock`, `Alternative Rock` and `Classicrock` are three
+separate rows in a filter, so the server applies the same normalization YARG does —
+[Genrelizer](https://github.com/YARC-Official/Genrelizer), a crowdsourced set of mappings
+onto the closed list of genres YARG sorts by, with the specific name kept as a subgenre.
+`12-Bar Blues` becomes `Blues > 12-Bar Blues`. On a 4,168-song library it takes 131
+distinct genres down to 56, matching YARG's own output song for song.
+
+**The mappings are not vendored here.** YARG downloads them into its install directory on
+startup, and the server reads that copy — so they are always the ones the game is using.
+That folder is *not* under `yargDataDir`, and no path leads from one to the other, so it is
+searched for under the YARC Launcher's install root; `YASS_GENRE_MAPPINGS` overrides the
+search for a Steam or portable install. If they cannot be found, genres read exactly as
+authored and everything else works normally.
+
+YARG's own Genrelizer setting is honoured, read from its `settings.json`: **off** leaves
+genres as charted, **genrelize** is the above, and **overgenrelize** collapses everything
+into thirteen broad headings with no subgenres.
 
 ## The tray app
 

@@ -364,6 +364,17 @@ each chart lives on disk, and the album track number. The cost is an undocumente
 layout that changes between versions, which is why section 9 insists on an allowlist
 of verified `CACHE_VERSION` stamps and a fallback.
 
+One field needs work afterwards. **The cache's genre is the raw authored string**,
+because `CacheHandler.RunScan` writes the file and `SongContainer.RunRefresh`
+normalizes the in-memory entries afterwards. To get the genre YARG displays, apply
+[Genrelizer](https://github.com/YARC-Official/Genrelizer) yourself: YARG unzips that
+repository into `<install>/YARG_Data/StreamingAssets/genres/Genrelizer-master/mappings`
+on startup, so the data is already on disk — though under the *installation*, which no
+path in section 1 leads to. The algorithm is `Assets/Script/Song/Genrelizer.cs`, and
+the hardcoded Magma value pairs it depends on are in `Genrelizer.Lists.cs` rather than
+in the repository. Honour `settings.json` → `Genrelizer` (`0` off, `1` normal, `2`
+broad headings) while you are there.
+
 **If you want the CSV instead**, it is the only *export* carrying the song hash, which
 is what correlates against `currentSong.json` and writes playlist files. Two behaviours
 to know: it exports `SongContainer.Songs`, which is filtered by the player's Max Song

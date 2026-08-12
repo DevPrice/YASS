@@ -17,10 +17,12 @@
  *
  * Three differences worth knowing about, none of them a defect here:
  *
- *  - **Genres are as authored.** The CSV carried YARG's *genrelized* names,
- *    because `SongContainer` normalizes them against a downloaded mapping after
- *    the scan — and the cache is written before that happens. So a chart whose
- *    ini says `Alt. Rock` now reads `Alt. Rock` rather than `Alternative`.
+ *  - **Genres are normalized here rather than by YARG.** The CSV carried YARG's
+ *    *genrelized* names, because `SongContainer` normalizes them against a
+ *    downloaded mapping after the scan — and the cache is written before that
+ *    happens. `core/genrelizer.ts` applies the same mappings, read from the copy
+ *    YARG downloaded, so `Alt. Rock` still reads `Alternative`. When those
+ *    mappings cannot be found, genres fall back to exactly as authored.
  *  - **Nothing is filtered.** The CSV exported `SongContainer.Songs`, which
  *    drops anything above the player's Max Song Rating setting. The cache holds
  *    the whole library, so songs hidden inside YARG appear here.
@@ -48,6 +50,7 @@ import type {
 } from '@shared/types.js'
 import { INSTRUMENTS } from '@shared/types.js'
 import { CacheFormatError, readSongCache, type CacheSong, type PartValue } from '../media/cache.js'
+import { genreResolver, type Genrelizer } from './genrelizer.js'
 import { songCachePath } from './paths.js'
 import { stripRichText } from './richtext.js'
 
@@ -191,7 +194,7 @@ function buildFacets(songs: readonly Song[]): SongFacets {
  * what the chart author actually wrote, and plenty of them wrote
  * `<color=#FF0000>`. Without this the list renders markup as text.
  */
-export function songFromCache(entry: CacheSong, id: string): Song {
+export function songFromCache(entry: CacheSong, id: string, genres: Genrelizer | null): Song {
   const { meta } = entry
 
   const difficulties = {} as Record<InstrumentKey, number | null>
@@ -200,6 +203,23 @@ export function songFromCache(entry: CacheSong, id: string): Song {
   }
 
   const year = stripRichText(meta.year).trim()
+  const artist = stripRichText(meta.artist).trim()
+
+  /*
+   * Genres are the one field not taken at face value.
+   *
+   * The cache holds what the charter typed, because YARG normalizes only after
+   * writing it — so this is where `Alt Rock` and `alt-rock` become the one
+   * `Alternative` the filter can group by, with the specific name kept as the
+   * subgenre. Rich text is stripped first: YARG looks the raw string up and
+   * would miss, and there is no reason to prefer its miss to our hit.
+   *
+   * With no mappings on disk this is the identity, and the pair reads exactly
+   * as authored.
+   */
+  const rawGenre = stripRichText(meta.genre).trim()
+  const rawSubgenre = stripRichText(meta.subgenre).trim()
+  const resolved = genres?.resolve(rawGenre, rawSubgenre, artist)
 
   // The band tier is read straight off the struct rather than through
   // `partDifficulty`: YARG's exporter did the same, and a band difficulty of
@@ -211,10 +231,13 @@ export function songFromCache(entry: CacheSong, id: string): Song {
     hash: entry.ref.hash,
 
     name: stripRichText(meta.name).trim(),
-    artist: stripRichText(meta.artist).trim(),
+    artist,
     album: stripRichText(meta.album).trim(),
-    genre: stripRichText(meta.genre).trim(),
-    subgenre: stripRichText(meta.subgenre).trim(),
+    // Not `?? rawSubgenre`: a resolved mapping with a null subgenre is saying
+    // there is no subgenre, and coalescing there would put the charter's
+    // original text back underneath the standardized genre.
+    genre: resolved ? resolved.genre : rawGenre,
+    subgenre: resolved ? (resolved.subgenre ?? '') : rawSubgenre,
     charter: stripRichText(meta.charter).trim(),
     playlist: stripRichText(meta.playlist).trim(),
     source: stripRichText(meta.source).trim(),
@@ -253,14 +276,17 @@ export interface ParseCacheLibraryResult {
  * Exported separately from the file reading so it can be tested against a
  * handful of entries rather than a 2 MB fixture.
  */
-export function buildLibrarySongs(entries: readonly CacheSong[]): ParseCacheLibraryResult {
+export function buildLibrarySongs(
+  entries: readonly CacheSong[],
+  genres: Genrelizer | null = null,
+): ParseCacheLibraryResult {
   const warnings: string[] = []
   const songs: Song[] = []
   const seenIds = new Set<string>()
   let nameless = 0
 
   for (const entry of entries) {
-    const song = songFromCache(entry, entry.ref.hash)
+    const song = songFromCache(entry, entry.ref.hash, genres)
 
     // A chart with no identifying text at all is not something anybody can
     // search for, and it would render as a blank row. Dropped before its id is
@@ -330,7 +356,10 @@ export async function loadLibraryFromCache(yargDataDir: string): Promise<SongLib
     return emptyLibrary([`Could not read the song cache at ${path}: ${String(error)}.`])
   }
 
-  const { songs, warnings } = buildLibrarySongs(entries)
+  // Null when the player turned normalization off in YARG, or when the mappings
+  // are not on this machine — either way genres read as authored rather than the
+  // load failing. See `core/genrelizer.ts`.
+  const { songs, warnings } = buildLibrarySongs(entries, await genreResolver(yargDataDir))
 
   const meta: LibraryMeta = {
     source: 'cache',
