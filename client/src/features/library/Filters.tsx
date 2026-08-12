@@ -1018,7 +1018,27 @@ function Disclosure({
       id={id}
       className={cx(
         'scrollbar-slim flex flex-col gap-[20px]',
-        'md:order-6 md:basis-full md:max-h-[52vh] md:overflow-y-auto',
+        /*
+         * A scroll box has to hold its own hit areas.
+         *
+         * Every `clear` in here wears `.tap-target`, whose 44px minimum is an
+         * invisible box centred on a 34px control — so it hangs 5px past the
+         * button on each side and ~15px above and below. The right-hand one
+         * sits at `ml-auto`, flush with this box's content edge, and the last
+         * one sits on the bottom row: both hang *outside* the scroll box, and
+         * scrollable overflow does not care that a box is invisible. The panel
+         * took a horizontal scrollbar 5px wide and a vertical one 17px long,
+         * for nothing anybody could see, the moment any dimension was active.
+         *
+         * Nothing in this panel is ever meant to be reached sideways, so x is
+         * shut outright — `hidden` rather than `clip` because the phones this
+         * is opened on include old ones. Down the page the room is reserved
+         * instead, since y is a real scroll axis and must stay one. The phone
+         * sheet's own `p-[15px]` was already doing both of these by accident,
+         * which is why the bars only ever showed on a desktop.
+         */
+        'overflow-x-hidden',
+        'md:order-6 md:basis-full md:max-h-[52vh] md:overflow-y-auto md:pb-[20px]',
         'max-md:absolute max-md:inset-x-0 max-md:bottom-full max-md:z-20',
         'max-md:max-h-[55vh] max-md:overflow-y-auto',
         // Sunken is the darkest surface in the palette, so the sheet reads as
