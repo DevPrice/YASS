@@ -33,7 +33,7 @@ import { formatTitleCredit } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
-import { prefetchPreview } from './lib/usePreview'
+import { setPreviewNavigating, setPreviewSong } from './lib/usePreview'
 import { decodeAppState, syncUrl } from './lib/urlState'
 import { FiltersPanel } from './features/library/Filters'
 import type { OpenPanel } from './features/library/Filters'
@@ -204,17 +204,52 @@ export function App() {
       : null
 
   /*
-   * Warm the preview as soon as a song is chosen.
+   * The preview follows the selection, and this is the whole of that wiring.
    *
-   * Generating one costs about a second the first time, and the gap between
-   * choosing a song and deciding to hear it is easily that long — so the work
-   * happens in the gap and the tap that follows finds the file already made.
-   * `HEAD`, so this warms the server's cache without pulling 200 KB of audio to
-   * a phone that may never ask for it.
+   * Picking a song is the only gesture there is: it starts the preview, moving
+   * to another song moves the sound with it, and closing the detail stops it.
+   * There is no play button anywhere — see `lib/usePreview.ts` for why the verb
+   * went away, and why nothing is fetched at all until somebody unmutes.
+   *
+   * Keyed on the hash rather than on `selected`, which is a fresh object every
+   * time the library reloads. Depending on the object would restart the audio
+   * from zero whenever the CSV was re-exported, mid-song, for something the
+   * person holding the phone did not do.
+   */
+  const previewHash = selected?.hasPreview ? selected.hash : null
+
+  useEffect(() => {
+    setPreviewSong(previewHash)
+  }, [previewHash])
+
+  /**
+   * The other half of that: the key coming back up.
+   *
+   * Its own effect with no dependencies, because a listener that is torn down
+   * and re-registered whenever the selection changes — which is what the main
+   * keyboard effect below does, thirty times a second under a held key — is a
+   * listener that can miss the release it exists to catch.
+   *
+   * `blur` counts as a release. Alt-tabbing away mid-scroll takes the `keyup`
+   * with it, and a preview that never starts again because the window thinks a
+   * key is still down is a far worse failure than one that starts a moment
+   * early.
    */
   useEffect(() => {
-    prefetchPreview(selected?.hash ?? null)
-  }, [selected])
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        setPreviewNavigating(false, false)
+      }
+    }
+    const onBlur = () => setPreviewNavigating(false, false)
+
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [])
 
   const select = useCallback((song: Song, align: Selection['align'] = 'auto') => {
     setSelection({ id: song.id, align })
@@ -362,6 +397,16 @@ export function App() {
         if (next === undefined) return
 
         event.preventDefault()
+        /*
+         * Tell the preview what the hand is doing, before the selection moves.
+         *
+         * `event.repeat` is the only reliable way to know a key is *held*
+         * rather than tapped, and the difference decides two things the preview
+         * cannot work out from the selection alone: that nothing should start
+         * yet, and that a run through the list should silence what is playing
+         * rather than drag it along. See `lib/usePreview.ts`.
+         */
+        setPreviewNavigating(true, event.repeat)
         setSelection({ id: next.id, align: 'auto' })
         return
       }

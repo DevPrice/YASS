@@ -66,13 +66,13 @@ import { Badge, Button, cx } from '../../ui'
 import {
   ArtistName,
   PartsGrid,
-  PreviewButton,
+  PreviewSoundToggle,
   SongTitle,
   SourceBadge,
   hasUntieredPart,
 } from '../../ui/library'
 import { artUrl, currentArtUrl } from '../../lib/api'
-import { usePreview } from '../../lib/usePreview'
+import { usePreviewSound } from '../../lib/usePreview'
 import { formatDuration, formatYear, titleCredit } from '../../lib/format'
 
 /*
@@ -109,6 +109,22 @@ interface SongDetailProps {
 export function SongDetail({ song, isPlaying, artHash, className }: SongDetailProps) {
   const genre = [song.genre, song.subgenre].filter(Boolean).join(' · ')
 
+  const sound = usePreviewSound()
+
+  /*
+   * The sound control appears when there is something to hear — or when the
+   * sound is already on, whatever this particular song has.
+   *
+   * The second half is what keeps the preference reachable. Muting is done from
+   * the same control, so hiding it on a song with no preview would strand
+   * somebody who unmuted, walked into a chart the server could not mix, and
+   * then had no way to turn it off. The first half is what keeps it out of the
+   * way on a machine with no ffmpeg, where no song has a preview and the
+   * default is muted: the control never appears at all, and the app is the one
+   * that existed before any of this.
+   */
+  const showSound = song.hasPreview || !sound.muted
+
   return (
     /*
      * 25px is the resting interval; the one 35px break is bought with a margin
@@ -121,9 +137,29 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
       <ArtPlate key={song.id} song={song} artHash={artHash} />
 
       <div className="flex flex-col gap-[10px]">
-        {isPlaying ? (
-          <div>
-            <Badge tone="accent">Now playing</Badge>
+        {/*
+         * The status strip: what YARG is doing with this song, and what this
+         * phone is doing with it.
+         *
+         * Directly under the plate rather than on it. A preview control laid
+         * over the artwork was the first design and it was the one thing on
+         * this surface guaranteed to cover a picture somebody opened the pane
+         * to look at — see `PreviewSoundToggle`. Here it costs a 38px line, is
+         * in reach without scrolling on a phone sheet, and the cover is whole.
+         *
+         * The row renders only when it has something in it, so a song that is
+         * neither playing nor previewable does not leave a 10px gap behind.
+         */}
+        {isPlaying || showSound ? (
+          <div className="flex flex-wrap items-center gap-[10px]">
+            {isPlaying ? <Badge tone="accent">Now playing</Badge> : null}
+            {showSound ? (
+              <PreviewSoundToggle
+                muted={sound.muted}
+                status={sound.status}
+                onToggle={sound.toggle}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -355,7 +391,6 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
  */
 function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
   const [failed, setFailed] = useState(false)
-  const preview = usePreview(song.hash)
   // The credited title rather than the raw field, so a single whose name
   // carries `(feat. …)` sets the plate with the song and not the credit.
   const record = song.album.trim() === '' ? titleCredit(song).title : song.album
@@ -380,9 +415,6 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
   return (
     <div
       className={cx(
-        // `group` so the play control can reveal itself on hover, the same way
-        // it does over a row's cover.
-        'group',
         // Its own container, so the plate's type is sized against the plate
         // rather than the viewport — the same square is ~340px inside a phone
         // sheet and ~410px inside the desktop pane, and one `clamp()` on
@@ -464,28 +496,6 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
         </div>
       )}
 
-      {/*
-       * Hear it.
-       *
-       * Bottom-right rather than centred on the cover: the plate's fallback
-       * sets the album name across the whole square, and a 56px disc through
-       * the middle of MOTÖRHEAD would be sitting on the type. In the corner it
-       * works against both — the artwork it overlays and the words it doesn't.
-       *
-       * It is offered whether or not there is a picture, because a preview is
-       * not a property of the artwork; a song with no cover is exactly the one
-       * you most want to hear before choosing it.
-       */}
-      {song.hasPreview && song.hash !== null ? (
-        <PreviewButton
-          label={song.name}
-          status={preview.status}
-          isActive={preview.isActive}
-          onToggle={preview.toggle}
-          size={56}
-          className="right-[15px] bottom-[15px]"
-        />
-      ) : null}
     </div>
   )
 }

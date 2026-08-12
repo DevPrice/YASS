@@ -18,7 +18,7 @@ import { LENS_LABELS, groupTier, lensTier } from '../lib/difficulty'
 import { artistCredit, formatVocalParts, titleCredit } from '../lib/format'
 import { resolveSource } from '../lib/sources'
 import type { PreviewStatus } from '../lib/usePreview'
-import { cx } from './index'
+import { Button, cx } from './index'
 
 const GROUP_LABELS: Record<InstrumentGroup, string> = {
   guitar: 'Guitar',
@@ -149,112 +149,95 @@ export function AlbumThumb({
   )
 }
 
-/** Play and pause glyphs, sized to whatever box they are dropped into. */
-function PlayGlyph({ paused }: { paused: boolean }) {
+/**
+ * A speaker, with waves or with a cross through it.
+ *
+ * Drawn rather than imported because the design system has no audio glyph — its
+ * icon set is instruments and gamepad buttons, which is what a game menu needs.
+ * The cone is filled and everything hung off it is stroked, so the two states
+ * differ in the mark beside the speaker rather than in the speaker itself.
+ */
+function SpeakerGlyph({ muted }: { muted: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden className="size-[55%]" fill="currentColor">
-      {paused ? (
-        <path d="M8 5v14l11-7z" />
-      ) : (
-        <>
-          <rect x="6" y="5" width="4" height="14" rx="1" />
-          <rect x="14" y="5" width="4" height="14" rx="1" />
-        </>
-      )}
+    <svg viewBox="0 0 24 24" width={18} height={18} aria-hidden className="shrink-0">
+      <path
+        fill="currentColor"
+        d="M4 9h3.6L12.4 5.1A.75.75 0 0 1 13.6 5.7v12.6a.75.75 0 0 1-1.2.6L7.6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z"
+      />
+      <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        {muted ? (
+          <>
+            <path d="M17 9.5l5 5" />
+            <path d="M22 9.5l-5 5" />
+          </>
+        ) : (
+          <>
+            <path d="M16.8 9.2a4 4 0 0 1 0 5.6" />
+            <path d="M19.6 6.8a7.5 7.5 0 0 1 0 10.4" />
+          </>
+        )}
+      </g>
     </svg>
   )
 }
 
 /**
- * The control that plays a song's preview.
+ * Whether previews make a sound.
  *
- * Deliberately a circle over the artwork rather than a button beside it: the
- * cover is already the song's picture, and a play triangle laid on a sleeve is
- * the one interface convention that needs no label in any language.
+ * The only preview control in the app. There is no per-song play button: a
+ * preview follows the selection and loops for as long as that song is the one
+ * being looked at, so the only decision left to a person is whether they want
+ * to hear it at all — and that is a property of the room, not of the song.
  *
- * It stays invisible until the row is hovered or the control is focused, so a
- * list of four thousand rows is not four thousand play buttons — except while
- * something is playing, where it has to remain visible to be stoppable.
+ * **Labelled with the verb, not the state.** `aria-pressed` on an unlabelled
+ * speaker would be the compact version and it would put the one question that
+ * matters — is this thing about to make noise in a quiet room — behind an icon
+ * somebody has to interpret. The button says what the tap will do.
  *
- * `loading` gets the same glyph as `playing` rather than a spinner. A cold
- * preview takes about a second to generate, and a spinner for one second is a
- * flash of anxiety; showing the pause state immediately says "this is the one
- * you picked, it is coming" and is right the moment the audio starts.
+ * Accent only while the sound is on, which is the same rule the rest of this
+ * system uses for it: the accent marks the state that is doing something. Off,
+ * it takes the neutral fill — **and it keeps the fill**, which is not a detail.
+ * The quiet variant was the first cut and it made the muted state, which is the
+ * state every device starts in, a line of white text with an icon: the only
+ * affordance the feature has, drawn as if it were a caption. A control nobody
+ * can tell is a control is a feature nobody finds.
+ *
+ * Nothing here is positioned over a cover. That was the first design, and a
+ * disc on the artwork is exactly what album art is for looking at.
  */
-export function PreviewButton({
-  label,
+export function PreviewSoundToggle({
+  muted,
   status,
-  isActive,
   onToggle,
-  size,
-  subtle = false,
   className,
 }: {
-  /** The song's name, for the accessible label. */
-  label: string
+  muted: boolean
   status: PreviewStatus
-  isActive: boolean
   onToggle: () => void
-  size: number
-  /**
-   * Corner badge rather than the full control.
-   *
-   * The row's version has to share 44 pixels with the cover it sits on, and on
-   * a touch device it cannot hide until hovered — there is no hover. Drawn at
-   * full strength that made a phone's song list a column of cyan discs with
-   * album art faintly behind them, which is the opposite of why the art is
-   * there. Subtle drops the ring and leans on the scrim, so the badge reads as
-   * a mark *on* a cover instead of a control *instead of* one.
-   */
-  subtle?: boolean
   className?: string
 }) {
-  const active = isActive && status !== 'idle'
+  /*
+   * A cold preview is generated on the spot, which takes about a second — the
+   * one wait in this feature anybody notices. The pulse is the whole report:
+   * a spinner for one second is a flash of anxiety, and the button has already
+   * said what it is doing.
+   */
+  const starting = !muted && status === 'loading'
 
   return (
-    <button
-      type="button"
-      // The list is the tab stop and rows are walked with the arrow keys, so
-      // this must not reintroduce four thousand entries into the tab sequence.
-      // `-1` keeps it reachable by pointer, by assistive tech and by `focus()`.
-      tabIndex={-1}
-      aria-pressed={active}
-      aria-label={active ? `Stop preview of ${label}` : `Play preview of ${label}`}
-      onClick={(event) => {
-        // The row underneath selects the song; a tap on the play button means
-        // only "play", and should not also move the detail pane.
-        event.stopPropagation()
-        onToggle()
-      }}
-      className={cx(
-        'yarg-focusable absolute z-10 flex cursor-pointer items-center justify-center',
-        'text-white transition-opacity duration-160',
-        // Hidden until wanted. `group-hover` is the row; `focus-visible` is the
-        // keyboard; `active` is the song currently playing.
-        active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-        // A coarse pointer has no hover to reveal anything, so on a phone the
-        // control is simply always there.
-        'pointer-coarse:opacity-100',
-        className,
-      )}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 'var(--radius-round)',
-        // Dark scrim rather than the accent fill a Button would take: this sits
-        // on top of arbitrary artwork, and it has to stay legible over a white
-        // sleeve as readily as a black one. Heavier when subtle, because that
-        // variant has no ring to separate it from what is behind it.
-        background: `color-mix(in srgb, var(--yarg-night) ${subtle ? 72 : 65}%, transparent)`,
-        // The ring is the accent claiming the control. A corner badge on a
-        // 44px cover does not have the room to claim anything, so it earns the
-        // accent only while it is the song actually playing.
-        boxShadow:
-          subtle && !active ? 'none' : 'inset 0 0 0 2px var(--yarg-vivid-sky-blue)',
-      }}
+    <Button
+      tone={muted ? 'neutral' : 'accent'}
+      aria-busy={starting || undefined}
+      onClick={onToggle}
+      icon={
+        <span className={cx('flex', starting && 'animate-pulse')}>
+          <SpeakerGlyph muted={muted} />
+        </span>
+      }
+      className={className}
     >
-      <PlayGlyph paused={!active} />
-    </button>
+      {muted ? 'play previews' : 'mute previews'}
+    </Button>
   )
 }
 

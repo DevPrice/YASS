@@ -38,11 +38,9 @@ import {
   ArtistName,
   InstrumentStrip,
   LensDifficulty,
-  PreviewButton,
   SongTitle,
   SourceBadge,
 } from '../../ui/library'
-import { usePreview } from '../../lib/usePreview'
 import type { DifficultyLens } from '../../lib/difficulty'
 import { LENS_LABELS } from '../../lib/difficulty'
 import { formatDuration, formatYear } from '../../lib/format'
@@ -550,16 +548,16 @@ export function SongList({
                   aria-setsize={songs.length}
                   aria-posinset={item.position + 1}
                   /*
-                   * `group` so the row's hover can reveal the play control, and
-                   * `relative` so that control can be positioned over the cover.
+                   * The virtualizer's positioning box, and nothing else.
                    *
-                   * The control is a *sibling* of the row rather than a child of
-                   * it, and it has to be: the row is a `<button>`, and a button
-                   * inside a button is invalid HTML that browsers resolve by
-                   * discarding one of them. Two siblings in a positioned
-                   * wrapper gets a real nested control with no nesting.
+                   * It briefly held a second child: a play button laid over the
+                   * row's cover, positioned rather than laid out because a
+                   * `<button>` cannot legally contain one. Both went when the
+                   * preview stopped being a verb — see `lib/usePreview.ts`. A
+                   * row has exactly one thing you can do to it again, which is
+                   * the right number for a row.
                    */
-                  className="group absolute top-0 left-0 w-full"
+                  className="absolute top-0 left-0 w-full"
                   style={placement}
                 >
                   <SongRow
@@ -569,7 +567,6 @@ export function SongList({
                     isSelected={item.song.id === selection?.id}
                     onSelect={onSelect}
                   />
-                  <RowPreviewButton song={item.song} />
                 </div>
               )
             })}
@@ -735,51 +732,6 @@ function SortHeader({
         )
       })}
     </div>
-  )
-}
-
-/**
- * The play control, laid over the row's cover.
- *
- * Positioned rather than laid out, because it lives outside the row element —
- * see the wrapper above for why. The offsets mirror the row's own box exactly:
- * a 2px border plus 25px of padding puts the cover's left edge at 27px, and the
- * cover is 44px square in the narrow layout and 48px in the wide one.
- *
- * **It sits in the cover's bottom-left corner, not across the middle of it.**
- * Centred, it worked on a desktop — where it is invisible until the row is
- * hovered — and ruined the phone, where a coarse pointer has no hover to reveal
- * anything so every control is drawn at once. A 28px disc on a 44px cover is
- * two thirds of its width, and a column of four thousand of them read as a list
- * of buttons with album art faintly behind them. In the corner, at 22px and
- * without its ring, the artwork is what you see and the badge is what you tap.
- *
- * Nothing is drawn for a song with no cover. The control is an affordance *on*
- * the artwork; floating one over a row with no picture would be a button
- * hovering in the middle of the title.
- */
-function RowPreviewButton({ song }: { song: Song }) {
-  const { isActive, status, toggle } = usePreview(song.hash)
-
-  if (!song.hasPreview || !song.hasArt || song.hash === null) return null
-
-  return (
-    <PreviewButton
-      label={song.name}
-      status={status}
-      isActive={isActive}
-      onToggle={toggle}
-      size={22}
-      subtle
-      // Tucked into the cover's lower-left corner. The cover's left edge is at
-      // 27px (a 2px border plus 25px of padding), and it is centred in a row
-      // whose height the container query below picks out.
-      className={cx(
-        'left-[30px]',
-        'top-[calc(50%+var(--thumb)/2-25px)]',
-        '[--thumb:44px] @2xl/list:[--thumb:48px]',
-      )}
-    />
   )
 }
 

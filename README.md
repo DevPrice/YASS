@@ -286,6 +286,31 @@ A preview mixes every stem except the crowd, which is what YARG plays: `song.ogg
 the *backing track*, measured 7 dB below the seven-stem sum. The window is ported from
 `PreviewContext.cs`, so a preview starts where YARG would start it.
 
+**Previews follow the selection, and start muted.** There is no play button: picking a song
+plays its preview on a loop, moving to another song crossfades to it over 600 ms, and
+closing the detail fades it out over 400. Two `<audio>` decks, reused forever, feeding two
+`GainNode`s through equal-power curves — a `volume` ramp would have been simpler and does
+nothing on iOS, where the property is read-only, so it would have faded on every desktop
+and cut on every iPhone.
+
+It follows where you *stop*, not where you pass through. Nothing is fetched until the
+selection has held still for 300 ms **and** the key is up — a timer alone cannot do this at
+any value, because what a held key produces first is not repeat but the repeat *delay*
+(250–1000 ms, a setting nobody remembers changing), so any window short enough to keep a
+click feeling immediate expires inside it and plays the neighbouring song. `event.repeat`
+and `keyup` are the facts that settle it. A run through the list also silences whatever was
+playing, since it is a hundred rows nobody chose; a single step keeps it up until the new
+song is ready, which is what makes that handover a crossfade rather than a gap.
+
+Measured against this machine's real keyboard timings — 500 ms delay, ~30/s repeat — a
+1.5 s hold costs zero requests, one after release.
+
+The one control is a mute toggle on the detail surface, which starts
+muted on every device and is remembered per browser once it is changed — and while it is
+muted the client requests no audio at all. The default is also what satisfies the autoplay
+policy: the only route to sound is the tap that unmutes, which is the user gesture browsers
+are asking for. See `client/src/lib/usePreview.ts`.
+
 The typographic plate stays, and is still what a song with no cover gets. It was always
 written as a square image slot standing in for a record it did not have a photograph of
 yet — so nothing below it moved when the photographs arrived.
