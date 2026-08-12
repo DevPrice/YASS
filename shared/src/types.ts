@@ -254,7 +254,12 @@ export interface Settings {
    * `-persistent-data-path`, so this must stay user-configurable.
    */
   yargDataDir: string
-  /** How often to re-read `currentSong.json`, in ms. */
+  /**
+   * Backstop poll for `currentSong.json`, in ms.
+   *
+   * The file is watched; this is only the safety net for a watch that has
+   * silently died. Not surfaced in the tray — see `core/settings.ts`.
+   */
   pollIntervalMs: number
   /** Bind address. `0.0.0.0` exposes on the LAN; `127.0.0.1` keeps it local. */
   host: string

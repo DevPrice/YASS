@@ -1,40 +1,53 @@
 /**
  * Watches one file that YARG rewrites, and calls back when it settles.
  *
- * Two files need this and they need exactly the same thing. The **song-list
- * CSV** is a snapshot YARG writes on demand, so before this the only way to
- * pick up a re-export was a button in the UI — and nobody at a party is going
- * to press it, nor should a guest have a control that acts on the host's
- * server. The **`songcache.bin`** is rewritten whenever YARG rescans the
- * library, which is when new songs gain art and previews.
+ * Three files need this and they need almost exactly the same thing. The
+ * **song-list CSV** is a snapshot YARG writes on demand, so before this the
+ * only way to pick up a re-export was a button in the UI — and nobody at a
+ * party is going to press it, nor should a guest have a control that acts on
+ * the host's server. The **`songcache.bin`** is rewritten whenever YARG
+ * rescans the library, which is when new songs gain art and previews. And
+ * **`currentSong.json`** is rewritten at every song start, pause and scene
+ * change, which is the whole of the now-playing banner.
  *
  * Three things shape the implementation, and all three are properties of "a
- * file another program replaces" rather than of either file in particular:
+ * file another program replaces" rather than of any one file in particular:
  *
- *  1. **Watch the directory, not the file.** Both writers replace their file
- *     rather than appending to it. On Windows a file watch follows the inode
- *     and goes deaf the moment the original is unlinked, so a `fs.watch` on the
- *     path itself would work exactly once. Watching the parent and filtering by
- *     basename survives replacement, and also catches the file appearing for
- *     the first time when the configured path doesn't exist yet.
+ *  1. **Watch the directory, not the file.** Every one of these writers
+ *     replaces or truncates its file rather than appending to it. On Windows a
+ *     file watch follows the inode and goes deaf the moment the original is
+ *     unlinked, so a `fs.watch` on the path itself would work exactly once.
+ *     Watching the parent and filtering by basename survives replacement, and
+ *     also catches the file appearing for the first time when the configured
+ *     path doesn't exist yet.
  *
- *  2. **Debounce, then confirm by stat.** Neither write is atomic, and both
- *     fire a burst of events with some of them mid-write. We wait for quiet,
- *     then only act if size or mtime actually moved — editors and backup tools
- *     touch directories constantly, and neither a 4,000-row reparse nor an
- *     index rebuild is free.
+ *  2. **Debounce, then confirm by stat.** None of these writes are atomic, and
+ *     all of them fire a burst of events with some of them mid-write. We wait
+ *     for quiet, then only act if size or mtime actually moved — editors and
+ *     backup tools touch directories constantly, and neither a 4,000-row
+ *     reparse nor an index rebuild is free.
  *
  *  3. **Never throw into the watcher.** A failure is reported and the watcher
  *     keeps running; an unreadable file usually means we caught the write
  *     half-finished, and the next event will be the good one.
+ *
+ * The two ways the callers differ — how long to wait for quiet, and whether the
+ * file *disappearing* is news — are options rather than forks, because the
+ * hard-won part above is the same for all three.
  */
 
 import { watch, type FSWatcher } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 
-/** Quiet period after the last filesystem event before we act. */
-const SETTLE_MS = 500
+/**
+ * Quiet period after the last filesystem event before we act.
+ *
+ * Sized for the expensive readers — a library reparse or an index rebuild is
+ * not something to start twice because a write arrived in two chunks. Callers
+ * whose work is cheap and whose latency is visible override it.
+ */
+const DEFAULT_SETTLE_MS = 500
 
 /** Identity of the file as last seen, so we can ignore events that changed nothing. */
 interface Fingerprint {
@@ -61,6 +74,19 @@ export interface FileWatcherOptions {
   /** Called after the file settles at a new fingerprint. */
   onChange: () => Promise<void>
   onError?: (error: unknown) => void
+  /** Quiet period before acting. Defaults to {@link DEFAULT_SETTLE_MS}. */
+  settleMs?: number
+  /**
+   * Is the file going away itself a change worth reporting?
+   *
+   * For the library files it is not: a vanished cache means YARG is mid-rescan
+   * or the drive is briefly away, and the right answer is to keep serving the
+   * songs we already parsed rather than blank the app. For `currentSong.json`
+   * it is the opposite — the file being gone is precisely the statement that
+   * nothing is playing, and suppressing it would strand the banner on the last
+   * song of the night.
+   */
+  notifyOnMissing?: boolean
 }
 
 export class FileWatcher {
@@ -126,7 +152,7 @@ export class FileWatcher {
 
   #schedule(): void {
     if (this.#timer !== null) clearTimeout(this.#timer)
-    this.#timer = setTimeout(() => void this.#settle(), SETTLE_MS)
+    this.#timer = setTimeout(() => void this.#settle(), this.#options.settleMs ?? DEFAULT_SETTLE_MS)
   }
 
   async #settle(): Promise<void> {
@@ -144,9 +170,7 @@ export class FileWatcher {
     if (same(current, this.#seen)) return
     this.#seen = current
 
-    // The file being deleted is a state, not a reload trigger — keep serving
-    // the library we already have rather than blanking the app.
-    if (current === null) return
+    if (current === null && this.#options.notifyOnMissing !== true) return
 
     this.#reloading = true
     try {

@@ -125,8 +125,9 @@ async function publish(): Promise<void> {
 
 function startPolling(): void {
   if (pollTimer) return
-  // Only while the popover is open: the song count changes when the CSV is
-  // re-exported, and nobody is watching a window that isn't on screen.
+  // Only while the popover is open: the song count changes when YARG rescans
+  // and rewrites its cache, and nobody is watching a window that isn't on
+  // screen.
   pollTimer = setInterval(() => void publish(), 5000)
 }
 

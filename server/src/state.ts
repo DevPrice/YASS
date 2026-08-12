@@ -98,7 +98,7 @@ export class AppState {
   static async create(): Promise<AppState> {
     const state = new AppState(await loadStoredSettings())
     await state.reloadLibrary()
-    state.#watcher.start()
+    await state.#watcher.start()
     await state.#cacheWatcher.start()
     state.#venue.start()
 
@@ -340,8 +340,11 @@ export class AppState {
     // behind it.
     if (this.#effective.yargDataDir !== previousDataDir) {
       await this.reloadLibrary()
-      // Follow the file; the old directory is no longer interesting.
+      // Follow the files; the old directory is no longer interesting. Both
+      // watchers are bound to a directory, so neither can pick this up on its
+      // own the way a path-reading poll could.
       await this.#cacheWatcher.start()
+      await this.#watcher.rearm()
       void this.rebuildChartIndex(true)
     }
 

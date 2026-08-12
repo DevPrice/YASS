@@ -133,10 +133,16 @@ Mitigation: on a parse failure, do not immediately surface "nothing playing." Re
 after a short delay (~50-100 ms) and only conclude the file is genuinely blank after
 two or three consecutive consistent reads.
 
-**(c) There is no change notification.** No socket, no event, no push. You must poll
-the file (or use a filesystem watcher, which on Windows will fire multiple times per
-write). Polling at 1-2 Hz is plenty — this file only changes at song start, pause,
-and scene transitions.
+**(c) There is no change notification from YARG.** No socket, no event, no push. The
+file is on local disk, so a filesystem watch is the practical answer — but it will fire
+multiple times per write on Windows (truncate, then write), so debounce it and confirm
+by `stat` rather than acting on each event.
+
+Do not rely on the watch alone. `fs.watch` on Windows can stop delivering without
+raising an error — a dropped `ReadDirectoryChangesW` buffer, or a directory replaced
+underneath the handle — and a watch that dies silently never fires again. Keep a slow
+poll (every 10s or so) underneath it as a backstop. The file itself only changes at song
+start, pause, and scene transitions.
 
 **(d) Rich text tags are NOT stripped in the JSON.** Unlike `currentSong.txt`, the
 JSON path does not call `StripRichTextTags`. The `SortStringConverter` writes
@@ -604,7 +610,8 @@ them from `YARG.Core` if you need the ints.
    error (§3.2a).
 4. Retry on parse failure before concluding nothing is playing — writes are not
    atomic (§3.2b).
-5. Poll at 1-2 Hz. There is no push mechanism (§3.2c).
+5. Watch the file, with a slow poll underneath as a backstop. YARG has no push
+   mechanism, and a filesystem watch can die silently (§3.2c).
 6. **Strip rich text tags and HTML-escape** every string from `currentSong.json`
    before rendering (§3.2d).
 7. Filter out `SortBasedLocation`, `ActualLocation`, and `Location` from anything you

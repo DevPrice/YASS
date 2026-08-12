@@ -22,12 +22,25 @@ import {
 
 const DEFAULT_PORT = 4321
 
-/** Poll rate for `currentSong.json`. The file only changes at song start, pause,
- *  and scene transitions, so 1-2 Hz is ample; 1 Hz keeps idle cost negligible. */
-const DEFAULT_POLL_INTERVAL_MS = 1000
+/**
+ * Backstop poll rate for `currentSong.json`.
+ *
+ * Not how a song change is normally noticed — the file is watched, and the
+ * watch is what makes the banner land in a tenth of a second. This is the
+ * safety net for `fs.watch` going deaf, which it can do on Windows without
+ * reporting anything. Ten seconds is a bound on how long a dead watch could
+ * leave every phone in the room showing the wrong song, at a cost of six reads
+ * a minute of a file already in the page cache.
+ *
+ * There is no reason for anyone to tune this, which is why it is not in the
+ * tray window. `YASS_POLL_INTERVAL_MS` remains for the case that proves us
+ * wrong.
+ */
+const DEFAULT_POLL_INTERVAL_MS = 10_000
 
-const MIN_POLL_INTERVAL_MS = 250
-const MAX_POLL_INTERVAL_MS = 10_000
+/** Below the watch's own latency it is just the old poll, burning reads to save nothing. */
+const MIN_POLL_INTERVAL_MS = 1000
+const MAX_POLL_INTERVAL_MS = 60_000
 
 export function defaultSettings(): Settings {
   const yargDataDir = defaultYargDataDir('release')

@@ -63,7 +63,7 @@ bake that port into your configuration the next time anything saves.
 | Setting | Env var | Notes |
 |---|---|---|
 | `yargDataDir` | `YASS_YARG_DATA_DIR` | Folder containing `currentSong.json` and `songcache.bin` |
-| `pollIntervalMs` | `YASS_POLL_INTERVAL_MS` | Default 1000 |
+| `pollIntervalMs` | `YASS_POLL_INTERVAL_MS` | Default 10000. Backstop only — see below |
 | `host` | `YASS_HOST` | Default `0.0.0.0` (LAN-accessible) |
 | `port` | `YASS_PORT` | Default 4321 |
 
@@ -145,8 +145,8 @@ second front end onto the same server, not a replacement for it.
 Three things about it are worth knowing:
 
 - **It writes settings through the running server**, not around it. While the server is
-  up, saving goes out as `PUT /api/settings` over loopback, so a new song list or poll
-  interval applies live and the phones already browsing never notice. Only when the
+  up, saving goes out as `PUT /api/settings` over loopback, so a new data folder applies
+  live and the phones already browsing never notice. Only when the
   server is down does the tray write the file itself. The two writers are mutually
   exclusive by construction, and both run the same `normalizeSettings`.
 - **Only `host` and `port` need a restart**, because only the listening socket is fixed
@@ -269,7 +269,7 @@ behaviors, each verified against a live capture:
 
 - **Blank means "in menus", not an error.** YARG writes an empty string whenever the
   scene isn't gameplay. `JSON.parse("")` throws.
-- **Writes are not atomic** (truncate-then-write, no temp-and-rename), so a poll can
+- **Writes are not atomic** (truncate-then-write, no temp-and-rename), so a read can
   catch a half-written file. We re-read up to three times before believing "nothing
   playing", and a parse failure alone never changes state.
 - **Rich text is not stripped** here (unlike `currentSong.txt`). Tags are removed
@@ -279,6 +279,14 @@ behaviors, each verified against a live capture:
 
 Sentinels are mapped to `null` on the way in: `-1` for an uncharted instrument,
 `int.MaxValue` (`2147483647`) for an unknown year or track number.
+
+**How a change is noticed.** YARG pushes nothing, but the file is on a local disk, so
+the directory is watched and the file re-read on write — the banner lands in about a
+tenth of a second. A slow poll (`pollIntervalMs`, default 10s) runs underneath as a
+backstop, because `fs.watch` on Windows can go deaf without raising an error, and a
+watch that dies silently never fires again. The poll notices on its next tick regardless,
+which turns "the banner lies for the rest of the party" back into "the banner is late
+once". There is no reason to tune it, so it isn't in the tray window.
 
 ### Album art and previews
 

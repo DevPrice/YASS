@@ -13,14 +13,26 @@
  *     few times before believing "nothing is playing", and never let a parse
  *     failure alone flip the state.
  *
- *  3. **No change notification.** No socket, no event. Polling at ~1 Hz is
- *     plenty; the file only changes at song start, pause, and scene changes.
+ *  3. **No change notification from YARG.** No socket, no event, no callback.
+ *     But the file lives on a local disk, so the *filesystem* will tell us:
+ *     this watches the directory and re-reads on write, which is what makes the
+ *     banner land in about a tenth of a second instead of averaging half a
+ *     poll behind.
+ *
+ * The poll did not go away, it just stopped being the mechanism. `fs.watch` on
+ * Windows can go deaf without raising an error — a dropped
+ * `ReadDirectoryChangesW` buffer, a directory replaced underneath the handle —
+ * and a watch that dies silently never fires again. A poll notices on its next
+ * tick regardless. So the watch is the trigger and a slow poll is the backstop,
+ * and the failure that used to be "the banner lags a second" cannot become
+ * "the banner lies for the rest of the party".
  */
 
 import { readFile } from 'node:fs/promises'
 
 import type { NowPlaying, NowPlayingSong } from '@shared/types.js'
 import { findAlbumArt, type AlbumArt } from './art.js'
+import { FileWatcher } from './fileWatcher.js'
 import { extractCurrentSongHash } from './hash.js'
 import { currentSongJsonPath } from './paths.js'
 import { stripRichText } from './richtext.js'
@@ -30,6 +42,24 @@ const CONFIRM_ATTEMPTS = 3
 
 /** Gap between confirmation re-reads — long enough for a write to complete. */
 const CONFIRM_DELAY_MS = 75
+
+/**
+ * Quiet period before reacting to a write.
+ *
+ * Far shorter than the library watchers use: this is the latency of the banner
+ * on every phone in the room, the work behind it is one small read, and
+ * `readStable` already absorbs a torn one. It exists only to collapse the
+ * truncate-then-write pair into a single read.
+ */
+const WATCH_SETTLE_MS = 100
+
+/**
+ * Floor for the backstop poll, whatever the settings say.
+ *
+ * The watch is what makes this feel immediate; a backstop firing faster than
+ * that is just the old poll under a new name, burning reads to save nothing.
+ */
+const MIN_BACKSTOP_MS = 1000
 
 /** `int.MaxValue`, YARG's "unset" sentinel. */
 const INT_MAX = 2147483647
@@ -158,6 +188,7 @@ function locationOf(raw: Record<string, unknown>): string | null {
 export interface NowPlayingWatcherOptions {
   /** Read lazily so a settings change takes effect without a restart. */
   getDataDir: () => string
+  /** Period of the backstop poll, not of the normal path. See the file header. */
   getPollIntervalMs: () => number
   /** Join the now-playing hash to a library song, when the library has one. */
   resolveLibraryId: (hash: string | null) => string | null
@@ -172,11 +203,33 @@ export class NowPlayingWatcher {
   #listeners = new Set<(state: NowPlaying) => void>()
   #timer: NodeJS.Timeout | null = null
   #stopped = true
-  /** Guards against overlapping ticks when a poll outlives its interval. */
+  /** Guards against overlapping reads when a write lands mid-poll. */
   #ticking = false
+  /** A write that arrived while a read was in flight. */
+  #pending = false
+  /** The normal path: YARG writes the file, we re-read it. */
+  #file: FileWatcher
 
   constructor(options: NowPlayingWatcherOptions) {
     this.#options = options
+
+    this.#file = new FileWatcher({
+      getPath: () => {
+        // An unconfigured directory must not become a watch on the process's
+        // own cwd, which is what joining onto '' would produce.
+        const dir = this.#options.getDataDir()
+        return dir === '' ? '' : currentSongJsonPath(dir)
+      },
+      settleMs: WATCH_SETTLE_MS,
+      // Deleting the file is YARG saying nothing is playing, so it has to reach
+      // the banner like any other change.
+      notifyOnMissing: true,
+      onChange: () => this.#tick(),
+      onError: (error) => {
+        // The backstop poll covers this, so it is a note rather than a failure.
+        console.warn('[now-playing] watch failed, falling back to polling:', error)
+      },
+    })
   }
 
   get current(): NowPlaying {
@@ -188,14 +241,33 @@ export class NowPlayingWatcher {
     return this.#art
   }
 
-  start(): void {
+  async start(): Promise<void> {
     if (!this.#stopped) return
     this.#stopped = false
+
+    await this.#file.start()
+    // Not awaited: the first read can be up to three attempts against a file
+    // YARG may be writing, and nothing else about startup needs to wait for it.
     void this.#tick()
+  }
+
+  /**
+   * Follow a new data directory.
+   *
+   * The watch is bound to a directory, so unlike the poll it cannot pick up a
+   * settings change by reading a closure on its next tick — it has to be
+   * re-pointed, and then read once, because the new directory has a state of
+   * its own that no event is going to arrive to announce.
+   */
+  async rearm(): Promise<void> {
+    if (this.#stopped) return
+    await this.#file.start()
+    await this.#tick()
   }
 
   stop(): void {
     this.#stopped = true
+    this.#file.stop()
     if (this.#timer) {
       clearTimeout(this.#timer)
       this.#timer = null
@@ -222,23 +294,51 @@ export class NowPlayingWatcher {
     })
   }
 
+  /** Read now, then restart the backstop clock. */
   async #tick(): Promise<void> {
     if (this.#stopped) return
 
-    if (!this.#ticking) {
-      this.#ticking = true
-      try {
-        await this.#poll()
-      } catch (err) {
-        console.warn('[now-playing] poll failed:', err)
-      } finally {
-        this.#ticking = false
-      }
+    if (this.#ticking) {
+      // A write landed mid-read, and the read in flight may already be past it.
+      // Owe another one rather than reading the same bytes twice concurrently.
+      this.#pending = true
+      return
+    }
+
+    this.#ticking = true
+    try {
+      await this.#poll()
+    } catch (err) {
+      console.warn('[now-playing] read failed:', err)
+    } finally {
+      this.#ticking = false
+    }
+
+    if (this.#pending && !this.#stopped) {
+      this.#pending = false
+      await this.#tick()
+      return
+    }
+
+    this.#schedule()
+  }
+
+  /**
+   * Arm the backstop.
+   *
+   * Always clears first: a watch event and an expiring timer both land here,
+   * and leaving the old timer running would quietly double the poll rate every
+   * time a song changed.
+   */
+  #schedule(): void {
+    if (this.#timer) {
+      clearTimeout(this.#timer)
+      this.#timer = null
     }
 
     if (this.#stopped) return
 
-    const interval = Math.max(250, this.#options.getPollIntervalMs())
+    const interval = Math.max(MIN_BACKSTOP_MS, this.#options.getPollIntervalMs())
     this.#timer = setTimeout(() => void this.#tick(), interval)
   }
 
@@ -296,6 +396,13 @@ export class NowPlayingWatcher {
   }
 
   #setState(state: NowPlaying): void {
+    // A read is several awaits long — three attempts at the file, then possibly
+    // a hunt for album art — and `stop()` can land in the middle of one. The
+    // result of that read is about a directory we are no longer watching, so
+    // publishing it would push a stale song to every subscriber on the way out,
+    // or to the browsers still connected across a change of data directory.
+    if (this.#stopped) return
+
     this.#state = state
     for (const listener of this.#listeners) {
       try {

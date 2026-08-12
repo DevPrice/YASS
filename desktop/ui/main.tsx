@@ -948,42 +948,20 @@ function App() {
             )}
           </Field>
 
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <Field label="Port" env={envVar('port')}>
-                {(control) => (
-                  <input
-                    {...control}
-                    className={cx(FIELD_CLASS, 'font-numeric')}
-                    type="number"
-                    min={1}
-                    max={65535}
-                    readOnly={locked('port')}
-                    value={settings.port}
-                    onChange={(event) => edit({ port: Number(event.target.value) })}
-                  />
-                )}
-              </Field>
-            </div>
-
-            <div className="flex-1">
-              <Field label="Poll interval" hint="ms" env={envVar('pollIntervalMs')}>
-                {(control) => (
-                  <input
-                    {...control}
-                    className={cx(FIELD_CLASS, 'font-numeric')}
-                    type="number"
-                    min={250}
-                    max={10000}
-                    step={250}
-                    readOnly={locked('pollIntervalMs')}
-                    value={settings.pollIntervalMs}
-                    onChange={(event) => edit({ pollIntervalMs: Number(event.target.value) })}
-                  />
-                )}
-              </Field>
-            </div>
-          </div>
+          <Field label="Port" env={envVar('port')}>
+            {(control) => (
+              <input
+                {...control}
+                className={cx(FIELD_CLASS, 'font-numeric')}
+                type="number"
+                min={1}
+                max={65535}
+                readOnly={locked('port')}
+                value={settings.port}
+                onChange={(event) => edit({ port: Number(event.target.value) })}
+              />
+            )}
+          </Field>
 
           {/* `min-h-6` so the click target clears SC 2.5.8; the box itself is 16px. */}
           <label className="flex min-h-6 items-center gap-2.5 pt-1">
