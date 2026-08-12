@@ -59,16 +59,39 @@ export type ColumnId =
   | 'source'
 
 /**
- * The one mark a phone row has room for, out to the right of the title.
+ * What a phone row carries out to the right of the title.
  *
- * A 60px row fits the time and one picture beside it. `difficulty` is the ring
- * the wide table's `diff` column draws; `source` is the icon of the game the
- * chart came from. The source wins by default because it is the fact a row can
- * only get from this slot — the difficulty is a tap away on the detail sheet,
- * carries a number that wants reading rather than glancing, and is the same
- * value for a whole run of the list whenever anybody has sorted by it.
+ * The same idea as the table's columns, at the scale a 60px row can hold: a
+ * set, with a default that is an edit rather than a limit. The floors do not
+ * come with it — `source` waits for 1024px as a *column* because a column shows
+ * its name, and out here it is a 26px icon that costs nothing.
+ *
+ * The default is the time and the source. Between the two pictures, the source
+ * is the one a row can only get here: the difficulty is a tap away on the
+ * detail sheet, carries a number that wants reading rather than glancing, and
+ * reads the same for a whole run of the list the moment anybody sorts by it.
+ * Both at once is a legal answer and not the recommended one — it is the second
+ * picture on the device with room for about one, and the title pays for it.
  */
-export type RowMark = 'source' | 'difficulty'
+export type RowField = 'length' | 'source' | 'difficulty'
+
+/** In the order they sit on the row, so the chips read left to right as it does. */
+export const ROW_FIELDS: readonly RowField[] = ['length', 'source', 'difficulty']
+
+/**
+ * What a row field is called in the sheet that switches it.
+ *
+ * `time` rather than `length`, matching the column header, and `difficulty`
+ * rather than the header's `diff` — that abbreviation is an 80px column's
+ * problem and this panel has the width for the word. Under a lens it becomes
+ * the part, exactly as the sort chip beside it does.
+ */
+export function rowFieldLabel(field: RowField, lens: DifficultyLens): string {
+  if (field === 'length') return 'time'
+  if (field === 'source') return 'source'
+
+  return lens === 'band' ? 'difficulty' : LENS_LABELS[lens]
+}
 
 export interface Column {
   id: ColumnId
@@ -185,18 +208,27 @@ export function columnLabel(column: Column, lens: DifficultyLens): string {
   return lens === 'band' ? column.label : LENS_LABELS[lens].toLowerCase()
 }
 
-/** What the list shows, on this device. */
+/**
+ * What the list shows, on this device — one set per layout.
+ *
+ * Two sets rather than one, because the two layouts are not the same table at
+ * different sizes: they hold different fields, and the widths a column waits
+ * for are meaningless out on a phone row. `length` is the one name in both, and
+ * it means the same thing in both.
+ */
 export interface ListView {
   /** Optional columns switched on. The two fixed ones are never in here. */
   columns: ReadonlySet<ColumnId>
-  mark: RowMark
+  /** What the phone row carries beside the title. */
+  row: ReadonlySet<RowField>
 }
 
 const DEFAULT_COLUMNS: readonly ColumnId[] = ['album', 'genre', 'year', 'length', 'source']
+const DEFAULT_ROW: readonly RowField[] = ['length', 'source']
 
 export const DEFAULT_VIEW: ListView = {
   columns: new Set(DEFAULT_COLUMNS),
-  mark: 'source',
+  row: new Set(DEFAULT_ROW),
 }
 
 /** Whether this column is both wanted and affordable at the list's current width. */
@@ -218,6 +250,13 @@ export function toggleColumn(view: ListView, id: ColumnId): ListView {
   if (!columns.delete(id)) columns.add(id)
 
   return { ...view, columns }
+}
+
+export function toggleRowField(view: ListView, id: RowField): ListView {
+  const row = new Set(view.row)
+  if (!row.delete(id)) row.add(id)
+
+  return { ...view, row }
 }
 
 export function isDefaultColumns(view: ListView): boolean {
@@ -249,27 +288,29 @@ export function sameShape(a: number, b: number): boolean {
 // --- Stored on the device ------------------------------------------------------
 
 const COLUMNS_KEY = 'yass.list.columns'
-const MARK_KEY = 'yass.list.mark'
+const ROW_KEY = 'yass.list.row'
 
 const OPTIONAL_IDS: ReadonlySet<string> = new Set(OPTIONAL_COLUMNS.map((column) => column.id))
+const ROW_IDS: ReadonlySet<string> = new Set(ROW_FIELDS)
 
 /**
  * A stored list of ids, or the default when there is nothing stored.
  *
  * The empty string and a missing key are deliberately different answers: `''`
- * is somebody who switched every optional column off, which is a legal table of
- * title and artist, and `null` is a device that has never been asked. Unknown
- * ids are dropped rather than kept — a build that renames a column should not
- * leave a ghost in the set that nothing can ever turn off again.
+ * is somebody who switched everything off, which is a legal table of title and
+ * artist and a legal row of title and artist, and `null` is a device that has
+ * never been asked. Unknown ids are dropped rather than kept — a build that
+ * renames a field should not leave a ghost in the set that nothing can ever
+ * turn off again.
  */
-function parseColumns(raw: string | null): ReadonlySet<ColumnId> {
-  if (raw === null) return DEFAULT_VIEW.columns
+function parseSet<T extends string>(
+  raw: string | null,
+  known: ReadonlySet<string>,
+  fallback: ReadonlySet<T>,
+): ReadonlySet<T> {
+  if (raw === null) return fallback
 
-  return new Set(
-    raw
-      .split(',')
-      .filter((id): id is ColumnId => OPTIONAL_IDS.has(id)),
-  )
+  return new Set(raw.split(',').filter((id): id is T => known.has(id)))
 }
 
 /**
@@ -282,11 +323,13 @@ function parseColumns(raw: string | null): ReadonlySet<ColumnId> {
  */
 export function readView(): ListView {
   try {
-    const mark = window.localStorage.getItem(MARK_KEY)
-
     return {
-      columns: parseColumns(window.localStorage.getItem(COLUMNS_KEY)),
-      mark: mark === 'source' || mark === 'difficulty' ? mark : DEFAULT_VIEW.mark,
+      columns: parseSet(
+        window.localStorage.getItem(COLUMNS_KEY),
+        OPTIONAL_IDS,
+        DEFAULT_VIEW.columns,
+      ),
+      row: parseSet(window.localStorage.getItem(ROW_KEY), ROW_IDS, DEFAULT_VIEW.row),
     }
   } catch {
     return DEFAULT_VIEW
@@ -296,12 +339,13 @@ export function readView(): ListView {
 /** A device that cannot remember the choice still honours it for this session. */
 export function writeView(view: ListView): void {
   try {
-    // Written in table order rather than insertion order, so the stored string
-    // is stable and reads like the table it describes.
-    const enabled = OPTIONAL_COLUMNS.filter((column) => view.columns.has(column.id))
+    // Written in layout order rather than insertion order, so each stored
+    // string is stable and reads like the thing it describes.
+    const columns = OPTIONAL_COLUMNS.filter((column) => view.columns.has(column.id))
+    const row = ROW_FIELDS.filter((field) => view.row.has(field))
 
-    window.localStorage.setItem(COLUMNS_KEY, enabled.map((column) => column.id).join(','))
-    window.localStorage.setItem(MARK_KEY, view.mark)
+    window.localStorage.setItem(COLUMNS_KEY, columns.map((column) => column.id).join(','))
+    window.localStorage.setItem(ROW_KEY, row.join(','))
   } catch {
     // Nothing here is worth failing a click over.
   }

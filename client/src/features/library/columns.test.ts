@@ -21,13 +21,16 @@ import {
   COLUMNS,
   DEFAULT_VIEW,
   OPTIONAL_COLUMNS,
+  ROW_FIELDS,
   columnLabel,
   isCramped,
   isDefaultColumns,
   readView,
+  rowFieldLabel,
   sameShape,
   showsColumn,
   toggleColumn,
+  toggleRowField,
   writeView,
 } from './columns'
 import type { ColumnId, ListView } from './columns'
@@ -75,8 +78,8 @@ describe('the table', () => {
     }
   })
 
-  it('shows the source icon on a phone row, not the difficulty ring', () => {
-    assert.equal(DEFAULT_VIEW.mark, 'source')
+  it('gives a phone row the time and the source, and not the difficulty ring', () => {
+    assert.deepEqual([...DEFAULT_VIEW.row], ['length', 'source'])
   })
 
   it('never offers the title or the artist to the picker', () => {
@@ -88,7 +91,7 @@ describe('the table', () => {
   })
 
   it('draws the fixed columns whatever the preference says', () => {
-    const nothing: ListView = { columns: new Set(), mark: 'source' }
+    const nothing: ListView = { columns: new Set(), row: new Set() }
 
     assert.equal(showsColumn(nothing, column('name'), 1920), true)
     assert.equal(showsColumn(nothing, column('artist'), 1920), true)
@@ -137,9 +140,9 @@ describe('toggling', () => {
     assert.equal(DEFAULT_VIEW.columns.has('parts'), false)
   })
 
-  it('keeps the mark', () => {
-    const view: ListView = { columns: new Set(), mark: 'difficulty' }
-    assert.equal(toggleColumn(view, 'year').mark, 'difficulty')
+  it('leaves the phone row alone', () => {
+    const view: ListView = { columns: new Set(), row: new Set(['difficulty' as const]) }
+    assert.deepEqual([...toggleColumn(view, 'year').row], ['difficulty'])
   })
 
   it('knows when it is back where it started', () => {
@@ -148,6 +151,39 @@ describe('toggling', () => {
     // Same size, different members — a count is not an answer.
     const swapped = toggleColumn(toggleColumn(DEFAULT_VIEW, 'year'), 'parts')
     assert.equal(isDefaultColumns(swapped), false)
+  })
+})
+
+describe('the phone row', () => {
+  it('offers the three fields in the order they sit on the row', () => {
+    assert.deepEqual([...ROW_FIELDS], ['length', 'source', 'difficulty'])
+  })
+
+  it('names the time after the column header, and the ring after the lens', () => {
+    assert.equal(rowFieldLabel('length', 'band'), 'time')
+    assert.equal(rowFieldLabel('source', 'drums'), 'source')
+    // The word, not the header's `diff` abbreviation — this panel has the room.
+    assert.equal(rowFieldLabel('difficulty', 'band'), 'difficulty')
+    assert.equal(rowFieldLabel('difficulty', 'drums'), 'Drums')
+  })
+
+  it('toggles a field without touching the columns', () => {
+    const off = toggleRowField(DEFAULT_VIEW, 'length')
+    assert.equal(off.row.has('length'), false)
+    assert.equal(off.row.has('source'), true)
+    assert.equal(isDefaultColumns(off), true)
+
+    assert.equal(toggleRowField(off, 'length').row.has('length'), true)
+  })
+
+  it('leaves the original alone', () => {
+    toggleRowField(DEFAULT_VIEW, 'length')
+    assert.equal(DEFAULT_VIEW.row.has('length'), true)
+  })
+
+  it('lets every field go, which leaves a title and an artist', () => {
+    const bare = [...DEFAULT_VIEW.row].reduce(toggleRowField, DEFAULT_VIEW)
+    assert.equal(bare.row.size, 0)
   })
 })
 
@@ -171,21 +207,21 @@ describe('storage', () => {
     const view = readView()
 
     assert.equal(isDefaultColumns(view), true)
-    assert.equal(view.mark, 'source')
+    assert.deepEqual([...view.row], ['length', 'source'])
   })
 
   it('round-trips a choice', () => {
     fakeStorage()
-    writeView({ columns: new Set(['parts', 'difficulty']), mark: 'difficulty' })
+    writeView({ columns: new Set(['parts', 'difficulty']), row: new Set(['difficulty']) })
 
     const view = readView()
     assert.deepEqual([...view.columns].sort(), ['difficulty', 'parts'])
-    assert.equal(view.mark, 'difficulty')
+    assert.deepEqual([...view.row], ['difficulty'])
   })
 
   it('writes the columns in table order, whatever order they were chosen in', () => {
     const values = fakeStorage()
-    writeView({ columns: new Set(['source', 'album', 'year']), mark: 'source' })
+    writeView({ columns: new Set(['source', 'album', 'year']), row: new Set(['source']) })
 
     assert.equal(values.get('yass.list.columns'), 'album,year,source')
   })
@@ -204,9 +240,14 @@ describe('storage', () => {
     assert.deepEqual([...view.columns], ['album'])
   })
 
-  it('falls back to the source icon on a mark it does not recognise', () => {
-    fakeStorage({ 'yass.list.mark': 'sideways' })
-    assert.equal(readView().mark, 'source')
+  it('drops row fields it does not recognise, keeping the ones it does', () => {
+    fakeStorage({ 'yass.list.row': 'sideways,difficulty' })
+    assert.deepEqual([...readView().row], ['difficulty'])
+  })
+
+  it('lets a phone row be emptied, and tells that from never asked', () => {
+    fakeStorage({ 'yass.list.row': '' })
+    assert.equal(readView().row.size, 0)
   })
 
   it('draws the default table when storage itself throws', () => {
@@ -214,7 +255,7 @@ describe('storage', () => {
     const view = readView()
 
     assert.equal(isDefaultColumns(view), true)
-    assert.equal(view.mark, 'source')
+    assert.deepEqual([...view.row], ['length', 'source'])
   })
 
   it('does not fail a click when storage refuses the write', () => {

@@ -53,7 +53,7 @@ import {
 } from '../../ui/library'
 import type { DifficultyLens } from '../../lib/difficulty'
 import { formatDuration, formatYear } from '../../lib/format'
-import type { Column, ListView, RowMark } from './columns'
+import type { Column, ListView, RowField } from './columns'
 import { COLUMNS, WIDE_AT, columnLabel, sameShape, showsColumn } from './columns'
 import { ColumnPicker } from './ColumnPicker'
 import { groupSongs } from './grouping'
@@ -552,7 +552,7 @@ export function SongList({
                     song={item.song}
                     lens={lens}
                     columns={visibleColumns}
-                    mark={view.mark}
+                    fields={view.row}
                     narrow={isNarrow}
                     isPlaying={item.song.id === playingId}
                     isSelected={item.song.id === selection?.id}
@@ -772,7 +772,7 @@ const SongRow = memo(function SongRow({
   song,
   lens,
   columns,
-  mark,
+  fields,
   narrow,
   isPlaying,
   isSelected,
@@ -782,8 +782,8 @@ const SongRow = memo(function SongRow({
   lens: DifficultyLens
   /** The wide row's cells, in order. Stable between scroll frames. */
   columns: readonly Column[]
-  /** The narrow row's one mark. See `columns.ts`. */
-  mark: RowMark
+  /** What the narrow row carries beside the title. See `columns.ts`. */
+  fields: ReadonlySet<RowField>
   /** Which of the two rows to build. See `WIDE_AT`. */
   narrow: boolean
   isPlaying: boolean
@@ -862,7 +862,7 @@ const SongRow = memo(function SongRow({
       {isPlaying ? <span className="sr-only">Now playing. </span> : null}
 
       {narrow ? (
-        <NarrowRow song={song} lens={lens} mark={mark} />
+        <NarrowRow song={song} lens={lens} fields={fields} />
       ) : (
         <WideRow song={song} lens={lens} columns={columns} />
       )}
@@ -1006,42 +1006,45 @@ function WideCell({
 }
 
 /**
- * Narrow layout: a picture, then title over a metadata line, then the time and
- * one mark.
+ * Narrow layout: the cover, then title over a metadata line, then whichever of
+ * the three trailing fields are on.
  *
- * The cover leads the row rather than sitting in the metadata cluster on the
- * right. It is the one field on a phone row that is a picture rather than a
- * number, so it reads at a glance from a fixed column down the left edge —
- * where the eye already is when it starts each row — instead of shuffling left
- * and right with the width of the time beside it. The slot holds its 44px
- * whether or not there is art to put in it, so the titles keep one left edge
- * all the way down the list and a library filling in its covers never re-lays
- * out the rows underneath somebody mid-scroll.
+ * The cover leads the row rather than sitting in the cluster on the right. It
+ * is the one thing on a phone row that is a picture rather than a number, so it
+ * reads at a glance from a fixed column down the left edge — where the eye
+ * already is when it starts each row — instead of shuffling left and right with
+ * the width of the time beside it. The slot holds its 44px whether or not there
+ * is art to put in it, so the titles keep one left edge all the way down the
+ * list and a library filling in its covers never re-lays out the rows
+ * underneath somebody mid-scroll.
  *
- * **The trailing mark is one thing, and which one is a preference.** A 60px row
- * has room for the time and a single picture beside it, and the two candidates
- * answer different questions: the difficulty ring says how hard this is, the
- * source icon says which game it came from. The source is the default because
- * it is the one a row can *only* get here — the difficulty is on the detail
- * sheet a tap away, carries a number that wants reading rather than glancing,
- * and reads the same for a whole run of the list the moment anybody sorts by
- * it. `row shows` in the compact sort panel switches them; see `columns.ts`.
+ * **It holds the cover and nothing else.** The source icon used to stand in
+ * when a song had no art, back when the leading slot was the only place a phone
+ * row ever put one. The source has a slot of its own out on the right now, and
+ * one that can be switched off — so borrowing this square for it would either
+ * say the same thing twice or say a thing somebody had just asked not to see.
+ * An empty square is the honest state of a song whose cover has not arrived.
  *
- * **The source falls back into the cover's slot only when it has no slot of its
- * own.** With the ring showing, a song with no art puts its source icon up
- * front, which is the row this has always drawn. With the source already out on
- * the right, drawing it twice would be the same fact said twice on the device
- * with the least room to say anything.
+ * **The trailing cluster is a set, and the defaults are an edit rather than a
+ * limit.** The time and the source, out of the time, the source and the
+ * difficulty ring. `row shows` in the compact sort panel is where that is
+ * changed, and `columns.ts` is where the reasoning lives. Turning everything
+ * off is legal and gives the title the whole row, which on a 390px phone is
+ * worth about eighty pixels of title.
  */
-function NarrowRow({ song, lens, mark }: { song: Song; lens: DifficultyLens; mark: RowMark }) {
+function NarrowRow({
+  song,
+  lens,
+  fields,
+}: {
+  song: Song
+  lens: DifficultyLens
+  fields: ReadonlySet<RowField>
+}) {
   return (
     <>
       <span className="flex size-[44px] shrink-0 items-center justify-center">
-        {song.hasArt ? (
-          <AlbumThumb song={song} size={44} className="size-[44px]" />
-        ) : mark === 'difficulty' ? (
-          <SourceBadge source={song.source} size={24} showName={false} />
-        ) : null}
+        <AlbumThumb song={song} size={44} className="size-[44px]" />
       </span>
 
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px]">
@@ -1052,22 +1055,30 @@ function NarrowRow({ song, lens, mark }: { song: Song; lens: DifficultyLens; mar
           <ArtistName song={song} credit="label" />
         </span>
       </div>
-      <div className="flex shrink-0 items-center gap-[10px]">
-        <span className="font-numeric text-[14px] tabular-nums text-count-muted">
-          <span className="sr-only">Length </span>
-          {formatDuration(song.lengthSeconds)}
-        </span>
-        {mark === 'source' ? (
-          // 26px, the size the table's own source column draws — the icons are
-          // drawn to be read at a glance and this is the one on the device that
-          // does the most glancing.
-          <SourceBadge source={song.source} size={26} showName={false} />
-        ) : (
-          // 28px on the phone row, not 32: the narrow row is 60px tall and the
-          // ring is the only thing in that cluster with real height to it.
-          <LensDifficulty song={song} lens={lens} size={28} />
-        )}
-      </div>
+
+      {/* Nothing on, nothing drawn — an empty cluster would still take the
+          row's 15px gap and leave the title short of the edge it was given. */}
+      {fields.size === 0 ? null : (
+        <div className="flex shrink-0 items-center gap-[10px]">
+          {fields.has('length') ? (
+            <span className="font-numeric text-[14px] tabular-nums text-count-muted">
+              <span className="sr-only">Length </span>
+              {formatDuration(song.lengthSeconds)}
+            </span>
+          ) : null}
+          {fields.has('source') ? (
+            // 26px, the size the table's own source column draws — the icons
+            // are made to be read at a glance, and this is the device that does
+            // the most glancing.
+            <SourceBadge source={song.source} size={26} showName={false} />
+          ) : null}
+          {fields.has('difficulty') ? (
+            // 28px on the phone row, not 32: the narrow row is 60px tall and
+            // the ring is the tallest thing in this cluster.
+            <LensDifficulty song={song} lens={lens} size={28} />
+          ) : null}
+        </div>
+      )}
     </>
   )
 }

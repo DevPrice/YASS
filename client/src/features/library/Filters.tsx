@@ -72,7 +72,8 @@ import {
   intensityName,
 } from '../../lib/format'
 import { resolveSource, sourceName } from '../../lib/sources'
-import type { RowMark } from './columns'
+import type { RowField } from './columns'
+import { ROW_FIELDS, rowFieldLabel } from './columns'
 import { FacetPicker } from './FacetPicker'
 import { LensPicker } from './LensPicker'
 import type { DerivedFacets, Filters } from './filtering'
@@ -152,14 +153,14 @@ interface FiltersPanelProps {
   sortDirection: SortDirection
   onSort: (key: SortKey) => void
   /**
-   * The one mark a phone row draws beside the time.
+   * What a phone row draws beside the title.
    *
    * Here rather than on the list, because this is the panel that exists at
    * exactly the widths the list has no column header to hang a picker off —
    * see the `row shows` section below.
    */
-  mark: RowMark
-  onMarkChange: (mark: RowMark) => void
+  fields: ReadonlySet<RowField>
+  onFieldToggle: (field: RowField) => void
   /** Jump to a random song in the current results. */
   onRandom: () => void
   /** Owned by the app shell so Escape can close a panel before clearing filters. */
@@ -181,8 +182,8 @@ export function FiltersPanel({
   sortKey,
   sortDirection,
   onSort,
-  mark,
-  onMarkChange,
+  fields,
+  onFieldToggle,
   onRandom,
   open,
   onOpenChange,
@@ -447,35 +448,53 @@ export function FiltersPanel({
           </div>
         </FilterSection>
 
+        {/*
+         * No `clear` on this section, unlike every other one in the panel.
+         *
+         * Everywhere else clearing a dimension is the widest possible answer
+         * and worth one tap; here it would empty the row, and putting the
+         * fields back is three taps on three chips that are all already on
+         * screen. A control whose only job is to undo three visible taps is a
+         * fourth control in a row of three.
+         */}
         <FilterSection label="row shows">
           {/*
-           * A group of two, not a radiogroup.
+           * Three independent toggles, in a group rather than a radiogroup.
            *
-           * Exactly one is always chosen, which is the shape `role="radio"`
-           * describes — and describing it that way promises arrow-key traversal
-           * between them, which this does not have and should not: the same two
-           * keys walk the song selection everywhere else in the app. Two
-           * pressed-state buttons say the state honestly and promise only the
-           * tap that delivers it. Same call `FacetPicker` makes about `listbox`.
+           * They were a one-of-two mark, which is the shape a 60px row wants
+           * and the wrong shape for a control: the time turned out to be worth
+           * dropping too, and a row that can lose one of its three fields can
+           * lose any of them. The default is still one picture — see
+           * `columns.ts` — it is just a default now rather than a rule.
+           *
+           * `role="group"` and not `radiogroup` for the reason `FacetPicker`
+           * refuses `listbox`: naming a radiogroup promises arrow-key traversal
+           * between the chips, and those two keys walk the song selection
+           * everywhere else in this app.
            */}
-          <div role="group" aria-label="What each row shows beside the time" className="flex flex-wrap gap-[10px]">
-            <ToggleChip
-              active={mark === 'source'}
-              onClick={() => onMarkChange('source')}
-              label="Show the game each song came from"
-            >
-              source
-            </ToggleChip>
-            <ToggleChip
-              active={mark === 'difficulty'}
-              onClick={() => onMarkChange('difficulty')}
-              label={`Show ${spokenSortName('difficulty', lens).toLowerCase()} on every row`}
-            >
-              {/* The lens renames this the way it renames the sort chip beside
-                  it: under drums the ring is drawing a drum kit, and `Drums` is
-                  both shorter and the more truthful label for it. */}
-              {lens === 'band' ? 'difficulty' : LENS_LABELS[lens]}
-            </ToggleChip>
+          <div
+            role="group"
+            aria-label="What each row shows beside the title"
+            className="flex flex-wrap gap-[10px]"
+          >
+            {ROW_FIELDS.map((field) => {
+              const name = rowFieldLabel(field, lens)
+
+              return (
+                <ToggleChip
+                  key={field}
+                  active={fields.has(field)}
+                  onClick={() => onFieldToggle(field)}
+                  label={
+                    fields.has(field)
+                      ? `Hide ${name} on every row`
+                      : `Show ${name} on every row`
+                  }
+                >
+                  {name}
+                </ToggleChip>
+              )
+            })}
           </div>
         </FilterSection>
       </Disclosure>

@@ -37,8 +37,8 @@ import { setPreviewNavigating, setPreviewSong, usePreviewSound } from './lib/use
 import { decodeAppState, syncUrl } from './lib/urlState'
 import { FiltersPanel } from './features/library/Filters'
 import type { OpenPanel } from './features/library/Filters'
-import type { ListView, RowMark } from './features/library/columns'
-import { readView, writeView } from './features/library/columns'
+import type { ListView, RowField } from './features/library/columns'
+import { readView, toggleRowField, writeView } from './features/library/columns'
 import { SongList } from './features/library/SongList'
 import type { Selection } from './features/library/SongList'
 import { SongDetail, SongDetailEmpty } from './features/library/SongDetail'
@@ -101,7 +101,8 @@ export function App() {
   const [openPanel, setOpenPanel] = useState<OpenPanel>('none')
 
   /**
-   * Which columns the table draws, and what a phone row shows beside the time.
+   * Which columns the table draws, and what a phone row carries beside the
+   * title.
    *
    * The one piece of state here that is *not* in the address bar. Everything
    * else on this page is a description of what you are looking at and is worth
@@ -121,9 +122,9 @@ export function App() {
     writeView(next)
   }, [])
 
-  const changeMark = useCallback(
-    (mark: RowMark) => {
-      changeView({ ...view, mark })
+  const toggleField = useCallback(
+    (field: RowField) => {
+      changeView(toggleRowField(view, field))
     },
     [changeView, view],
   )
@@ -595,7 +596,7 @@ export function App() {
             onLensChange={setLens}
             view={view}
             onViewChange={changeView}
-            onMarkChange={changeMark}
+            onFieldToggle={toggleField}
             visible={visible}
             sortKey={sortKey}
             sortDirection={sortDirection}
@@ -739,7 +740,7 @@ function LibraryView({
   onLensChange,
   view,
   onViewChange,
-  onMarkChange,
+  onFieldToggle,
   visible,
   sortKey,
   sortDirection,
@@ -764,7 +765,7 @@ function LibraryView({
   onLensChange: (lens: DifficultyLens) => void
   view: ListView
   onViewChange: (view: ListView) => void
-  onMarkChange: (mark: RowMark) => void
+  onFieldToggle: (field: RowField) => void
   visible: Parameters<typeof SongList>[0]['songs']
   sortKey: SortKey
   sortDirection: SortDirection
@@ -829,8 +830,8 @@ function LibraryView({
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSort={onSort}
-        mark={view.mark}
-        onMarkChange={onMarkChange}
+        fields={view.row}
+        onFieldToggle={onFieldToggle}
         onRandom={onRandom}
         open={openPanel}
         onOpenChange={onOpenPanelChange}
