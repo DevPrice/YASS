@@ -29,7 +29,7 @@ the dedication.
 | | |
 |---|---|
 | Upstream | `YARG - Design System (Original)`, YARC-Official |
-| What | `tokens/*.css` (colour, type, layout, spacing), 8 vector icons, 14 instrument glyphs, 24 difficulty rings, 46 source badges |
+| What | `tokens/*.css` (colour, type, layout, spacing), 8 vector icons, 14 instrument glyphs, 24 difficulty rings |
 | Terms | YARC's own artwork and design work. No public licence grant travels with the Figma file, so treat it as reserved to YARC and its contributors unless they say otherwise. |
 
 `client/src/design/README.md` records exactly how each file was exported and
@@ -37,11 +37,14 @@ what was changed on the way in. Two details matter for redistribution:
 
 - **Only part of it is in a build.** The 14 instrument glyphs and `icons/random.svg`
   are imported by the client and end up in `client/dist`, and therefore inside
-  the packaged executable. The 24 difficulty rings, the 46 source badges and the
-  other 7 icons sit in the repository but are deliberately not globbed — they
-  are reference art for geometry that is now drawn in SVG, and superseded badges
-  kept so the decision stays reversible. `client/src/design/assets/index.ts`
+  the packaged executable. The 24 difficulty rings and the other 7 icons sit in
+  the repository but are deliberately not globbed — they are reference art for
+  geometry that is now drawn in SVG. `client/src/design/assets/index.ts`
   explains why.
+- **The source badges are not here at all.** A Figma export of 46 of them once
+  was; it was superseded by the OpenSource registry below, and removed from this
+  repository's history rather than merely deleted, since game and band logos are
+  not something a public repo should carry for no reason.
 - **`instruments/band.png` did not come from Figma.** It is YARG's own BAND
   mark, cropped from `YARG/Assets/Art/Menu/Common/InstrumentIcons.png` in the
   game's own source tree.

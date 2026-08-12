@@ -20,7 +20,6 @@ tokens/           fonts, colors, typography, layout, base  (verbatim copies)
 assets/icons/     the eight line icons that exist as real vector geometry
 assets/instruments/  14 glyphs              500×500 / 512×512 PNG   (8 in use)
 assets/difficulty/   24 difficulty rings         500×500 PNG   (blocked, below)
-assets/sources/      46 source badges            300×300 PNG   (superseded, below)
 assets/index.ts   slug → URL lookups; only for globs actually rendered
 ```
 
@@ -131,16 +130,19 @@ rectangle in the `Instruments` frame carries exactly one `IMAGE` fill and no eff
 the fill *is* the render — verified by pulling `vocals-solo` that way and finding the art
 identical to the `vocals.png` already vendored. 512 is the native size; the 500s are
 scale-1 renders of 500px rectangles, i.e. downsampled.
-- **CSV `source` → badge** is not these 46 badges at all. It resolves through the
+- **`source` → badge** does not come from this directory at all. It resolves through the
   `vendor/opensource` submodule — 240 sources, 293 id spellings, 212 icons, keyed by the
-  ids the CSV actually contains. Against a real 4,168-song library that covers 85% of
+  ids the library actually contains. Against a real 4,168-song library that covers 85% of
   songs outright, with a short local override for what upstream lacks (Fortnite Festival
   is 618 songs and has no upstream entry). See `lib/sources.ts`.
 
-**The 46 badges here are superseded** and no longer globbed. They match only 7 of
-OpenSource's icon slugs, and they are keyed by slugs of display names rather than by
-anything the CSV contains. Kept so the decision reverts with a `git checkout` instead of
-a Figma re-export — delete them once you're sure.
+**The 46 source badges that used to live here are gone**, and not only from the tree.
+They were exported from Figma before the registry approach existed, matched 7 of
+OpenSource's icon slugs, and were keyed by slugs of display names rather than by anything
+a song carries — superseded, unglobbed, and 1.3 MB. Since they are game and band logos in
+a repository that is now public, they were removed from the history as well rather than
+just deleted forward. Source art is the submodule's job, and arrives with
+`git submodule update --init` like it always did.
 
 **The 24 difficulty rings are drawn rather than used.** They run `0`–`20`, `21-plus`,
 `no-part`, `unknown`, and the axis question that blocked them is unresolved — the CSV's
@@ -220,7 +222,8 @@ overwrite the file of the same name here. Then check whether upstream added toke
 `GET /v1/files/:key/nodes?ids=276:1197` for the Icons page and `ids=10003:17191` for the
 `Instruments` frame, then `/v1/images/:key` with `format=svg` for the eight vector icons
 and `format=png&scale=1` for the rest). Render the *components* rather than pulling the
-raw image fills — two source badges layer two bitmaps, and only a render composes them.
+raw image fills — the rule was learned on the source badges, where two of them layered two
+bitmaps that only a render composes, and it holds for anything with more than one fill.
 The one documented exception is the `Instruments` frame; see *Two generations of
 instrument glyph* above for why it is safe there and what it cost.
 
@@ -228,7 +231,7 @@ instrument glyph* above for why it is safe there and what it cost.
 page still has an older set under the same names, and taking a glyph from it lands art
 that is framed differently from everything beside it.
 
-Not stored with Git LFS, deliberately: 81 files totalling 2.2 MB, largest 42 KB, and they
+Not stored with Git LFS, deliberately: 46 files totalling 0.9 MB, largest 39 KB, and they
 change approximately never. LFS earns its keep on large or frequently-rewritten binaries,
 and costs a working `git-lfs` on every clone — without it the images arrive as pointer
 stubs and fail silently. Revisit if the full-resolution backgrounds ever land here.

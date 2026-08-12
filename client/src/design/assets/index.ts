@@ -63,17 +63,17 @@ export const GROUP_ART: Readonly<Record<InstrumentGroup, string>> = Object.freez
 })
 
 /*
- * `difficulty/` and `sources/` are on disk but deliberately not globbed here.
+ * `difficulty/` is on disk but deliberately not globbed here.
  *
  * A glob emits every file it matches as soon as this module is imported, and
- * this module is now imported — so exporting them would ship 70 PNGs (~1.5 MB)
- * that nothing can render.
+ * this module is now imported — so exporting the rings would ship 24 PNGs
+ * (~520 KB) that nothing can render.
  *
- * **`sources/` is superseded.** Source art comes from the OpenSource submodule
- * now (`lib/sources.ts`): 212 icons against these 46, keyed by the same ids the
- * CSV actually contains rather than by slugs of display names. These 46 are
- * safe to delete — kept only so the decision is reversible with a git checkout
- * rather than a re-export from Figma.
+ * **Source art is the submodule's job**, not this directory's. `lib/sources.ts`
+ * resolves it through `vendor/opensource`: 212 icons keyed by the same ids a
+ * song actually carries, rather than by slugs of display names. The 46 Figma
+ * badges that used to sit beside these rings were superseded by that and are
+ * gone from the repository — see `design/README.md`.
  *
  * **`difficulty/` is drawn instead.** The rings run `0`…`20`, `21-plus`,
  * `no-part`, `unknown`; the CSV's per-instrument difficulties are `0`–`6`. Those
