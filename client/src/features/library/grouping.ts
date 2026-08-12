@@ -60,9 +60,12 @@ import type { SortKey } from './filtering'
 
 /** A header, or a song, in the order they are rendered. */
 export type ListItem =
-  | { kind: 'header'; key: string; label: string }
+  /** `count` is how many songs are in the run this header opens. */
+  | { kind: 'header'; key: string; label: string; count: number }
   /** `position` is the song's ordinal among songs, which headers must not shift. */
   | { kind: 'song'; key: string; song: Song; position: number }
+
+type Header = Extract<ListItem, { kind: 'header' }>
 
 /**
  * What a group is called, and what makes two songs part of the same one.
@@ -240,6 +243,11 @@ export function groupSongs(
 
   const items: ListItem[] = []
   let current: string | null = null
+  // The header a song is counted against, filled in as the run is walked
+  // rather than by a counting pass beforehand — a run's length is not known
+  // until the song that ends it, and that song is the one that opens the next
+  // header anyway.
+  let header: Header | null = null
 
   songs.forEach((song, position) => {
     const group = grouper(song, lens)
@@ -249,9 +257,16 @@ export function groupSongs(
       // The position is in the key because a group id is only unique among
       // *consecutive* songs. Two runs of the same id would be a bug in the
       // sort, but a duplicate React key would turn it into a crash.
-      items.push({ kind: 'header', key: `header:${group.id}:${position}`, label: group.label })
+      header = {
+        kind: 'header',
+        key: `header:${group.id}:${position}`,
+        label: group.label,
+        count: 0,
+      }
+      items.push(header)
     }
 
+    if (header !== null) header.count += 1
     items.push({ kind: 'song', key: song.id, song, position })
   })
 

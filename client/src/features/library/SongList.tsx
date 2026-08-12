@@ -77,9 +77,17 @@ import type { SortDirection, SortKey } from './filtering'
 const ROW_HEIGHT_WIDE = 80
 const ROW_HEIGHT_NARROW = 60
 
-/** Enough to read as a division of the list without competing with a row. */
-const HEADER_HEIGHT_WIDE = 40
-const HEADER_HEIGHT_NARROW = 35
+/**
+ * Enough to read as a division of the list without competing with a row.
+ *
+ * The band is taller than the label needs because the extra is spent *above*
+ * it: a header belongs to the songs under it, so the air goes on the side
+ * facing the group it just left. See `CategoryHeader`. The narrow band grows
+ * by less — a phone sorted by title carries around 1,600 of these, and every
+ * pixel here is paid 1,600 times on the device with the least scroll to spend.
+ */
+const HEADER_HEIGHT_WIDE = 46
+const HEADER_HEIGHT_NARROW = 40
 
 /**
  * A pixel of slack at the top edge, when deciding which item the list is on.
@@ -561,7 +569,7 @@ export function SongList({
                     className="absolute top-0 left-0 w-full"
                     style={placement}
                   >
-                    <CategoryHeader label={item.label} />
+                    <CategoryHeader label={item.label} count={item.count} />
                   </div>
                 )
               }
@@ -633,29 +641,97 @@ export function SongList({
  * display type. `MOTÖRHEAD` would be very much this design system, but the
  * same rule renders the decades as `1980S`, and a header that looks like a
  * typo costs more than the extra shout is worth.
+ *
+ * ## The break goes above it, and so does the air
+ *
+ * A header belongs to the songs *underneath* it, and the band used to say the
+ * opposite twice over. Rows carry a 1px rule on both edges, so a header with a
+ * bottom border of its own sat 2px clear of the group it names and 1px from
+ * the group it had just left — the proximity was pointing at the wrong
+ * neighbour. Deleting that border is the whole fix: the row above still draws
+ * the line that opens the break, and the header now leans into its own songs
+ * with nothing between them. It also puts a seam under the sort header, which
+ * shares this wash and used to melt into the first category of the list.
+ *
+ * The vertical space is spent the same way. The band is 46px for a 15px label
+ * and the surplus sits above it, so the name reads as the top of what follows
+ * rather than as a caption floating in a strip.
+ *
+ * ## The count
+ *
+ * Beside the label rather than out at the right edge, where the eye would have
+ * to cross the width of the table to find out which name it belonged to.
+ * Suppressed at one, since a `1` after a name says only what the single row
+ * below it already shows.
+ *
+ * **It is set the way the toolbar sets its count** — bright number, dim
+ * uppercase unit, five pixels apart — because that is this product's way of
+ * writing a quantity, and the toolbar's `1,650 SONGS` is on screen directly
+ * above the first of these. Two spellings of one idiom, forty pixels apart,
+ * is the kind of thing nobody can name and everybody sees.
+ *
+ * That is also what buys the separation. The name and the count are one
+ * phrase, so distance is the wrong tool for keeping them apart; sentence-case
+ * 13px sat against the label and read as more of the name. A tracked 11px
+ * uppercase caption drops a full step below a 15px extrabold cyan title and
+ * can then sit close to it.
+ *
+ * `--color-content-muted` for the unit and not the toolbar's
+ * `--color-count-muted`: that one is drawn for the app surface and measures
+ * 4.23:1 on this band, which is lighter. This is 6.18:1.
+ *
+ * Baselines, not boxes. Three faces meet in this line — Red Hat Display for
+ * the name, Inter for the number, Red Hat again for the unit — and centring
+ * their boxes puts three different cap heights at three different levels.
+ *
+ * The band is a thousand pixels wide and the phrase lives in the first
+ * hundred and fifty, which leaves the rest of it empty. That emptiness is
+ * load-bearing: the wash is what says "division", and a header carrying a
+ * rule or a second column out to the right edge starts competing with the
+ * table it is dividing. The space above the label is what keeps the corner
+ * from reading as crowded.
  */
-function CategoryHeader({ label }: { label: string }) {
+function CategoryHeader({ label, count }: { label: string; count: number }) {
   return (
     <div
-      dir="auto"
       className={cx(
-        'yarg-wash-header flex h-full items-center truncate px-[25px]',
+        // `items-end` with the padding under the text: see the note on air above.
+        'yarg-wash-header flex h-full items-end px-[25px] pb-[9px]',
         // Cyan rather than the sort header's pale blue, and 15px rather than
         // its 13. The band behind the two is the same, so the label is the
         // only thing distinguishing "this names the columns" from "this names
         // the next twelve songs" — at the sort header's weight it read as a
         // stray character sitting in an empty strip.
-        'font-heading text-[15px] font-extrabold text-title',
+        'font-heading text-[15px] leading-none font-extrabold text-title',
       )}
       // The row's 2px side borders again, so a header's text starts on the
       // same pixel as the title of the song beneath it. See `SortHeader`.
       style={{
         borderLeft: '2px solid transparent',
         borderRight: '2px solid transparent',
-        borderBottom: '1px solid var(--color-border-row)',
       }}
     >
-      {label}
+      <div className="flex w-full min-w-0 items-baseline gap-[14px]">
+        {/* `dir` on the label and not on the band, or a Hebrew artist would
+            carry the count over to the other side of the screen with it.
+            `min-w-0`, or a flex item refuses to shrink under its own text and
+            an eighty-character album name runs out past the count. */}
+        <span dir="auto" className="min-w-0 truncate-tight">
+          {label}
+        </span>
+
+        {count > 1 ? (
+          <span className="flex shrink-0 items-baseline gap-[5px]">
+            <span className="font-numeric text-[13px] font-bold tabular-nums text-count">
+              {count.toLocaleString()}
+            </span>
+            {/* Always plural: the singular case is the one that isn't drawn. */}
+            <span className="yarg-label text-[11px] tracking-[0.06em] text-content-muted">
+              songs
+            </span>
+          </span>
+        ) : null}
+      </div>
     </div>
   )
 }
