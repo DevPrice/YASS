@@ -366,6 +366,138 @@ export function IndexRail({ marks, currentItem, onJump, sortLabel }: IndexRailPr
   const touchedMark = touched === null ? null : (visible[touched] ?? null)
   const engaged = touchedMark !== null
 
+  /**
+   * The slots, built only when one of them would come out differently.
+   *
+   * This is the rail's whole scroll cost, and it is paid on a surface that
+   * re-renders on every frame of every flick: `currentItem` is read off the
+   * scroll offset and changes with each row that passes the top edge, which
+   * lands here around forty-five times a second. Rebuilding twenty-eight
+   * buttons that often was a quarter of the main-thread work of scrolling the
+   * library — for output that changes when you cross into the M's.
+   *
+   * `active` is the coarse value that `currentItem` collapses into, so holding
+   * the elements against it is what turns "every row" into "every letter".
+   * React bails out of reconciling a subtree whose element it has seen before,
+   * so an unchanged rail costs one identity comparison per frame.
+   *
+   * The ref callbacks live in here too, and that is not incidental: created
+   * inline they would be fresh functions on every frame, and React would detach
+   * and re-attach all twenty-eight refs each time it re-rendered them.
+   */
+  const slots = useMemo(
+    () =>
+      visible.map((mark, index) => {
+        const isActive = index === active
+        const isTouched = index === touched
+        // The lit mark always draws itself, whatever the stride — the one thing
+        // on the rail that must never be a nameless tick is the one saying
+        // where you are.
+        const drawn = isActive || index % stride === 0
+
+        return (
+          <button
+            key={mark.key}
+            ref={(node) => {
+              slotsRef.current[index] = node
+            }}
+            type="button"
+            // One tab stop for the whole rail, landing on wherever the list
+            // currently is; arrows walk from there. The same roving pattern
+            // the rows use, and for the same reason — 26 tab stops between
+            // the library and whatever follows it is a tunnel.
+            tabIndex={index === (focused ?? active) ? 0 : -1}
+            // "The current location within a container" is exactly what this
+            // is, and it is the one `aria-current` value that says so.
+            aria-current={isActive ? 'location' : undefined}
+            aria-label={`Jump to ${mark.label}`}
+            onClick={() => {
+              jumped.current = null
+              jump(index, false)
+            }}
+            // Cleared by the rail's own `onBlur`, which is the only place
+            // that can tell "moved to the next mark" from "left".
+            onFocus={() => setFocused(index)}
+            className={cx(
+              'relative flex cursor-pointer items-center justify-center',
+              'transition-colors duration-90',
+              isTouched
+                ? 'text-accent-content'
+                : isActive
+                  ? 'text-accent'
+                  : 'text-content-faint hover:text-content',
+              // Inward: the ring is drawn on the slot's own edge, and a slot
+              // pushing it outward would paint over its neighbours.
+              'yarg-focusable focus-visible:[outline-offset:-2px]',
+            )}
+            style={{
+              // Equal share of the track, which is the whole spacing model.
+              flex: '1 1 0',
+              minHeight: 0,
+              // Both lanes, held open on every slot whether or not it is lit,
+              // so glyphs share one centre line down the rail.
+              paddingLeft: `${EDGE_PAD}px`,
+              paddingRight: `${NOTCH_LANE}px`,
+            }}
+          >
+            {/*
+             * The fill under the finger is its own box rather than a
+             * background on the slot, because a slot is however tall the
+             * track divided by the marks makes it: 23px under 28 letters and
+             * 158px under four length buckets. Painted on the slot itself,
+             * the second of those was a cyan brick twice the height of a song
+             * row. Capped, it is the same mark at every density.
+             */}
+            {isTouched ? (
+              <span
+                aria-hidden
+                className="absolute top-1/2 rounded-full"
+                style={{
+                  // Inset from each lane by the same 1px, which is what makes
+                  // the capsule concentric with the glyph: its centre works
+                  // out to `(width + EDGE_PAD - NOTCH_LANE) / 2` either way.
+                  left: EDGE_PAD - 1,
+                  right: NOTCH_LANE - 1,
+                  height: 'min(24px, calc(100% - 2px))',
+                  translate: '0 -50%',
+                  background: TOUCH_FILL,
+                }}
+              />
+            ) : null}
+
+            {/*
+             * Where the list is, marked on the outer edge — the side the eye
+             * is already on when it tracks a scrollbar.
+             *
+             * It stays lit under the finger, where it coincides with the
+             * fill: every move during a scrub commits its jump, so "where I
+             * am" and "where I would land" are the same mark, and the two
+             * marks agreeing is the confirmation that the list went where it
+             * was sent. They only part company when the list is scrolled by
+             * some other means, which is when the notch is doing its own job.
+             */}
+            {isActive ? (
+              <span
+                aria-hidden
+                className="absolute top-1/2 rounded-full bg-accent"
+                style={{
+                  right: 0,
+                  width: 3,
+                  height: 'min(20px, calc(100% - 4px))',
+                  translate: '0 -50%',
+                }}
+              />
+            ) : null}
+
+            <span className="relative">
+              {drawn ? <Glyph glyph={mark.glyph} roomy={roomy} /> : <Tick />}
+            </span>
+          </button>
+        )
+      }),
+    [visible, active, touched, focused, stride, roomy, jump],
+  )
+
   return (
     <div
       role="toolbar"
@@ -417,114 +549,7 @@ export function IndexRail({ marks, currentItem, onJump, sortLabel }: IndexRailPr
       onKeyDown={handleKeyDown}
     >
       <div ref={trackRef} className="relative flex min-h-0 flex-1 flex-col">
-        {visible.map((mark, index) => {
-          const isActive = index === active
-          const isTouched = index === touched
-          // The lit mark always draws itself, whatever the stride — the one
-          // thing on the rail that must never be a nameless tick is the one
-          // saying where you are.
-          const drawn = isActive || index % stride === 0
-
-          return (
-            <button
-              key={mark.key}
-              ref={(node) => {
-                slotsRef.current[index] = node
-              }}
-              type="button"
-              // One tab stop for the whole rail, landing on wherever the list
-              // currently is; arrows walk from there. The same roving pattern
-              // the rows use, and for the same reason — 26 tab stops between
-              // the library and whatever follows it is a tunnel.
-              tabIndex={index === (focused ?? active) ? 0 : -1}
-              // "The current location within a container" is exactly what this
-              // is, and it is the one `aria-current` value that says so.
-              aria-current={isActive ? 'location' : undefined}
-              aria-label={`Jump to ${mark.label}`}
-              onClick={() => {
-                jumped.current = null
-                jump(index, false)
-              }}
-              // Cleared by the rail's own `onBlur`, which is the only place
-              // that can tell "moved to the next mark" from "left".
-              onFocus={() => setFocused(index)}
-              className={cx(
-                'relative flex cursor-pointer items-center justify-center',
-                'transition-colors duration-90',
-                isTouched
-                  ? 'text-accent-content'
-                  : isActive
-                    ? 'text-accent'
-                    : 'text-content-faint hover:text-content',
-                // Inward: the ring is drawn on the slot's own edge, and a slot
-                // pushing it outward would paint over its neighbours.
-                'yarg-focusable focus-visible:[outline-offset:-2px]',
-              )}
-              style={{
-                // Equal share of the track, which is the whole spacing model.
-                flex: '1 1 0',
-                minHeight: 0,
-                // Both lanes, held open on every slot whether or not it is lit,
-                // so glyphs share one centre line down the rail.
-                paddingLeft: `${EDGE_PAD}px`,
-                paddingRight: `${NOTCH_LANE}px`,
-              }}
-            >
-              {/*
-               * The fill under the finger is its own box rather than a
-               * background on the slot, because a slot is however tall the
-               * track divided by the marks makes it: 23px under 28 letters and
-               * 158px under four length buckets. Painted on the slot itself,
-               * the second of those was a cyan brick twice the height of a song
-               * row. Capped, it is the same mark at every density.
-               */}
-              {isTouched ? (
-                <span
-                  aria-hidden
-                  className="absolute top-1/2 rounded-full"
-                  style={{
-                    // Inset from each lane by the same 1px, which is what makes
-                    // the capsule concentric with the glyph: its centre works
-                    // out to `(width + EDGE_PAD - NOTCH_LANE) / 2` either way.
-                    left: EDGE_PAD - 1,
-                    right: NOTCH_LANE - 1,
-                    height: 'min(24px, calc(100% - 2px))',
-                    translate: '0 -50%',
-                    background: TOUCH_FILL,
-                  }}
-                />
-              ) : null}
-
-              {/*
-               * Where the list is, marked on the outer edge — the side the eye
-               * is already on when it tracks a scrollbar.
-               *
-               * It stays lit under the finger, where it coincides with the
-               * fill: every move during a scrub commits its jump, so "where I
-               * am" and "where I would land" are the same mark, and the two
-               * marks agreeing is the confirmation that the list went where it
-               * was sent. They only part company when the list is scrolled by
-               * some other means, which is when the notch is doing its own job.
-               */}
-              {isActive ? (
-                <span
-                  aria-hidden
-                  className="absolute top-1/2 rounded-full bg-accent"
-                  style={{
-                    right: 0,
-                    width: 3,
-                    height: 'min(20px, calc(100% - 4px))',
-                    translate: '0 -50%',
-                  }}
-                />
-              ) : null}
-
-              <span className="relative">
-                {drawn ? <Glyph glyph={mark.glyph} roomy={roomy} /> : <Tick />}
-              </span>
-            </button>
-          )
-        })}
+        {slots}
 
         {/*
          * The callout, and the reason the glyphs are allowed to be terse.

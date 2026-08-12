@@ -13,14 +13,21 @@
  * The rail is a sibling column rather than an overlay, so it costs the rows
  * 38px of a phone's width and never covers one.
  *
- * **Every layout decision here is a container query, not a media query.** The
- * list no longer owns the window: from `lg` up it shares it with the detail
- * pane, so the same 1280px desktop gives it 870px of width, and the same 1600px
- * one gives it 1140px. Asking the viewport how wide the list is would answer a
- * question nobody asked — it would reveal the album column at a viewport width
- * where the column has nowhere to go. Widths named below (`@2xl` = 672px,
- * `@5xl` = 1024px, and so on) are the *list's* widths, and the container is
- * declared in `App`.
+ * **Every layout decision here is made from the list's own width, never the
+ * window's.** The list no longer owns the window: from `lg` up it shares it with
+ * the detail pane, so the same 1280px desktop gives it 870px of width, and the
+ * same 1600px one gives it 1140px. Asking the viewport how wide the list is
+ * would answer a question nobody asked — it would reveal the album column at a
+ * viewport width where the column has nowhere to go. Widths named below (`@2xl`
+ * = 672px, `@5xl` = 1024px, and so on) are the *list's* widths, and the
+ * container is declared in `App`.
+ *
+ * Two of those decisions are made in JavaScript rather than by a container
+ * query, off the same box the queries resolve against: which of the two rows to
+ * build, and how tall it is. Height has to be — the virtualizer needs a number
+ * before anything is laid out. The row's shape follows it because building both
+ * rows and hiding one costs a third of the DOM on every row in the list; see
+ * `SongRow`. Everything the wide row reveals *within* itself is still a query.
  *
  * Semantically a `list`, not a `grid`, even though the wide layout is a table.
  * The narrow layout is a different shape entirely — title over a metadata line,
@@ -28,7 +35,7 @@
  * list of songs is true at every width; a grid would be a lie in the narrow one.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
@@ -563,6 +570,7 @@ export function SongList({
                   <SongRow
                     song={item.song}
                     lens={lens}
+                    narrow={isNarrow}
                     isPlaying={item.song.id === playingId}
                     isSelected={item.song.id === selection?.id}
                     onSelect={onSelect}
@@ -735,15 +743,41 @@ function SortHeader({
   )
 }
 
-function SongRow({
+/**
+ * One song.
+ *
+ * **Memoized, because scrolling re-renders the list on every frame.** The
+ * virtualizer reads the scroll position into React state, so a flick through the
+ * library re-runs this component for all ~26 rows on screen sixty times a
+ * second — a row's worth of work per frame that produces byte-identical output,
+ * since the only thing that moved was the offset on the wrapper `div` outside
+ * it. Every prop here is either a primitive or an object with a stable identity
+ * (`song` comes out of a memoized array, `onSelect` out of a `useCallback` in
+ * `App`), so the comparison is cheap and it holds: rows re-render when they are
+ * genuinely new, not when the page moves under them.
+ *
+ * **One layout, not both.** The wide and narrow rows are different shapes rather
+ * than the same shape reflowed — see `ROW_HEIGHT_WIDE` — and this used to build
+ * them both and let a container query hide one. That is ten `<img>` elements and
+ * around sixty nodes for a row that shows six images and forty, on a list that
+ * mounts a fresh row for every 80px of scroll. `narrow` is the same measurement
+ * that already decides the row's height, taken off the same box the container
+ * queries resolve against, so the two cannot disagree — and the columns *inside*
+ * the wide row are still revealed by container query, which is what that measure
+ * is for.
+ */
+const SongRow = memo(function SongRow({
   song,
   lens,
+  narrow,
   isPlaying,
   isSelected,
   onSelect,
 }: {
   song: Song
   lens: DifficultyLens
+  /** Which of the two rows to build. See `WIDE_AT`. */
+  narrow: boolean
   isPlaying: boolean
   isSelected: boolean
   onSelect: (song: Song) => void
@@ -798,7 +832,7 @@ function SongRow({
         // and artist against the left edge, where white lands on #0082BA at
         // 4.28:1. Flipping the angle puts the colour on the empty side and the
         // text back on card black.
-        isPlaying && '[--yarg-wash-angle:270deg] @2xl/list:[--yarg-wash-angle:90deg]',
+        isPlaying && (narrow ? '[--yarg-wash-angle:270deg]' : '[--yarg-wash-angle:90deg]'),
         // Inward, because the ring is drawn on the row's own edge and a row
         // that pushed its focus outline outward would paint over its neighbour.
         'yarg-focusable focus-visible:[outline-offset:-3px]',
@@ -819,8 +853,16 @@ function SongRow({
     >
       {isPlaying ? <span className="sr-only">Now playing. </span> : null}
 
-      {/* Wide layout: aligned columns. */}
-      <div className="hidden w-full items-center gap-[15px] @2xl/list:flex">
+      {narrow ? <NarrowRow song={song} lens={lens} /> : <WideRow song={song} lens={lens} />}
+    </button>
+  )
+})
+
+/** Wide layout: aligned columns, revealed by how much room the list has. */
+function WideRow({ song, lens }: { song: Song; lens: DifficultyLens }) {
+  return (
+    <>
+      <div className="flex w-full items-center gap-[15px]">
         {/*
          * The cover leads the row, outside the `title` column rather than
          * inside it.
@@ -875,10 +917,13 @@ function SongRow({
           className="hidden w-40 shrink-0 @5xl/list:flex"
         />
       </div>
+    </>
+  )
+}
 
-      {/*
-       * Narrow layout: a picture, then title over a metadata line.
-       *
+/**
+ * Narrow layout: a picture, then title over a metadata line.
+ *
        * Something leads the row rather than sitting in the metadata cluster on
        * the right. It is the one field on a phone row that is a picture rather
        * than a number, so it reads at a glance from a fixed column down the
@@ -892,9 +937,12 @@ function SongRow({
        * source identifies which game it was ripped from. The source is still
        * named in full on the detail sheet, which is one tap away and is where
        * that question gets asked. For the songs with no art the row is
-       * unchanged from what it has always been.
-       */}
-      <span className="shrink-0 @2xl/list:hidden">
+ * unchanged from what it has always been.
+ */
+function NarrowRow({ song, lens }: { song: Song; lens: DifficultyLens }) {
+  return (
+    <>
+      <span className="shrink-0">
         {song.hasArt ? (
           <AlbumThumb song={song} size={44} className="size-[44px]" />
         ) : (
@@ -902,7 +950,7 @@ function SongRow({
         )}
       </span>
 
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px] @2xl/list:hidden">
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px]">
         <span dir="auto" className="truncate-tight text-[17px] leading-none font-semibold text-white">
           <SongTitle song={song} />
         </span>
@@ -910,7 +958,7 @@ function SongRow({
           <ArtistName song={song} credit="label" />
         </span>
       </div>
-      <div className="flex shrink-0 items-center gap-[10px] @2xl/list:hidden">
+      <div className="flex shrink-0 items-center gap-[10px]">
         <span className="font-numeric text-[14px] tabular-nums text-count-muted">
           <span className="sr-only">Length </span>
           {formatDuration(song.lengthSeconds)}
@@ -919,6 +967,6 @@ function SongRow({
             ring is the only thing in that cluster with real height to it. */}
         <LensDifficulty song={song} lens={lens} size={28} />
       </div>
-    </button>
+    </>
   )
 }
