@@ -43,3 +43,23 @@ win:
 
 portable:
   artifactName: YASS-${version}.exe
+
+  # A fixed extraction directory, and the reason is Windows Firewall.
+  #
+  # A portable build is a self-extracting stub: it unpacks into `%TEMP%\<dir>`,
+  # runs `YASS.exe` from there, and deletes the directory on exit. Left to
+  # itself electron-builder names that directory with a fresh KSUID *per build*
+  # — so every rebuild runs the server from a path Windows has never seen. The
+  # firewall matches rules by program path and nothing else, so each rebuild
+  # earns a brand-new "allow access?" prompt and leaves the last build's rule
+  # behind as landfill.
+  #
+  # Naming it pins the path across rebuilds: allow it once, and the rule keeps
+  # matching no matter how many times the exe underneath is replaced.
+  #
+  # The cost is that two copies cannot run at once — the stub wipes this
+  # directory before extracting into it, so a second launch pulls the files out
+  # from under the first. That was already true of two copies of the same
+  # build; this extends it to two *different* builds, which is a thing only a
+  # developer does, and cheaply undone by bumping the name.
+  unpackDirName: YASS
