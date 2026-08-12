@@ -54,6 +54,35 @@ export const INSTRUMENT_GROUPS: readonly InstrumentGroup[] = [
 export type SongFormat = 'Ini' | 'Sng' | 'ExCON' | 'CON' | 'Unknown'
 
 /**
+ * `SongRating` as YARG's own exporter spells it, indexed by the enum ordinal.
+ *
+ * Position is the wire value — the server reads `meta.rating` straight into
+ * this array, so do not reorder it. It is also, happily, the order the ratings
+ * escalate in, which is the order the filter draws them: a scale reads as a
+ * scale, the same way the difficulty tiers and the length buckets do.
+ *
+ * Here rather than in the server because the client filters on these exact
+ * strings, and a second copy of them is a second thing to get wrong — the same
+ * reason `ENV_VARS` lives here.
+ */
+export const SONG_RATINGS = [
+  'Family Friendly',
+  'Supervision Recommended',
+  'Mature',
+  'Sensitive Content',
+] as const
+
+/**
+ * Every ordinal past those four — `Unspecified`, `No_Rating`, `None` — which is
+ * also YARG's own fallback arm, and the last chip rather than the first: "the
+ * chart never said" is not the mildest rating, it is the absence of one.
+ */
+export const NO_RATING = 'No Rating'
+
+/** Every value `Song.ageRating` can hold, in the order the filter shows them. */
+export const AGE_RATINGS: readonly string[] = [...SONG_RATINGS, NO_RATING]
+
+/**
  * One song in the library.
  *
  * Difficulty values are `null` when the instrument is absent (YARG writes `-1`)
@@ -94,7 +123,7 @@ export interface Song {
   albumTrack: number | null
 
   isMaster: boolean
-  /** Display string: `No Rating`, `Family Friendly`, `Mature`, … */
+  /** One of `AGE_RATINGS` — a display string, never the raw ordinal. */
   ageRating: string
   /** 0 instrumental, 1 solo, 2-3 harmonies. */
   vocalParts: number

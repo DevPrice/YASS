@@ -6,7 +6,7 @@
  */
 
 import type { FacetCount, InstrumentGroup, Song } from '@shared/types'
-import { INSTRUMENTS } from '@shared/types'
+import { AGE_RATINGS, INSTRUMENTS } from '@shared/types'
 import type { DifficultyLens } from '../../lib/difficulty'
 import { lensTier } from '../../lib/difficulty'
 import {
@@ -71,6 +71,8 @@ export interface Filters {
   search: string
   sources: string[]
   genres: string[]
+  /** `Song.ageRating` display strings — members of `AGE_RATINGS`, never ordinals. */
+  ratings: string[]
   /** Decade start years — `1980` for the eighties. `UNKNOWN` for undated charts. */
   decades: number[]
   /** `Song.vocalParts`: 0 instrumental, 1 solo, 2–3 harmonies. */
@@ -93,6 +95,7 @@ export const EMPTY_FILTERS: Filters = {
   search: '',
   sources: [],
   genres: [],
+  ratings: [],
   decades: [],
   vocals: [],
   lengths: [],
@@ -133,6 +136,7 @@ export function panelFilterCount(filters: Filters): number {
   return (
     (filters.sources.length > 0 ? 1 : 0) +
     (filters.genres.length > 0 ? 1 : 0) +
+    (filters.ratings.length > 0 ? 1 : 0) +
     (filters.decades.length > 0 ? 1 : 0) +
     (filters.vocals.length > 0 ? 1 : 0) +
     (filters.lengths.length > 0 ? 1 : 0) +
@@ -165,7 +169,7 @@ function hasInstrumentGroup(song: Song, group: InstrumentGroup): boolean {
 }
 
 /**
- * The three facets nobody sends over the wire.
+ * The four facets nobody sends over the wire.
  *
  * `SongFacets` is built by the server and carries the columns the CSV has as
  * columns — source, genre, charter, format, playlist. Decade, vocal count and
@@ -176,6 +180,14 @@ function hasInstrumentGroup(song: Song, group: InstrumentGroup): boolean {
  * with it, which is a coupling bought for one pass over an array already in
  * memory.
  *
+ * **Age rating is a column and is tallied here anyway**, which is the one
+ * exception and worth saying why. The server's `tally` sorts every facet by
+ * descending count, because that is the right order for an open set of 57
+ * genres nobody can eyeball. A rating is a five-value scale, and a scale has to
+ * read in its own order or it isn't one — `AGE_RATINGS` is that order. Tallying
+ * server-side would mean sending five counts across the wire for the client to
+ * immediately re-sort, so the sort and the pass that feeds it stay together.
+ *
  * Counts are library-wide rather than result-relative, which is what the
  * server's facets already are — a count beside a chip says how much is *there*,
  * not how much would survive the filters you have already set.
@@ -185,6 +197,8 @@ export interface DerivedFacets {
   decades: FacetCount[]
   vocals: FacetCount[]
   lengths: FacetCount[]
+  /** In `AGE_RATINGS` order — mildest first, unrated last. */
+  ratings: FacetCount[]
 }
 
 /** Tally one numeric cut, dropping buckets no song landed in. */
@@ -198,6 +212,9 @@ export function deriveFacets(songs: readonly Song[]): DerivedFacets {
   const decades = tallyNumbers(songs.map(songDecade))
   const vocals = tallyNumbers(songs.map((song) => song.vocalParts))
   const lengths = tallyNumbers(songs.map((song) => lengthBucket(song.lengthSeconds) ?? UNKNOWN))
+
+  const ratings = new Map<string, number>()
+  for (const song of songs) ratings.set(song.ageRating, (ratings.get(song.ageRating) ?? 0) + 1)
 
   const entries = (counts: Map<number, number>, order: (a: number, b: number) => number) =>
     [...counts.entries()]
@@ -213,6 +230,14 @@ export function deriveFacets(songs: readonly Song[]): DerivedFacets {
     vocals: entries(vocals, (a, b) => a - b),
     // Shortest first; unknown last, as above.
     lengths: entries(lengths, (a, b) => (a === UNKNOWN ? 1 : b === UNKNOWN ? -1 : a - b)),
+    // Walked in the scale's own order rather than sorted after the fact, which
+    // also drops the ratings no song in this library carries: a library of
+    // nothing but `No Rating` charts should draw one chip, not five, four of
+    // which match nothing.
+    ratings: AGE_RATINGS.filter((value) => ratings.has(value)).map((value) => ({
+      value,
+      count: ratings.get(value) ?? 0,
+    })),
   }
 }
 
@@ -275,6 +300,7 @@ export function filterSongs(
   // is now the normal case rather than the pathological one.
   const sources = new Set(filters.sources)
   const genres = new Set(filters.genres)
+  const ratings = new Set(filters.ratings)
   const decades = new Set(filters.decades)
   const vocals = new Set(filters.vocals)
   const lengths = new Set(filters.lengths)
@@ -283,6 +309,10 @@ export function filterSongs(
   return songs.filter((song) => {
     if (sources.size > 0 && !sources.has(song.source)) return false
     if (genres.size > 0 && !genres.has(song.genre)) return false
+    // Matched on the display string the server already resolved, so an unrated
+    // chart is selectable by the `No Rating` chip like any other value rather
+    // than being a hole in the dimension.
+    if (ratings.size > 0 && !ratings.has(song.ageRating)) return false
     if (decades.size > 0 && !decades.has(songDecade(song))) return false
     if (vocals.size > 0 && !vocals.has(song.vocalParts)) return false
     if (lengths.size > 0 && !lengths.has(lengthBucket(song.lengthSeconds) ?? UNKNOWN)) return false

@@ -192,12 +192,14 @@ export function App() {
   )
 
   /**
-   * Decade, vocal count and length bucket, tallied off the library itself.
+   * Decade, vocal count, length bucket and age rating, tallied off the library
+   * itself.
    *
-   * The server's facets cover the CSV's own columns; these three are this app's
-   * cuts across fields it already has, and the tables they cut at live in
-   * `lib/format.ts` because YARG drew them. Memoized on `songs`, so a re-export
-   * pushed to every phone recomputes them once and a keystroke never does.
+   * The server's facets cover the CSV's own columns; three of these are this
+   * app's cuts across fields it already has, and the tables they cut at live in
+   * `lib/format.ts` because YARG drew them. Age rating is the exception and
+   * `DerivedFacets` says why. Memoized on `songs`, so a re-export pushed to
+   * every phone recomputes them once and a keystroke never does.
    */
   const derivedFacets = useMemo(() => deriveFacets(songs), [songs])
 

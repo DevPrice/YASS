@@ -45,7 +45,7 @@
  *
  * ## Two kinds of dimension, two kinds of control
  *
- * Parts, difficulty, vocals, length, decade, format and recording are closed
+ * Parts, difficulty, vocals, length, decade, age rating and recording are closed
  * sets of at most eight known values, and they are chips: everything visible at
  * once, one tap to add, one tap to remove, no scrolling and no search box for
  * eight things.
@@ -143,7 +143,7 @@ interface FiltersPanelProps {
   onChange: (filters: Filters) => void
   /** Facets the server tallied off the CSV's own columns. */
   facets: SongFacets
-  /** The three this app cuts for itself — decade, vocals, length. */
+  /** The four this app tallies for itself — decade, vocals, length, age rating. */
   derived: DerivedFacets
   lens: DifficultyLens
   onLensChange: (lens: DifficultyLens) => void
@@ -193,8 +193,8 @@ export function FiltersPanel({
     onChange({ ...filters, [key]: value })
   }
 
-  /** Add or remove one value from either of the open-set dimensions. */
-  const toggle = <K extends 'sources' | 'genres'>(key: K, value: string) => {
+  /** Add or remove one value from any of the string-valued dimensions. */
+  const toggle = <K extends 'sources' | 'genres' | 'ratings'>(key: K, value: string) => {
     update(key, toggleValue(filters[key], value) as Filters[K])
   }
 
@@ -512,7 +512,8 @@ export function FiltersPanel({
          * controls rather than over them; one surface with two label systems
          * reads as two surfaces that got merged.
          */}
-        <div className="grid grid-cols-1 items-start gap-[20px] sm:grid-cols-2">
+        {/* Container-counted, like the grid below it. */}
+        <div className="grid grid-cols-1 items-start gap-[20px] @2xl/list:grid-cols-2">
           <FilterSection
             label="has parts"
             /*
@@ -612,11 +613,28 @@ export function FiltersPanel({
         </FilterSection>
 
         {/*
-         * The three closed sets, side by side wherever there is room for them.
+         * The four closed sets, side by side wherever there is room for them.
          * `items-start` so a section with two rows of chips doesn't stretch the
-         * two beside it to match.
+         * three beside it to match.
+         *
+         * **Counted off the panel, not the viewport.** This grid asked the
+         * viewport for its column count, which is the mistake the sort chips at
+         * the top of this file exist to warn about: from `lg` up the list shares
+         * the window with the detail pane, so a 1280px viewport is a ~800px
+         * panel, and `xl:grid-cols-4` put four columns of chips into a row that
+         * could not hold them. The fourth column is worth having and it is the
+         * *panel* that has to be wide enough for it.
          */}
-        <div className="grid grid-cols-1 items-start gap-[20px] sm:grid-cols-2 xl:grid-cols-3">
+        <div
+          className={cx(
+            'grid grid-cols-1 items-start gap-[20px]',
+            // One, two, four. Never three: four sections in three columns is a
+            // row of three and an orphan, which is both unbalanced and exactly
+            // as tall as the two-column layout that tiles evenly — so the
+            // three-column step costs a row of height and buys nothing.
+            '@2xl/list:grid-cols-2 @5xl/list:grid-cols-4',
+          )}
+        >
           <FilterSection
             label="vocals"
             selected={filters.vocals.length}
@@ -697,10 +715,41 @@ export function FiltersPanel({
               })}
             </ChipSet>
           </FilterSection>
+
+          {/*
+           * `age rating`, not `rating`, and the extra word is load-bearing: the
+           * section directly above this grid is `difficulty`, whose chips are
+           * tiers and whose last one is `Unrated`. A control labelled `rating`
+           * sitting under that one would be read as the same question asked
+           * again. `Age Rating` is also what YARG's own export calls the column.
+           *
+           * Drawn from the library rather than from `AGE_RATINGS`, so a library
+           * whose charts are all unrated shows the one chip that means anything
+           * instead of four dead ones — the same rule the three sections beside
+           * it follow.
+           */}
+          <FilterSection
+            label="age rating"
+            selected={filters.ratings.length}
+            onClear={() => update('ratings', [])}
+          >
+            <ChipSet>
+              {derived.ratings.map(({ value, count }) => (
+                <ToggleChip
+                  key={value}
+                  active={filters.ratings.includes(value)}
+                  onClick={() => toggle('ratings', value)}
+                  label={`${value}, ${count.toLocaleString()} songs`}
+                >
+                  {value}
+                </ToggleChip>
+              ))}
+            </ChipSet>
+          </FilterSection>
         </div>
 
         {/* The two open sets. Collapsed until asked for; see the file header. */}
-        <div className="grid grid-cols-1 items-start gap-[20px] sm:grid-cols-2">
+        <div className="grid grid-cols-1 items-start gap-[20px] @2xl/list:grid-cols-2">
           <FacetPicker
             label="source"
             options={facets.sources}
@@ -889,7 +938,17 @@ function FilterSection({
   children: ReactNode
 }) {
   return (
-    <section className="flex flex-col gap-[10px]">
+    /*
+     * `min-w-0` is a guard rather than a fix for anything currently broken.
+     *
+     * A grid track is `minmax(auto, 1fr)`, and that `auto` is this section's
+     * min-content — so a chip carrying a single word too long to fit its share
+     * of the row would widen the whole track and push the grid past the panel.
+     * Every label in here today wraps at a space and stays well inside its
+     * column; zeroing the floor means the day one doesn't, the chip wraps
+     * instead of the panel growing a scrollbar.
+     */
+    <section className="flex min-w-0 flex-col gap-[10px]">
       <div className="flex min-w-0 items-center gap-[10px]">
         <FieldLabel className="min-w-0 truncate">
           {label}

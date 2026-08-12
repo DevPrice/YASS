@@ -32,7 +32,7 @@ import type { Filters } from './filtering'
 
 /** Which control a token came from, and what taking it off means. */
 export type TokenRemoval =
-  | { dimension: 'sources' | 'genres'; value: string }
+  | { dimension: 'sources' | 'genres' | 'ratings'; value: string }
   | { dimension: 'decades' | 'vocals' | 'lengths' | 'intensities'; value: number }
   | { dimension: 'instruments'; value: InstrumentGroup }
   | { dimension: 'masterOnly' }
@@ -172,6 +172,22 @@ export function describeFilters(filters: Filters, lens: DifficultyLens): Describ
     })
   }
 
+  for (const rating of filters.ratings) {
+    tokens.push({
+      id: `ratings:${rating}`,
+      kind: 'filter',
+      dimension: 'age rating',
+      /*
+       * The game's own spelling, uppercased by the label face like every other
+       * token. `Family Friendly` is two words and stays two words — there is no
+       * shorter form of these that is still the thing YARG's setting screen and
+       * this app's own detail sheet call it.
+       */
+      label: rating,
+      removal: { dimension: 'ratings', value: rating },
+    })
+  }
+
   for (const source of filters.sources) {
     tokens.push({
       id: `sources:${source}`,
@@ -211,6 +227,7 @@ export function withoutToken(filters: Filters, removal: TokenRemoval): Filters {
       return filters
     case 'sources':
     case 'genres':
+    case 'ratings':
       return {
         ...filters,
         [removal.dimension]: filters[removal.dimension].filter((v) => v !== removal.value),

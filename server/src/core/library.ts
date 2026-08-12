@@ -48,7 +48,7 @@ import type {
   SongFacets,
   SongLibrary,
 } from '@shared/types.js'
-import { INSTRUMENTS } from '@shared/types.js'
+import { INSTRUMENTS, NO_RATING, SONG_RATINGS } from '@shared/types.js'
 import { CacheFormatError, readSongCache, type CacheSong, type PartValue } from '../media/cache.js'
 import { genreResolver, type Genrelizer } from './genrelizer.js'
 import { songCachePath } from './paths.js'
@@ -56,16 +56,6 @@ import { stripRichText } from './richtext.js'
 
 /** `int.MaxValue` is YARG's "unset" sentinel for numeric metadata. */
 const INT_MAX = 2147483647
-
-/**
- * `SongRating` as the CSV export used to spell it, indexed by the enum ordinal.
- *
- * Kept identical to `SongExport.cs` so the strings the UI filters on did not
- * silently change spelling underneath it. Everything past this list —
- * `Unspecified`, `No_Rating`, `None` — is "No Rating", which is also YARG's own
- * fallback arm.
- */
-const RATING_LABELS = ['Family Friendly', 'Supervision Recommended', 'Mature', 'Sensitive Content']
 
 /** An empty library, used before a cache is found and on load failure. */
 export function emptyLibrary(warnings: string[] = []): SongLibrary {
@@ -251,7 +241,9 @@ export function songFromCache(entry: CacheSong, id: string, genres: Genrelizer |
     albumTrack: trackNumber(meta.albumTrack),
 
     isMaster: meta.isMaster,
-    ageRating: RATING_LABELS[meta.rating] ?? 'No Rating',
+    // Kept identical to `SongExport.cs` so the strings the UI filters on can't
+    // silently change spelling underneath it. See `SONG_RATINGS`.
+    ageRating: SONG_RATINGS[meta.rating] ?? NO_RATING,
     vocalParts: vocalPartCount(meta.parts.harmonyVocals, meta.parts.leadVocals),
 
     difficulties,

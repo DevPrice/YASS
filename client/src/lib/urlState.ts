@@ -1,7 +1,7 @@
 /**
  * The whole view, in the address bar.
  *
- * Everything a person builds up in this app — a search, six filter dimensions,
+ * Everything a person builds up in this app — a search, every filter dimension,
  * a sort, a difficulty lens, the song they are looking at — used to live only in
  * React state, which meant it survived nothing. A refresh lost it. A phone lock
  * that evicted the tab lost it. Handing your phone to the person next to you so
@@ -70,6 +70,7 @@ const PARAM = {
   search: 'q',
   sources: 'src',
   genres: 'gen',
+  ratings: 'rated',
   decades: 'dec',
   vocals: 'voc',
   lengths: 'len',
@@ -202,6 +203,10 @@ export function encodeAppState(state: AppState): string {
 
   list(PARAM.sources, encodeList(filters.sources))
   list(PARAM.genres, encodeList(filters.genres))
+  // The display strings, not the ordinals behind them. `rated=Family+Friendly`
+  // is longer than `rated=0` and is the only one of the two a person reading
+  // the address bar can check, which is what this whole file is for.
+  list(PARAM.ratings, encodeList(filters.ratings))
   list(PARAM.instruments, encodeList(filters.instruments))
   list(PARAM.decades, encodeNumbers(filters.decades))
   list(PARAM.vocals, encodeNumbers(filters.vocals))
@@ -246,6 +251,11 @@ export function decodeAppState(search: string): AppState {
     search: params.get(PARAM.search) ?? '',
     sources: decodeStrings(params.get(PARAM.sources)),
     genres: decodeStrings(params.get(PARAM.genres)),
+    // Unvalidated against `AGE_RATINGS` on purpose, like every other string
+    // dimension here: a value the library no longer contains matches nothing,
+    // which is a result the UI already draws, and dropping it would silently
+    // widen somebody's shared link instead.
+    ratings: decodeStrings(params.get(PARAM.ratings)),
     decades: decodeNumbers(params.get(PARAM.decades)),
     vocals: decodeNumbers(params.get(PARAM.vocals)),
     lengths: decodeNumbers(params.get(PARAM.lengths)),
