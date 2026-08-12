@@ -11,7 +11,7 @@ name: Deploy demo to Pages
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     # The demo is the client and the registry it resolves badges from. A change
     # to the server or the tray cannot alter the published page, so it does not
     # need to rebuild it.

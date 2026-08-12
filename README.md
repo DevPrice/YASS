@@ -406,7 +406,7 @@ grep -c "bramblecast" client/dist/assets/index-*.js   # 0
 ### Publishing it
 
 `.github/workflows/pages.yml` builds the demo and deploys it to GitHub Pages on a push to
-`main` that touches the client, or on demand from the Actions tab. Two things it needs:
+`master` that touches the client, or on demand from the Actions tab. Two things it needs:
 
 - **Pages pointed at Actions**, once, by hand: Settings → Pages → Build and deployment →
   Source → GitHub Actions.
