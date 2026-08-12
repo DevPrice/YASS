@@ -2,7 +2,7 @@
  * Where derived media lives on disk, and how much of it is allowed to.
  *
  * ```
- *   %APPDATA%\yass\cache\
+ *   %LOCALAPPDATA%\yass\cache\
  *     charts.json          the chart index (see index.ts)
  *     art\<hash>.sm.webp   256px thumbnails, precomputed for the whole library
  *     art\<hash>.lg.webp   640px covers, generated when a song is opened

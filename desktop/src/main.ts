@@ -11,13 +11,13 @@
 
 import { app, clipboard, dialog, ipcMain, shell, type Tray } from 'electron'
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
 
 import type { ServerStatus, Settings } from '@shared/types.js'
 import { lanAddresses } from '@server/core/net.js'
 import {
   appConfigDir,
   defaultYargDataDir,
+  electronDataDir,
   managedBinDir,
   mediaCacheDir,
 } from '@server/core/paths.js'
@@ -47,14 +47,16 @@ import { createTray, type DataFolder } from './tray.js'
 /*
  * Before anything touches a Chromium path.
  *
- * `appConfigDir()` is `%APPDATA%\yass`, and Electron's default `userData` is
- * `%APPDATA%\<productName>` — which on a case-insensitive filesystem would put
- * Chromium's caches, cookies and preferences directly on top of the server's
- * `settings.json`. Naming the subfolder explicitly is the fix; relying on the
- * product name not colliding is not.
+ * Electron's default `userData` is `%APPDATA%\<productName>` — which on a
+ * case-insensitive filesystem is `%APPDATA%\yass`, the config directory, so
+ * Chromium's caches, cookies and preferences would land directly on top of the
+ * server's `settings.json`. Naming the directory explicitly is the fix; relying
+ * on the product name not colliding is not. It goes under `appCacheDir()`
+ * rather than beside the settings, because none of what Chromium keeps here is
+ * worth carrying between machines.
  */
 app.setName('YASS')
-app.setPath('userData', join(appConfigDir(), 'electron'))
+app.setPath('userData', electronDataDir())
 
 const server = new ServerChild()
 let tray: Tray | null = null

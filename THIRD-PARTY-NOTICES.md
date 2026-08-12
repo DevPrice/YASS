@@ -120,7 +120,7 @@ original description of those formats. All of it is covered by the dedication.
 
 - **ffmpeg** — `server/src/media/ffmpeg.ts` downloads the GyanD/codexffmpeg
   8.1.2 *essentials* build (**GPL-3.0**) on demand, pinned by tag and SHA-256,
-  into `%APPDATA%\yass\bin`. Nothing about it is bundled or redistributed by
+  into `%LOCALAPPDATA%\yass\bin`. Nothing about it is bundled or redistributed by
   this project, and the media features degrade quietly when it is absent. If you
   ever ship it inside a build, the GPL's obligations attach to what you ship.
 - **Genrelizer mappings** — read from the YARG installation already on the

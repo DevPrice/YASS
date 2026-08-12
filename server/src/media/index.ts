@@ -30,7 +30,7 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { appConfigDir, songCachePath } from '../core/paths.js'
+import { mediaCacheDir, songCachePath } from '../core/paths.js'
 import { readSongCache } from './cache.js'
 import { scanSongFolders } from './scan.js'
 import type { ChartRef } from './types.js'
@@ -59,7 +59,7 @@ interface PersistedIndex {
 }
 
 export function chartIndexPath(): string {
-  return join(appConfigDir(), 'cache', 'charts.json')
+  return join(mediaCacheDir(), 'charts.json')
 }
 
 const EMPTY_META: ChartIndexMeta = {

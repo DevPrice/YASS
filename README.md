@@ -56,6 +56,14 @@ Support/yass` (macOS), or `$XDG_CONFIG_HOME/yass` (Linux) — outside the repo, 
 packaged build behaves like a dev run. The path is printed at startup, along with any
 complaint about what it found there.
 
+**That directory holds the settings file and nothing else.** Everything the app can
+rebuild — the media cache, a fetched ffmpeg, the server log, Chromium's own state — goes
+to `%LOCALAPPDATA%/yass` (Windows), `~/Library/Caches/yass` (macOS), or
+`$XDG_CACHE_HOME/yass` (Linux). On Windows that is the difference between a kilobyte and
+a couple of gigabytes being copied across the network at every logon of a roaming
+profile; ffmpeg is machine-specific besides. Delete the cache directory and YASS loses
+only the time to make it again.
+
 Every field has an environment override. Overrides apply to the running process only and
 are **never written to the settings file**, so starting once with `YASS_PORT=9999` won't
 bake that port into your configuration the next time anything saves.
@@ -158,10 +166,11 @@ Three things about it are worth knowing:
   failure this app could have.
 
 Configuration still lives in `%APPDATA%\yass\settings.json`; the tray only edits it.
-Chromium's own caches are pinned to `%APPDATA%\yass\electron\` so they can't land on top
-of it, and the server's output is kept in `%APPDATA%\yass\logs\server.log` — rotated on
-each start, so a server that failed to bind leaves evidence a packaged build would
-otherwise swallow.
+Chromium's own caches are pinned to `%LOCALAPPDATA%\yass\electron\` so they can't land on
+top of it — Electron would otherwise default to `%APPDATA%\YASS`, which is the same
+directory on a case-insensitive filesystem — and the server's output is kept in
+`%LOCALAPPDATA%\yass\logs\server.log`, rotated on each start, so a server that failed to
+bind leaves evidence a packaged build would otherwise swallow.
 
 The tray and executable wear YARG's own logo, generated from the OpenSource submodule at
 build time. It is public domain and unmistakably the right subject, but it is YARG's
@@ -304,7 +313,7 @@ the list itself.
   it means a YARG format change costs a slow first scan rather than the feature.
 - **`media/{sng,yargsong,con,dxt,dta}.ts`** open the packed formats — the SNG mask, the
   `.yargsong` outer cipher, Xbox STFS block addressing, and the DXT textures inside a CON.
-- **ffmpeg** does every resize and every mix. It is fetched once into `%APPDATA%\yass\bin`,
+- **ffmpeg** does every resize and every mix. It is fetched once into `%LOCALAPPDATA%\yass\bin`,
   verified against a pinned SHA-256, and cached forever; when it is missing the media
   features stay dark and the client draws what it always drew.
 

@@ -20,9 +20,13 @@ import { join, resolve } from 'node:path'
 
 import { app, utilityProcess, type UtilityProcess } from 'electron'
 
-import { appConfigDir } from '@server/core/paths.js'
+import { logDir } from '@server/core/paths.js'
 import { applyEnvOverrides, loadStoredSettings } from '@server/core/settings.js'
 import type { ServerState, ServerStatusName } from './ipc.js'
+
+// Named with the app's other directories rather than here, but the tray is the
+// only thing that writes to it and `main.ts` reads it from this module.
+export { logDir }
 
 /** How long to wait for a successful bind before calling it a failure. */
 const READY_TIMEOUT_MS = 15_000
@@ -49,10 +53,6 @@ function resourcePaths(): { serverEntry: string; clientDist: string } {
     serverEntry: resolve(__dirname, '../../server/dist/index.js'),
     clientDist: resolve(__dirname, '../../client/dist'),
   }
-}
-
-export function logDir(): string {
-  return join(appConfigDir(), 'logs')
 }
 
 export function logFilePath(): string {

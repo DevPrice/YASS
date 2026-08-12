@@ -19,7 +19,7 @@
  * Resolution order, cheapest and most explicit first:
  *
  *  1. `YASS_FFMPEG` — an absolute path, for anyone who wants to choose.
- *  2. `%APPDATA%\yass\bin\ffmpeg.exe` — what we fetched last time.
+ *  2. `%LOCALAPPDATA%\yass\bin\ffmpeg.exe` — what we fetched last time.
  *  3. `PATH` — a system install, which most developers already have.
  *
  * When none resolve, the media features stay dark: `hasArt` and `hasPreview`

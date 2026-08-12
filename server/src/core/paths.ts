@@ -34,7 +34,14 @@ export function defaultYargDataDir(channel: BuildChannel = 'release'): string {
   return join(unityPersistentDataPath(), channel)
 }
 
-/** Where YASS stores its own settings. */
+/**
+ * Where YASS stores its own settings — and nothing else.
+ *
+ * On Windows this is `%APPDATA%`, which on a domain profile is copied to the
+ * server at every logon and logoff. `settings.json` is a kilobyte of genuine
+ * preferences and belongs there; everything else the app writes does not, which
+ * is what `appCacheDir()` below is for.
+ */
 export function appConfigDir(): string {
   const home = homedir()
 
@@ -53,6 +60,29 @@ export function settingsFilePath(): string {
 }
 
 /**
+ * Everything the app can rebuild: derived media, a fetched ffmpeg, logs, and
+ * Chromium's own state.
+ *
+ * Machine-local on purpose. Between a 2 GB preview cap, a ~100 MB ffmpeg build
+ * and Chromium's caches, a roaming profile would be dragging gigabytes across
+ * the network to reproduce files that are either regenerated from the library
+ * on the next run or wrong on the next machine anyway. Delete this whole
+ * directory and YASS loses nothing but the time to make it again.
+ */
+export function appCacheDir(): string {
+  const home = homedir()
+
+  switch (process.platform) {
+    case 'win32':
+      return join(process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local'), 'yass')
+    case 'darwin':
+      return join(home, 'Library', 'Caches', 'yass')
+    default:
+      return join(process.env.XDG_CACHE_HOME ?? join(home, '.cache'), 'yass')
+  }
+}
+
+/**
  * Derived media — thumbnails, previews, and the chart index.
  *
  * Here rather than in `media/store.ts` so that every directory the app writes
@@ -61,12 +91,22 @@ export function settingsFilePath(): string {
  * nothing uses.
  */
 export function mediaCacheDir(): string {
-  return join(appConfigDir(), 'cache')
+  return join(appCacheDir(), 'cache')
 }
 
 /** Binaries the app fetched for itself, which today means ffmpeg. */
 export function managedBinDir(): string {
-  return join(appConfigDir(), 'bin')
+  return join(appCacheDir(), 'bin')
+}
+
+/** The server child's rotated stdout, written by the tray that spawns it. */
+export function logDir(): string {
+  return join(appCacheDir(), 'logs')
+}
+
+/** Chromium's caches, cookies and preferences. See `desktop/src/main.ts`. */
+export function electronDataDir(): string {
+  return join(appCacheDir(), 'electron')
 }
 
 /** The now-playing file inside a YARG data directory. */

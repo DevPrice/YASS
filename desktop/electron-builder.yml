@@ -1,6 +1,7 @@
 # A single portable .exe — a file you can hand to somebody, or drop on the
 # machine that runs the party, with nothing to install and nothing left behind
-# but `%APPDATA%\yass`.
+# but `%APPDATA%\yass` (a settings file) and `%LOCALAPPDATA%\yass` (everything
+# it can rebuild).
 appId: com.yarg.yass
 productName: YASS
 copyright: ''
