@@ -3,8 +3,14 @@
  *
  * The README's long-standing answer to "where does the art come from" was
  * "patch YARG to publish an index". It turns out YARG already publishes one:
- * it rewrites this file on every scan, and it holds exactly the map this app
- * needs — song hash to a location on disk.
+ * it rewrites this file on every scan, and it holds both of the things this app
+ * used to get from two places — where each chart lives on disk, and the song
+ * metadata the list is built out of.
+ *
+ * That second half arrived later. This started as a reader for paths alone,
+ * beside a CSV export the user had to remember to re-generate by hand; the
+ * whole library now comes from here instead, which is why `readMetadata` exists
+ * and why the string tables are read rather than skipped.
  *
  * ## Why a read-only parser is cheap here
  *
@@ -12,10 +18,11 @@
  *
  *  1. **Everything is length-prefixed.** Groups and entries alike are written
  *     as `int32 length` followed by that many bytes, so a parser can read the
- *     two or three fields it cares about at the head of a blob and then skip to
- *     the next one by arithmetic. The ~90-field metadata tail of a song entry —
- *     every credit string, every link, the parts bitfields — is never touched.
- *     That is what makes this safe to write against a format nobody promised us.
+ *     fields it cares about at the head of a blob and then skip to the next one
+ *     by arithmetic. Roughly seventy fields of a song entry — every credit
+ *     string, every link, the venue hints, the per-part charter credits — are
+ *     never touched. That is what makes this safe to write against a format
+ *     nobody promised us.
  *
  *  2. **The encodings are plain .NET.** Little-endian scalars, strings as a
  *     7-bit-encoded (LEB128) length followed by UTF-8, and `HashWrapper` as its
@@ -26,7 +33,7 @@
  * ```
  *   int32   CACHE_VERSION
  *   bool    fullDirectoryPlaylists
- *   9 ×     string table          (int32 byteLength, then int32 count + strings)
+ *   9 ×     string table          ← read (int32 byteLength, int32 count, strings)
  *   array   update directories    ─┐
  *   array   unpacked upgrades      ├─ skipped wholesale by their length prefixes
  *   array   packed upgrades       ─┘
@@ -73,7 +80,17 @@ import type { ChartRef } from './types.js'
  * `Song/Entries/` between the two commits: the head of every entry — relative
  * path, format byte, timestamps, then the hash — is byte-identical, as are the
  * group order, the string-table count, and the CON group's `int32` type tag.
- * Everything that changed sits after the hash, which is where we stop reading.
+ *
+ * The read region has since grown past the hash to take in the metadata this
+ * app's song list is built from, so that diff was re-checked over the larger
+ * span and still holds: every serialization difference between the two versions
+ * lands at `VenueHint` or later — `26_07_23_00` inserted `VenueHint`,
+ * `VocalCharacterHint` and `VocalGender` after `Video.End`, and
+ * `CreditBackground` among the credits — while `readMetadata` stops at
+ * `SongRating`, four fields earlier. **That boundary is the invariant to check
+ * when adding a version, and it is a tighter one than before:** a change
+ * anywhere between the hash and `SongRating` now needs a reader per version,
+ * where once it would have gone unnoticed.
  *
  * | Version      | YARG commit                                            |
  * |--------------|--------------------------------------------------------|
@@ -98,6 +115,91 @@ const CON_TYPE_UNPACKED_PKG = 2
 
 /** `CacheReadStrings.NUM_CATEGORIES` — title, artist, album, …, source. */
 const STRING_TABLE_COUNT = 9
+
+/**
+ * `AvailableParts`, field by field, in declaration order.
+ *
+ * This array *is* the layout: the struct is 21 `PartValues` written as one
+ * `sizeof`'d blob, so position is the only thing identifying a part. Do not
+ * reorder it. Names are YARG's own rather than this app's instrument keys —
+ * `core/library.ts` does that mapping, and keeping the two vocabularies apart
+ * is what lets this file stay a literal reading of the format.
+ */
+const PART_NAMES = [
+  'bandDifficulty',
+  'fiveFretGuitar',
+  'fiveFretBass',
+  'fiveFretRhythm',
+  'fiveFretCoopGuitar',
+  'keys',
+  'sixFretGuitar',
+  'sixFretBass',
+  'sixFretRhythm',
+  'sixFretCoopGuitar',
+  'fourLaneDrums',
+  'proDrums',
+  'fiveLaneDrums',
+  'eliteDrums',
+  'proGuitar17',
+  'proGuitar22',
+  'proBass17',
+  'proBass22',
+  'proKeys',
+  'leadVocals',
+  'harmonyVocals',
+] as const
+
+export type PartName = (typeof PART_NAMES)[number]
+
+/**
+ * One `PartValues`: two bytes, and both are needed to read a difficulty.
+ *
+ * `[StructLayout(LayoutKind.Explicit)]` overlays `SubTracks` and the
+ * `DifficultyMask` at offset 0 — they are the same byte under two names — with
+ * `Intensity` as an `sbyte` at offset 1. A part is charted when `subTracks` is
+ * non-zero (YARG's `IsActive()`), and `intensity` is `-1` when untiered, which
+ * is a different fact from being absent.
+ */
+export interface PartValue {
+  subTracks: number
+  intensity: number
+}
+
+/**
+ * The song metadata this reader takes out of an entry.
+ *
+ * A deliberately partial view: these are the fields the library list needs,
+ * which all sit in the fixed-size run between the hash and `Preview.Start`.
+ * Everything past that point — previews, venue hints, links, credits, the
+ * per-part charter strings — is left in the file. See `readMetadata`.
+ */
+export interface CacheSongMeta {
+  name: string
+  artist: string
+  album: string
+  genre: string
+  subgenre: string
+  /** As authored, e.g. `1984 (remaster)`. YARG's `UnmodifiedYear`. */
+  year: string
+  charter: string
+  playlist: string
+  source: string
+
+  isMaster: boolean
+  /** `int.MaxValue` when unset, which is YARG's sentinel rather than a track. */
+  albumTrack: number
+  lengthMs: number
+  /** `SongRating`, as its raw enum ordinal. */
+  rating: number
+
+  parts: Record<PartName, PartValue>
+}
+
+/** A chart's location and its metadata, read in one pass over one entry. */
+export interface CacheSong {
+  ref: ChartRef
+  meta: CacheSongMeta
+}
 
 export class CacheFormatError extends Error {}
 
@@ -144,12 +246,28 @@ class Cursor {
     return this.u8() !== 0
   }
 
+  i8(): number {
+    return this.#buf.readInt8(this.#need(1))
+  }
+
   i32(): number {
     return this.#buf.readInt32LE(this.#need(4))
   }
 
   u32(): number {
     return this.#buf.readUInt32LE(this.#need(4))
+  }
+
+  /**
+   * An `int64`, narrowed to a JS number.
+   *
+   * Every one of these is a duration or an offset in milliseconds, so the
+   * values in play are billions at the very most — nowhere near the 2^53 where
+   * this would start losing integers. A cache that somehow held a bigger one
+   * would be describing a song a quarter of a million years long.
+   */
+  i64(): number {
+    return Number(this.#buf.readBigInt64LE(this.#need(8)))
   }
 
   skip(count: number): void {
@@ -253,13 +371,128 @@ function resolveRelative(base: string, relative: string): string | null {
 }
 
 /**
+ * The nine deduplicated string tables, in the order `CacheReadStrings` names
+ * them. Entries carry indices into these rather than their own copies of
+ * "Iron Maiden" four hundred times over.
+ */
+type StringTables = readonly string[][]
+
+/**
+ * Read the string-table block.
+ *
+ * Not a `CacheLoopable` despite looking like one — the count is
+ * `NUM_CATEGORIES`, a compile-time constant, so there is no count in the file
+ * and these are nine bare length-prefixed slices. Each slice then opens with
+ * its own `int32` count.
+ */
+function readStringTables(stream: Cursor): StringTables {
+  const tables: string[][] = []
+
+  for (let i = 0; i < STRING_TABLE_COUNT; i++) {
+    const table = stream.slice(stream.i32())
+    const count = table.i32()
+    if (count < 0) throw new CacheFormatError(`negative string count ${count} in table ${i}`)
+
+    const values: string[] = new Array<string>(count)
+    for (let j = 0; j < count; j++) values[j] = table.string()
+    tables.push(values)
+  }
+
+  return tables
+}
+
+/**
+ * An index into one of the tables, refused rather than defaulted when it misses.
+ *
+ * Same rule as every bounds check here: a stray index is evidence of being in
+ * the wrong place in the file, and an empty string in its place would hide that
+ * behind a library of blank titles.
+ */
+function pick(table: readonly string[], index: number, what: string): string {
+  const value = table[index]
+  if (value === undefined) {
+    throw new CacheFormatError(`${what} index ${index} is outside its table (${table.length})`)
+  }
+  return value
+}
+
+/**
+ * The metadata run at the head of every entry, whatever kind of entry it is.
+ *
+ * ## Why this is safe to read, when the ~90 fields after it are not
+ *
+ * The layout from the hash up to `SongRating` is fixed-size and has not moved
+ * between any cache version in `SUPPORTED_CACHE_VERSIONS`: a `sizeof`'d
+ * `AvailableParts`, nine string-table indices, two bools, four `int32`s, two
+ * `int64`s and a `uint32`. There is not a single variable-length field in it,
+ * so nothing here depends on correctly interpreting anything before it.
+ *
+ * The first string is `VenueHint`, immediately after `Video.End` — and that is
+ * exactly where the two supported versions diverge, since `26_07_23_00` added
+ * `VenueHint`, `VocalCharacterHint` and `VocalGender` there and a
+ * `CreditBackground` further on. So this stops at `SongRating`, four fields
+ * short of the difference, and the entry's own length prefix skips the rest.
+ *
+ * Reading further would mean a reader per cache version. Stopping here means
+ * one reader for both, and for every future version whose changes land in the
+ * tail — which, going by history, is most of them.
+ */
+function readMetadata(entry: Cursor, strings: StringTables): CacheSongMeta {
+  const parts = {} as Record<PartName, PartValue>
+  for (const part of PART_NAMES) {
+    // Order matters twice over: across the array, and within the pair.
+    const subTracks = entry.u8()
+    parts[part] = { subTracks, intensity: entry.i8() }
+  }
+
+  // Nine `int32` indices, in the order the tables were written.
+  const name = pick(strings[0]!, entry.i32(), 'title')
+  const artist = pick(strings[1]!, entry.i32(), 'artist')
+  const album = pick(strings[2]!, entry.i32(), 'album')
+  const genre = pick(strings[3]!, entry.i32(), 'genre')
+  const subgenre = pick(strings[4]!, entry.i32(), 'subgenre')
+  const year = pick(strings[5]!, entry.i32(), 'year')
+  const charter = pick(strings[6]!, entry.i32(), 'charter')
+  const playlist = pick(strings[7]!, entry.i32(), 'playlist')
+  const source = pick(strings[8]!, entry.i32(), 'source')
+
+  const isMaster = entry.bool()
+  entry.skip(1) // VideoLoop
+
+  const albumTrack = entry.i32()
+  entry.skip(4) // PlaylistTrack
+
+  const lengthMs = entry.i64()
+  entry.skip(8) // SongOffset
+
+  const rating = entry.u32()
+
+  return {
+    name,
+    artist,
+    album,
+    genre,
+    subgenre,
+    year,
+    charter,
+    playlist,
+    source,
+    isMaster,
+    albumTrack,
+    lengthMs,
+    rating,
+    parts,
+  }
+}
+
+/**
  * One ini group: a base directory, then unpacked charts and `.sng` containers.
  *
  * Both entry lists store paths *relative* to the group directory, which is why
  * the directory is read first and why a group is the unit the fallback scanner
  * also works in.
  */
-function readIniGroup(group: Cursor, into: ChartRef[]): void {
+function readIniGroup(group: Cursor, strings: StringTables, into: CacheSong[]): void {
   const directory = normalize(group.string())
 
   // Unpacked: string relativePath, byte chartFormat, int64 chartLastWrite,
@@ -270,7 +503,10 @@ function readIniGroup(group: Cursor, into: ChartRef[]): void {
     if (entry.bool()) entry.skip(8)
 
     const path = resolveRelative(directory, relative)
-    if (path !== null) into.push({ hash: entry.hash(), format: 'Ini', path })
+    if (path === null) continue
+
+    const hash = entry.hash()
+    into.push({ ref: { hash, format: 'Ini', path }, meta: readMetadata(entry, strings) })
   }
 
   // Packed: string relativePath, int64 lastWrite, uint32 sngVersion,
@@ -280,7 +516,10 @@ function readIniGroup(group: Cursor, into: ChartRef[]): void {
     entry.skip(8 + 4 + 1)
 
     const path = resolveRelative(directory, relative)
-    if (path !== null) into.push({ hash: entry.hash(), format: 'Sng', path })
+    if (path === null) continue
+
+    const hash = entry.hash()
+    into.push({ ref: { hash, format: 'Sng', path }, meta: readMetadata(entry, strings) })
   }
 }
 
@@ -292,7 +531,7 @@ function readIniGroup(group: Cursor, into: ChartRef[]): void {
  * package file; the two unpacked variants are directories laid out the same way
  * a package is internally, which YARG calls `ExCON`.
  */
-function readConGroup(group: Cursor, into: ChartRef[]): void {
+function readConGroup(group: Cursor, strings: StringTables, into: CacheSong[]): void {
   const root = normalize(group.string())
   group.skip(8) // AbridgedFileInfo.LastWriteTime
 
@@ -315,12 +554,16 @@ function readConGroup(group: Cursor, into: ChartRef[]): void {
     // The unpacked variants carry the loose `.mid`'s timestamp; packed does not.
     if (!packed) entry.skip(8)
 
-    into.push({ hash: entry.hash(), format, path: root, subName, dtaName })
+    const hash = entry.hash()
+    into.push({
+      ref: { hash, format, path: root, subName, dtaName },
+      meta: readMetadata(entry, strings),
+    })
   }
 }
 
 export interface CacheParseResult {
-  refs: ChartRef[]
+  songs: CacheSong[]
   /** The version stamp actually found, for the log line when it isn't ours. */
   version: number
 }
@@ -344,12 +587,10 @@ export function parseSongCache(data: Buffer): CacheParseResult {
 
   stream.skip(1) // fullDirectoryPlaylists
 
-  // The nine string tables. They are not a `CacheLoopable` — the count is a
-  // compile-time constant in YARG — but each is still length-prefixed, so the
-  // whole block is nine skips.
-  for (let i = 0; i < STRING_TABLE_COUNT; i++) {
-    stream.skip(stream.i32())
-  }
+  // Read rather than skipped, which is the one structural change this file has
+  // seen since it was only ever after paths: every entry's title, artist and
+  // album are indices into these.
+  const strings = readStringTables(stream)
 
   // Update directories, unpacked upgrades, packed upgrades. All three describe
   // RBCON patches, none of which changes where a chart lives.
@@ -357,11 +598,11 @@ export function parseSongCache(data: Buffer): CacheParseResult {
   stream.skipLoop()
   stream.skipLoop()
 
-  const refs: ChartRef[] = []
-  for (const group of stream.loop()) readIniGroup(group, refs)
-  for (const group of stream.loop()) readConGroup(group, refs)
+  const songs: CacheSong[] = []
+  for (const group of stream.loop()) readIniGroup(group, strings, songs)
+  for (const group of stream.loop()) readConGroup(group, strings, songs)
 
-  return { refs, version }
+  return { songs, version }
 }
 
 /** Read and parse a cache file. Rejects with `CacheFormatError` on a bad one. */

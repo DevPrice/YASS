@@ -75,11 +75,7 @@ async function main(): Promise<void> {
     // from, so make the file easy to find rather than sending the user looking.
     console.log(`\n  Settings file : ${settingsFilePath()}`)
     console.log(`  YARG data dir : ${settings.yargDataDir}${status.yargDataDirExists ? '' : '  [not found]'}`)
-    console.log(
-      `  Song list     : ${settings.songListCsvPath || '(not configured)'}${
-        settings.songListCsvPath && !status.songListCsvExists ? '  [not found]' : ''
-      }`,
-    )
+    console.log(`  Song cache    : ${status.songCacheExists ? 'found' : 'not found'}`)
     console.log(`  Songs loaded  : ${state.library.meta.count}`)
 
     for (const warning of state.library.meta.warnings) {

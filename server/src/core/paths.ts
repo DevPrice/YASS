@@ -73,3 +73,15 @@ export function managedBinDir(): string {
 export function currentSongJsonPath(yargDataDir: string): string {
   return join(yargDataDir, 'currentSong.json')
 }
+
+/**
+ * YARG's own song index, rewritten on every scan.
+ *
+ * The single most load-bearing path in the app: the song list is built from
+ * this file, and so is the map from a song to its files on disk. Named here
+ * with the other YARG paths rather than in `media/`, because it stopped being a
+ * media-only concern when the library started coming out of it too.
+ */
+export function songCachePath(yargDataDir: string): string {
+  return join(yargDataDir, 'songcache.bin')
+}

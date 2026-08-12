@@ -7,32 +7,35 @@
  */
 
 /**
- * The instruments carried by YARG's CSV export, in export column order.
+ * The instruments the app knows about, in the order they are shown.
  *
- * Keys are ours; `csvHeader` is the exact column name YARG writes, which is how
- * the loader matches them (position is not relied on).
+ * Keys and labels are ours; `part` is the field name in YARG's `AvailableParts`
+ * struct, which is where the difficulties are read from. The loader matches on
+ * that name rather than on position — `server/src/media/cache.ts` is the file
+ * that turns the struct's fixed field order into these names, and this is the
+ * one place that has to agree with it.
  */
 export const INSTRUMENTS = [
-  { key: 'guitar5', label: 'Guitar', csvHeader: 'Guitar (5-Fret) Difficulty', group: 'guitar' },
-  { key: 'bass5', label: 'Bass', csvHeader: 'Bass (5-Fret) Difficulty', group: 'bass' },
-  { key: 'rhythm5', label: 'Rhythm', csvHeader: 'Rhythm (5-Fret) Difficulty', group: 'guitar' },
-  { key: 'coop5', label: 'Co-op', csvHeader: 'Co-op (5-Fret) Difficulty', group: 'guitar' },
-  { key: 'keys', label: 'Keys', csvHeader: 'Keys Difficulty', group: 'keys' },
-  { key: 'guitar6', label: 'Guitar (6)', csvHeader: 'Guitar (6-Fret) Difficulty', group: 'guitar' },
-  { key: 'bass6', label: 'Bass (6)', csvHeader: 'Bass (6-Fret) Difficulty', group: 'bass' },
-  { key: 'rhythm6', label: 'Rhythm (6)', csvHeader: 'Rhythm (6-Fret) Difficulty', group: 'guitar' },
-  { key: 'coop6', label: 'Co-op (6)', csvHeader: 'Co-op (6-Fret) Difficulty', group: 'guitar' },
-  { key: 'drums4', label: 'Drums', csvHeader: 'Drums (4-Lane) Difficulty', group: 'drums' },
-  { key: 'proDrums', label: 'Pro Drums', csvHeader: 'Pro Drums Difficulty', group: 'drums' },
-  { key: 'drums5', label: 'Drums (5)', csvHeader: 'Drums (5-Lane) Difficulty', group: 'drums' },
-  { key: 'eliteDrums', label: 'Elite Drums', csvHeader: 'Elite Drums Difficulty', group: 'drums' },
-  { key: 'proGuitar17', label: 'Pro Guitar', csvHeader: 'Pro Guitar (17-Fret) Difficulty', group: 'guitar' },
-  { key: 'proGuitar22', label: 'Pro Guitar (22)', csvHeader: 'Pro Guitar (22-Fret) Difficulty', group: 'guitar' },
-  { key: 'proBass17', label: 'Pro Bass', csvHeader: 'Pro Bass (17-Fret) Difficulty', group: 'bass' },
-  { key: 'proBass22', label: 'Pro Bass (22)', csvHeader: 'Pro Bass (22-Fret) Difficulty', group: 'bass' },
-  { key: 'proKeys', label: 'Pro Keys', csvHeader: 'Pro Keys Difficulty', group: 'keys' },
-  { key: 'vocals', label: 'Vocals', csvHeader: 'Vocals Difficulty', group: 'vocals' },
-  { key: 'harmony', label: 'Harmony', csvHeader: 'Harmony Difficulty', group: 'vocals' },
+  { key: 'guitar5', label: 'Guitar', part: 'fiveFretGuitar', group: 'guitar' },
+  { key: 'bass5', label: 'Bass', part: 'fiveFretBass', group: 'bass' },
+  { key: 'rhythm5', label: 'Rhythm', part: 'fiveFretRhythm', group: 'guitar' },
+  { key: 'coop5', label: 'Co-op', part: 'fiveFretCoopGuitar', group: 'guitar' },
+  { key: 'keys', label: 'Keys', part: 'keys', group: 'keys' },
+  { key: 'guitar6', label: 'Guitar (6)', part: 'sixFretGuitar', group: 'guitar' },
+  { key: 'bass6', label: 'Bass (6)', part: 'sixFretBass', group: 'bass' },
+  { key: 'rhythm6', label: 'Rhythm (6)', part: 'sixFretRhythm', group: 'guitar' },
+  { key: 'coop6', label: 'Co-op (6)', part: 'sixFretCoopGuitar', group: 'guitar' },
+  { key: 'drums4', label: 'Drums', part: 'fourLaneDrums', group: 'drums' },
+  { key: 'proDrums', label: 'Pro Drums', part: 'proDrums', group: 'drums' },
+  { key: 'drums5', label: 'Drums (5)', part: 'fiveLaneDrums', group: 'drums' },
+  { key: 'eliteDrums', label: 'Elite Drums', part: 'eliteDrums', group: 'drums' },
+  { key: 'proGuitar17', label: 'Pro Guitar', part: 'proGuitar17', group: 'guitar' },
+  { key: 'proGuitar22', label: 'Pro Guitar (22)', part: 'proGuitar22', group: 'guitar' },
+  { key: 'proBass17', label: 'Pro Bass', part: 'proBass17', group: 'bass' },
+  { key: 'proBass22', label: 'Pro Bass (22)', part: 'proBass22', group: 'bass' },
+  { key: 'proKeys', label: 'Pro Keys', part: 'proKeys', group: 'keys' },
+  { key: 'vocals', label: 'Vocals', part: 'leadVocals', group: 'vocals' },
+  { key: 'harmony', label: 'Harmony', part: 'harmonyVocals', group: 'vocals' },
 ] as const
 
 export type InstrumentKey = (typeof INSTRUMENTS)[number]['key']
@@ -80,6 +83,16 @@ export interface Song {
   /** Song length in seconds, or null when the source omitted it. */
   lengthSeconds: number | null
 
+  /**
+   * Position on its album, or null when the chart never said.
+   *
+   * Carried for sorting and nothing else — no view renders it. It is what puts
+   * an album's songs in running order under the artist sort instead of
+   * alphabetical order, which is the one place the list is read as a body of
+   * work rather than an index. See `compareWithinArtist` in the client.
+   */
+  albumTrack: number | null
+
   isMaster: boolean
   /** Display string: `No Rating`, `Family Friendly`, `Mature`, … */
   ageRating: string
@@ -101,9 +114,9 @@ export interface Song {
    * this hash, or the media pipeline is unavailable, and the client should draw
    * what it drew before any of this existed.
    *
-   * The CSV carries no paths, so these are set server-side from the chart index
-   * (`server/src/media/`) after the library loads. Filesystem paths themselves
-   * never cross the wire — every media URL is keyed by hash.
+   * Set server-side from the chart index (`server/src/media/`) after the
+   * library loads, rather than carried on the song: the paths themselves never
+   * cross the wire, and every media URL is keyed by hash.
    */
   hasArt: boolean
   hasPreview: boolean
@@ -152,9 +165,15 @@ export interface LanAddress {
 }
 
 export interface LibraryMeta {
-  /** `csv` today; `yarg-index` once YARG publishes its own index. */
-  source: 'csv' | 'yarg-index' | 'none'
-  /** Epoch ms of the source file's mtime — the staleness signal. */
+  /** `cache` when `songcache.bin` was read; `none` when it could not be. */
+  source: 'cache' | 'none'
+  /**
+   * Epoch ms of `songcache.bin`'s mtime — i.e. when YARG last rescanned.
+   *
+   * This used to be a staleness signal, back when the library came from an
+   * export the user had to remember to re-generate. It is now simply the age of
+   * the game's own index, which the app follows automatically.
+   */
   generatedAt: number | null
   count: number
   /** Non-fatal problems from the last load (bad rows, missing columns). */
@@ -206,8 +225,6 @@ export interface Settings {
    * `-persistent-data-path`, so this must stay user-configurable.
    */
   yargDataDir: string
-  /** Path to the CSV export produced by YARG's Settings → Export Songs List. */
-  songListCsvPath: string
   /** How often to re-read `currentSong.json`, in ms. */
   pollIntervalMs: number
   /** Bind address. `0.0.0.0` exposes on the LAN; `127.0.0.1` keeps it local. */
@@ -265,7 +282,6 @@ export interface MediaSummary {
  */
 export const ENV_VARS: Record<keyof Settings, string> = {
   yargDataDir: 'YASS_YARG_DATA_DIR',
-  songListCsvPath: 'YASS_SONG_LIST_CSV',
   pollIntervalMs: 'YASS_POLL_INTERVAL_MS',
   host: 'YASS_HOST',
   port: 'YASS_PORT',
@@ -285,7 +301,8 @@ export interface SettingsView {
   status: {
     yargDataDirExists: boolean
     currentSongJsonExists: boolean
-    songListCsvExists: boolean
+    /** The game's song index. Without it there is no song list at all. */
+    songCacheExists: boolean
   }
 }
 

@@ -416,23 +416,23 @@ function health(state: DesktopState): Health {
 }
 
 /**
- * How old the export is, in the units somebody would say out loud.
+ * How long ago YARG last scanned, in the units somebody would say out loud.
  *
- * The server watches the CSV, so the file being current is never in doubt — but
- * nothing watches YARG, and the list is exported by hand. "You installed songs
- * and last exported three weeks ago" is the single most likely reason a host is
- * looking at this window at all.
+ * The list follows the game's own index now, so it can no longer be out of date
+ * with respect to YARG — but YARG itself can be out of date with respect to the
+ * disk. "You copied songs in and last scanned three weeks ago" is the remaining
+ * version of the single most likely reason a host is looking at this window.
  */
-function exportedAgo(at: number | null): { text: string; stale: boolean } | null {
+function scannedAgo(at: number | null): { text: string; stale: boolean } | null {
   if (at === null) return null
 
   const days = Math.floor((Date.now() - at) / 86_400_000)
   if (days < 2) return null
 
   const stale = days >= 21
-  if (days < 14) return { text: `exported ${days} days ago`, stale }
-  if (days < 60) return { text: `exported ${Math.round(days / 7)} weeks ago`, stale }
-  return { text: `exported ${Math.round(days / 30)} months ago`, stale }
+  if (days < 14) return { text: `scanned ${days} days ago`, stale }
+  if (days < 60) return { text: `scanned ${Math.round(days / 7)} weeks ago`, stale }
+  return { text: `scanned ${Math.round(days / 30)} months ago`, stale }
 }
 
 /**
@@ -531,18 +531,16 @@ function StatusBlock({
   busy,
   onRestart,
   onTryPort,
-  onChooseExport,
 }: {
   state: DesktopState
   busy: boolean
   onRestart: () => void
   onTryPort: (port: number) => void
-  onChooseExport: () => void
 }) {
   const songs = state.songs
   const kind = health(state)
   const status = headline(state, kind)
-  const age = exportedAgo(songs?.generatedAt ?? null)
+  const age = scannedAgo(songs?.generatedAt ?? null)
 
   /*
    * The remedy is offered only for the failure it actually remedies. A port one
@@ -592,18 +590,17 @@ function StatusBlock({
         </div>
       ) : null}
 
+      {/*
+       * No button here any more, and that is the point: there is nothing left
+       * to configure. The list comes from the index YARG writes when it scans,
+       * so an empty library means the game has not scanned yet — which is a
+       * thing only YARG can do.
+       */}
       {kind === 'empty' ? (
-        <>
-          <p className="mt-2 text-body text-content-muted">
-            YARG writes the list from Settings → Export Songs List. Point YASS at it and the
-            guests get a library.
-          </p>
-          <div className="mt-2.5">
-            <Button tone="accent" disabled={busy} onClick={onChooseExport}>
-              choose the export…
-            </Button>
-          </div>
-        </>
+        <p className="mt-2 text-body text-content-muted">
+          Run a song scan in YARG — Settings → Songs → Refresh — and the list appears here on its
+          own.
+        </p>
       ) : null}
 
       {kind === 'ready' && songs ? (
@@ -812,20 +809,12 @@ function App() {
       return window.yass.restartServer()
     })
 
-  /** The remedy for an empty library: the picker, straight from the card. */
-  const chooseExport = () =>
-    run(async () => {
-      const picked = await window.yass.pickFile(settings.songListCsvPath)
-      if (!picked) return
-      setDraft({})
-      return (await window.yass.saveSettings({ songListCsvPath: picked })).state
-    })
-
   const pending = bindingPending(state, draft)
 
   // Opened for you when a path is wrong, because that is the one time the
-  // settings are the reason you came.
-  const needsAttention = !status.yargDataDirExists || !status.songListCsvExists
+  // settings are the reason you came. A missing song cache counts: it is the
+  // data directory being wrong, seen from the one file that matters most.
+  const needsAttention = !status.yargDataDirExists || !status.songCacheExists
 
   return (
     <div className="flex h-full flex-col bg-surface text-content">
@@ -839,7 +828,6 @@ function App() {
           busy={busy}
           onRestart={() => void run(() => window.yass.restartServer())}
           onTryPort={(port) => void tryPort(port)}
-          onChooseExport={() => void chooseExport()}
         />
 
         {failure ? (
@@ -877,16 +865,30 @@ function App() {
           <Field
             label="YARG data folder"
             env={envVar('yargDataDir')}
+            /*
+             * Two files, reported separately, because they fail separately and
+             * cost different things. No `songcache.bin` is an empty app; no
+             * `currentSong.json` is an app that works apart from the banner.
+             * One combined verdict would let the larger failure hide behind the
+             * smaller one.
+             */
             hint={
-              <PathStatus
-                ok={status.currentSongJsonExists}
-                found="currentSong.json found"
-                missing={
-                  status.yargDataDirExists
-                    ? 'no currentSong.json yet — YARG writes it when it plays'
-                    : 'folder not found'
-                }
-              />
+              status.yargDataDirExists ? (
+                <span className="flex flex-col gap-0.5">
+                  <PathStatus
+                    ok={status.songCacheExists}
+                    found="songcache.bin found — this is the song list"
+                    missing="no songcache.bin — run a song scan in YARG"
+                  />
+                  <PathStatus
+                    ok={status.currentSongJsonExists}
+                    found="currentSong.json found"
+                    missing="no currentSong.json yet — YARG writes it when it plays"
+                  />
+                </span>
+              ) : (
+                <PathStatus ok={false} found="" missing="folder not found" />
+              )
             }
           >
             {(control) => (
@@ -909,47 +911,6 @@ function App() {
                       .then((picked) => {
                         // Cancel returns null and must leave the field alone.
                         if (picked) edit({ yargDataDir: picked })
-                      })
-                      .catch(report)
-                  }
-                >
-                  browse
-                </Button>
-              </div>
-            )}
-          </Field>
-
-          <Field
-            label="Song list export"
-            env={envVar('songListCsvPath')}
-            hint={
-              settings.songListCsvPath ? (
-                <PathStatus ok={status.songListCsvExists} found="found" missing="file not found" />
-              ) : (
-                "YARG writes this from Settings → Export Songs List. Without it there's no song list."
-              )
-            }
-          >
-            {(control) => (
-              <div className="flex gap-2">
-                <input
-                  {...control}
-                  className={FIELD_CLASS}
-                  value={settings.songListCsvPath}
-                  spellCheck={false}
-                  placeholder="not configured"
-                  readOnly={locked('songListCsvPath')}
-                  onChange={(event) => edit({ songListCsvPath: event.target.value })}
-                />
-                <Button
-                  className="shrink-0"
-                  aria-label="Browse for the song list export"
-                  disabled={locked('songListCsvPath')}
-                  onClick={() =>
-                    void window.yass
-                      .pickFile(settings.songListCsvPath)
-                      .then((picked) => {
-                        if (picked) edit({ songListCsvPath: picked })
                       })
                       .catch(report)
                   }

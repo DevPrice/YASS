@@ -8,11 +8,12 @@
 
 import type { LibraryMeta, Settings, SettingsView, SongLibrary } from '@shared/types.js'
 import { FileWatcher } from './core/fileWatcher.js'
-import { emptyLibrary, loadLibraryFromCsv } from './core/library.js'
+import { emptyLibrary, loadLibraryFromCache } from './core/library.js'
 import { NowPlayingWatcher } from './core/nowPlaying.js'
 import { VenueStream } from './core/venueStream.js'
 import { fetchFfmpeg } from './media/ffmpeg.js'
-import { buildChartIndex, songCachePath, ChartIndex, type ChartIndexMeta } from './media/index.js'
+import { songCachePath } from './core/paths.js'
+import { buildChartIndex, ChartIndex, type ChartIndexMeta } from './media/index.js'
 import { MediaService } from './media/service.js'
 import {
   applyEnvOverrides,
@@ -38,7 +39,6 @@ export class AppState {
   /** hash → song id, for joining now-playing to the library. */
   #byHash = new Map<string, string>()
   #watcher: NowPlayingWatcher
-  #csvWatcher: FileWatcher
   /**
    * hash → the chart's location on disk, which is what makes album art and
    * previews possible for songs other than the one YARG is playing.
@@ -47,7 +47,11 @@ export class AppState {
    * to a client: it holds absolute paths. See `media/types.ts`.
    */
   #charts = new ChartIndex()
-  #chartWatcher: FileWatcher
+  /**
+   * One watcher over `songcache.bin`, because it is now one file answering both
+   * questions — what the songs are, and where their files are.
+   */
+  #cacheWatcher: FileWatcher
   /** Serialises index rebuilds so a burst of events can't start three. */
   #indexing: Promise<ChartIndexMeta> | null = null
   /** Art and preview generation, caching and concurrency. */
@@ -74,21 +78,15 @@ export class AppState {
       resolveLibraryId: (hash) => (hash ? (this.#byHash.get(hash) ?? null) : null),
     })
 
-    this.#csvWatcher = new FileWatcher({
-      getPath: () => this.#effective.songListCsvPath,
-      onChange: async () => {
-        await this.reloadLibrary()
-      },
-      onError: (error) => {
-        console.error('[yass] song list watch:', error)
-      },
-    })
-
     // YARG rewrites its cache whenever it rescans, which is exactly when songs
-    // gain or lose the files this index points at.
-    this.#chartWatcher = new FileWatcher({
+    // appear, vanish, or gain the files the chart index points at. The list is
+    // reloaded first and the index rebuilt behind it: the first is a parse of a
+    // file already in the page cache, the second can fall through to a disk
+    // walk, and there is no reason for the song list to wait on that.
+    this.#cacheWatcher = new FileWatcher({
       getPath: () => songCachePath(this.#effective.yargDataDir),
       onChange: async () => {
+        await this.reloadLibrary()
         await this.rebuildChartIndex()
       },
       onError: (error) => {
@@ -101,8 +99,7 @@ export class AppState {
     const state = new AppState(await loadStoredSettings())
     await state.reloadLibrary()
     state.#watcher.start()
-    await state.#csvWatcher.start()
-    await state.#chartWatcher.start()
+    await state.#cacheWatcher.start()
     state.#venue.start()
 
     /*
@@ -151,8 +148,8 @@ export class AppState {
         this.#decorateLibrary()
         this.#publishLibrary()
 
-        // Thumbnails for whatever the CSV actually lists, rather than for every
-        // chart on disk: the list is what anybody can see.
+        // Thumbnails for whatever the song list actually holds, rather than for
+        // every chart on disk: the list is what anybody can see.
         void this.#media.precomputeArt(
           this.#library.songs
             .map((song) => song.hash)
@@ -232,7 +229,7 @@ export class AppState {
 
   /** Re-read the song list from disk and rebuild the hash join index. */
   async reloadLibrary(): Promise<SongLibrary> {
-    this.#library = await loadLibraryFromCsv(this.#effective.songListCsvPath)
+    this.#library = await loadLibraryFromCache(this.#effective.yargDataDir)
 
     this.#byHash = new Map()
     for (const song of this.#library.songs) {
@@ -245,9 +242,9 @@ export class AppState {
 
     this.#decorateLibrary()
 
-    // The CSV is the only place a song's length is known without opening its
-    // audio, and the preview window needs one for songs whose audio can't be
-    // probed cheaply.
+    // The song list is the only place a song's length is known without opening
+    // its audio, and the preview window needs one for songs whose audio can't
+    // be probed cheaply.
     this.#media.setSongLengths(
       this.#library.songs
         .filter((song): song is typeof song & { hash: string } => song.hash !== null)
@@ -333,22 +330,18 @@ export class AppState {
    * `host` and `port` changes are stored but need a restart to bind.
    */
   async updateSettings(patch: Partial<Settings>): Promise<SettingsView> {
-    const previousCsvPath = this.#effective.songListCsvPath
     const previousDataDir = this.#effective.yargDataDir
 
     this.#stored = await saveStoredSettings({ ...this.#stored, ...patch })
     this.#effective = applyEnvOverrides(this.#stored)
 
-    if (this.#effective.songListCsvPath !== previousCsvPath) {
-      await this.reloadLibrary()
-      // Follow the file — the old directory is no longer interesting.
-      await this.#csvWatcher.start()
-    }
-
     // A new data directory is a different YARG install, and so a different
-    // `songcache.bin` describing a different library.
+    // `songcache.bin` — a different song list and a different set of files
+    // behind it.
     if (this.#effective.yargDataDir !== previousDataDir) {
-      await this.#chartWatcher.start()
+      await this.reloadLibrary()
+      // Follow the file; the old directory is no longer interesting.
+      await this.#cacheWatcher.start()
       void this.rebuildChartIndex(true)
     }
 
@@ -362,8 +355,7 @@ export class AppState {
 
   stop(): void {
     this.#watcher.stop()
-    this.#csvWatcher.stop()
-    this.#chartWatcher.stop()
+    this.#cacheWatcher.stop()
     this.#media.stopPrecompute()
     this.#venue.stop()
   }

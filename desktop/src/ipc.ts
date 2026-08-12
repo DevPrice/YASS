@@ -82,7 +82,6 @@ export const CHANNELS = {
   getState: 'yass:get-state',
   saveSettings: 'yass:save-settings',
   pickDirectory: 'yass:pick-directory',
-  pickFile: 'yass:pick-file',
   restartServer: 'yass:restart-server',
   fetchFfmpeg: 'yass:fetch-ffmpeg',
   rebuildMediaIndex: 'yass:rebuild-media-index',
@@ -100,7 +99,6 @@ export interface DesktopApi {
   saveSettings(patch: Partial<Settings>): Promise<SaveOutcome>
   /** Absolute path, or null if the picker was cancelled. */
   pickDirectory(current: string): Promise<string | null>
-  pickFile(current: string): Promise<string | null>
   restartServer(): Promise<DesktopState>
   /**
    * Download ffmpeg, which album art and previews need.

@@ -2,7 +2,6 @@
  * The pass that reads a real library. Opt-in, and skipped by default.
  *
  * ```
- *   YASS_MEDIA_FIXTURE_CSV=D:\music\yarg_songs\songs.csv \
  *   YASS_MEDIA_FIXTURE_YARG_DIR=%LOCALAPPDATA%\..\LocalLow\YARC\YARG\release \
  *   npm test --workspace=server
  * ```
@@ -13,11 +12,12 @@
  * machine that has them, the test is skipped everywhere else, and the unit
  * vectors in `media.test.ts` carry the parts that can be pinned.
  *
- * The assertion that matters is the join: every hash in the CSV export must
- * resolve to a chart on disk. That is the one claim the whole feature rests
- * on — album art and previews are downstream of it, and if it silently
- * degraded, the symptom would be songs quietly losing their covers rather than
- * anything failing.
+ * Two claims are being made here, and both fail quietly rather than loudly if
+ * they break. The first is the join: every song must resolve to a chart on
+ * disk, because album art and previews are downstream of it and the symptom of
+ * losing it is covers going dark, not an error. The second arrived when the
+ * song list moved into this same file — that the metadata read back out of it
+ * is really the metadata, and not a plausible-looking misalignment.
  */
 
 import assert from 'node:assert/strict'
@@ -25,18 +25,17 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { loadLibraryFromCsv } from '../core/library.js'
+import { loadLibraryFromCache } from '../core/library.js'
 import { readSongCache } from './cache.js'
 import { openConPackage, findConListing, isContiguous } from './stfs.js'
 import { decodeDxt, expectedPayloadBytes, readDxtHeader } from './dxt.js'
 import { parseDta, findSongNode, readSongAudio } from './dta.js'
-import { songCachePath } from './index.js'
+import { songCachePath } from '../core/paths.js'
 import { findListing, openSngPackage } from './sng.js'
 import { extractArt } from './art.js'
 import type { ChartRef } from './types.js'
 
 const YARG_DIR = process.env.YASS_MEDIA_FIXTURE_YARG_DIR
-const CSV = process.env.YASS_MEDIA_FIXTURE_CSV
 
 /** Only run when pointed at a real install. */
 const available = Boolean(YARG_DIR) && existsSync(songCachePath(YARG_DIR ?? ''))
@@ -52,7 +51,7 @@ const sha1 = (bytes: Buffer): string => createHash('sha1').update(bytes).digest(
 let cached: ChartRef[] | null = null
 
 async function refs(): Promise<ChartRef[]> {
-  cached ??= (await readSongCache(songCachePath(YARG_DIR!))).refs
+  cached ??= (await readSongCache(songCachePath(YARG_DIR!))).songs.map((song) => song.ref)
   return cached
 }
 
@@ -73,38 +72,69 @@ describe('songcache.bin against a real library', options, () => {
     }
   })
 
-  it('resolves every song in the CSV export', async (t) => {
-    if (!CSV || !existsSync(CSV)) {
-      t.skip('set YASS_MEDIA_FIXTURE_CSV to the exported song list')
-      return
-    }
+  /*
+   * The song list and the chart index now come out of the same parse, so this
+   * can no longer be the cross-check between two sources it once was — it is a
+   * check that the metadata half of that parse produces a usable library rather
+   * than 4,000 rows of plausible-looking garbage. A misread by even one byte
+   * moves every field after it, so "every song has a title and a sane length"
+   * is a much stronger assertion here than it looks.
+   */
+  it('builds a library every song of which is coherent', async () => {
+    const library = await loadLibraryFromCache(YARG_DIR!)
+
+    assert.deepEqual(library.meta.warnings, [])
+    assert.equal(library.meta.source, 'cache')
+    assert.ok(library.songs.length > 0, 'the cache loaded no songs')
 
     const index = new Map((await refs()).map((ref) => [ref.hash, ref]))
-    const library = await loadLibraryFromCsv(CSV)
-
-    assert.ok(library.songs.length > 0, 'the CSV loaded no songs')
-
-    const missing: string[] = []
-    const mismatched: string[] = []
+    const problems: string[] = []
 
     for (const song of library.songs) {
-      if (song.hash === null) continue
+      const where = `${song.artist} - ${song.name}`
 
-      const ref = index.get(song.hash)
-      if (ref === undefined) {
-        missing.push(`${song.artist} - ${song.name} [${song.format}]`)
-        continue
+      if (!song.name && !song.artist) problems.push('a song has neither title nor artist')
+      // Rich text survives into the cache; the CSV used to strip it upstream.
+      if (/<\/?(?:color|i|b|size)[=>]/i.test(song.name)) {
+        problems.push(`${where}: rich text left in the title`)
       }
-
-      // The CSV's `Format` column and the cache's group type are two
-      // independent statements about the same chart; they must agree.
-      if (ref.format !== song.format) {
-        mismatched.push(`${song.name}: CSV says ${song.format}, cache says ${ref.format}`)
+      // Twelve hours is not a song; a misaligned read is what produces one.
+      if (song.lengthSeconds !== null && (song.lengthSeconds < 0 || song.lengthSeconds > 43_200)) {
+        problems.push(`${where}: implausible length ${song.lengthSeconds}s`)
+      }
+      if (song.yearNumber !== null && (song.yearNumber < 1900 || song.yearNumber > 2100)) {
+        problems.push(`${where}: implausible year ${song.yearNumber}`)
+      }
+      if (song.albumTrack !== null && (song.albumTrack < 1 || song.albumTrack > 100_000)) {
+        problems.push(`${where}: implausible track ${song.albumTrack}`)
+      }
+      if (song.vocalParts < 0 || song.vocalParts > 3) {
+        problems.push(`${where}: ${song.vocalParts} vocal parts`)
+      }
+      for (const [key, tier] of Object.entries(song.difficulties)) {
+        if (tier !== null && (tier < 0 || tier > 10)) {
+          problems.push(`${where}: ${key} difficulty ${tier}`)
+        }
+      }
+      // Every song in the list came from an entry that also produced a ref.
+      if (song.hash === null || !index.has(song.hash)) {
+        problems.push(`${where}: no chart ref for its own hash`)
       }
     }
 
-    assert.deepEqual(missing, [], `${missing.length} songs did not resolve to a chart`)
-    assert.deepEqual(mismatched, [], 'CSV and cache disagree about a chart format')
+    assert.deepEqual(problems.slice(0, 10), [], `${problems.length} songs came out malformed`)
+  })
+
+  it('agrees with the chart index on how many songs there are', async () => {
+    const library = await loadLibraryFromCache(YARG_DIR!)
+    const all = await refs()
+
+    // Not equality: duplicate charts share a hash, so the index dedupes where
+    // the list keeps both. The list can only ever be the larger of the two.
+    assert.ok(
+      library.songs.length >= new Set(all.map((ref) => ref.hash)).size,
+      'the song list has fewer songs than there are distinct charts',
+    )
   })
 })
 

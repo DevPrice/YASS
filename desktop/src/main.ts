@@ -11,7 +11,7 @@
 
 import { app, clipboard, dialog, ipcMain, shell, type Tray } from 'electron'
 import { mkdir } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import type { ServerStatus, Settings } from '@shared/types.js'
 import { lanAddresses } from '@server/core/net.js'
@@ -184,25 +184,6 @@ function registerIpc(): void {
 
       // Cancel returns null, and the caller must leave the field alone — never
       // read a cancelled picker as "clear this setting".
-      return result.canceled ? null : (result.filePaths[0] ?? null)
-    }),
-  )
-
-  ipcMain.handle(CHANNELS.pickFile, (_event, current: string) =>
-    withDialog(async () => {
-      const window = popoverWindow()
-      if (!window) return null
-
-      const result = await dialog.showOpenDialog(window, {
-        title: 'Select the song list export',
-        defaultPath: current ? dirname(current) : undefined,
-        filters: [
-          { name: 'Song list export', extensions: ['csv'] },
-          { name: 'All files', extensions: ['*'] },
-        ],
-        properties: ['openFile'],
-      })
-
       return result.canceled ? null : (result.filePaths[0] ?? null)
     }),
   )

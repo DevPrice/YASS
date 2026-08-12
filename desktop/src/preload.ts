@@ -26,8 +26,6 @@ const api: DesktopApi = {
     ipcRenderer.invoke(CHANNELS.saveSettings, patch) as Promise<SaveOutcome>,
   pickDirectory: (current: string) =>
     ipcRenderer.invoke(CHANNELS.pickDirectory, current) as Promise<string | null>,
-  pickFile: (current: string) =>
-    ipcRenderer.invoke(CHANNELS.pickFile, current) as Promise<string | null>,
   restartServer: () => ipcRenderer.invoke(CHANNELS.restartServer) as Promise<DesktopState>,
   fetchFfmpeg: () => ipcRenderer.invoke(CHANNELS.fetchFfmpeg) as Promise<DesktopState>,
   rebuildMediaIndex: () =>

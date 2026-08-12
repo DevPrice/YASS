@@ -115,7 +115,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
     /*
      * Cheap revalidation, keyed on everything that can change the payload.
      *
-     * The CSV's own identity is not enough. `hasArt` and `hasPreview` are
+     * The song cache's own identity is not enough. `hasArt` and `hasPreview` are
      * stamped onto each song from the chart index, which is built *after* the
      * library loads and rebuilt whenever YARG rescans — so a browser that
      * fetched the list during the second before the index landed would
@@ -138,7 +138,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
   })
 
   /**
-   * Force a re-read of the CSV.
+   * Force a re-read of the song cache.
    *
    * Host-only. The server watches the file and reloads on its own, so this is
    * a manual override for the host and the tray process — not something a
@@ -182,7 +182,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
    * discriminator:
    *
    *   `now-playing`  full NowPlaying state, on every change
-   *   `library`      just the metadata, when the CSV is re-exported; the
+   *   `library`      just the metadata, when YARG rescans; the
    *                  client refetches `/api/songs` conditionally
    *   `venue`        YARG's stage lighting, at most twice a second
    *   `reload`       the host, via the tray, asking this page to reload

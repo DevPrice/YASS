@@ -431,15 +431,14 @@ function compareStrings(a: string, b: string, direction: SortDirection): number 
  * Alphabetical-by-title was the wrong shape for the one place the list is read
  * as a body of work. Somebody scrolling to an artist is looking at what that
  * artist made, and the order that answers it is the order they made it in —
- * early records first, an album's songs together rather than scattered through
- * the alphabet by their opening letter.
+ * early records first, an album's songs together and in running order rather
+ * than scattered through the alphabet by their opening letter.
  *
- * **Track number belongs in this chain and is not in the data.** The CSV export
- * has no column for it — `shared/types.ts` carries `albumTrack` only on
- * `NowPlayingSong`, which YARG writes one song at a time into
- * `currentSong.json`. So an album's songs land in title order rather than
- * running order, and the step slots in here without reshuffling anything else
- * if a future export ever carries it.
+ * Track number is the step that finishes that thought, and it arrived with the
+ * song list moving off YARG's CSV export — which had no column for it — and
+ * onto `songcache.bin`, which stores it per song. It sits below album on
+ * purpose: it only means anything among songs already known to share a record,
+ * and `4` from one album has nothing to say about `4` from another.
  *
  * Always ascending, whichever way the artist column points, for the same reason
  * every other tiebreak here is: flipping the direction should reverse the
@@ -455,6 +454,11 @@ function compareWithinArtist(a: Song, b: Song): number {
 
   const byAlbum = compareStrings(sortTextFor(a).album, sortTextFor(b).album, 'asc')
   if (byAlbum !== 0) return byAlbum
+
+  // Untracked songs sort after the numbered ones — the same "unknown last" rule
+  // the rest of the file uses, and the reason this can't just subtract.
+  const byTrack = compareNullableNumbers(a.albumTrack, b.albumTrack, 'asc')
+  if (byTrack !== 0) return byTrack
 
   return collator.compare(sortTextFor(a).name, sortTextFor(b).name)
 }

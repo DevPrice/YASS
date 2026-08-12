@@ -17,6 +17,7 @@ import {
   currentSongJsonPath,
   defaultYargDataDir,
   settingsFilePath,
+  songCachePath,
 } from './paths.js'
 
 const DEFAULT_PORT = 4321
@@ -33,9 +34,6 @@ export function defaultSettings(): Settings {
 
   return {
     yargDataDir,
-    // No sensible default: the CSV is wherever the user chose to save it in
-    // YARG's native file dialog. Empty means "not configured yet".
-    songListCsvPath: '',
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     // LAN-accessible by default — this is meant to be reached from phones and
     // through a reverse proxy.
@@ -69,7 +67,6 @@ export function normalizeSettings(raw: unknown): Settings {
 
   return {
     yargDataDir: asString(input.yargDataDir, defaults.yargDataDir),
-    songListCsvPath: asString(input.songListCsvPath, defaults.songListCsvPath),
     pollIntervalMs: clampPollInterval(input.pollIntervalMs, defaults.pollIntervalMs),
     host: asString(input.host, defaults.host),
     port: clampPort(input.port, defaults.port),
@@ -89,7 +86,6 @@ export function applyEnvOverrides(settings: Settings): Settings {
 
   return {
     yargDataDir: env.YASS_YARG_DATA_DIR ?? settings.yargDataDir,
-    songListCsvPath: env.YASS_SONG_LIST_CSV ?? settings.songListCsvPath,
     pollIntervalMs: env.YASS_POLL_INTERVAL_MS
       ? clampPollInterval(env.YASS_POLL_INTERVAL_MS, settings.pollIntervalMs)
       : settings.pollIntervalMs,
@@ -174,7 +170,8 @@ export function describeSettings(settings: Settings): SettingsView {
       yargDataDirExists: settings.yargDataDir !== '' && existsSync(settings.yargDataDir),
       currentSongJsonExists:
         settings.yargDataDir !== '' && existsSync(currentSongJsonPath(settings.yargDataDir)),
-      songListCsvExists: settings.songListCsvPath !== '' && existsSync(settings.songListCsvPath),
+      songCacheExists:
+        settings.yargDataDir !== '' && existsSync(songCachePath(settings.yargDataDir)),
     },
   }
 }

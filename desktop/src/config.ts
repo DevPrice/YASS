@@ -47,7 +47,6 @@ const LONG_REQUEST_TIMEOUT_MS = 5 * 60_000
  */
 const EDITABLE: ReadonlyArray<keyof Settings> = [
   'yargDataDir',
-  'songListCsvPath',
   'pollIntervalMs',
   'host',
   'port',

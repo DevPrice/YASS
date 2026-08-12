@@ -30,7 +30,7 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { appConfigDir } from '../core/paths.js'
+import { appConfigDir, songCachePath } from '../core/paths.js'
 import { readSongCache } from './cache.js'
 import { scanSongFolders } from './scan.js'
 import type { ChartRef } from './types.js'
@@ -60,10 +60,6 @@ interface PersistedIndex {
 
 export function chartIndexPath(): string {
   return join(appConfigDir(), 'cache', 'charts.json')
-}
-
-export function songCachePath(yargDataDir: string): string {
-  return join(yargDataDir, 'songcache.bin')
 }
 
 const EMPTY_META: ChartIndexMeta = {
@@ -210,8 +206,11 @@ export async function buildChartIndex(
   let fallbackReason: string | null = null
 
   try {
-    const { refs: parsed, version } = await readSongCache(cachePath)
-    refs = parsed
+    const { songs, version } = await readSongCache(cachePath)
+    // The metadata rides along in the same parse — `core/library.ts` is what
+    // wants it. Here it is thrown away rather than persisted: `charts.json`
+    // exists to answer "where is this hash", and it stays that size.
+    refs = songs.map((song) => song.ref)
     source = 'cache'
     console.log(`[media] read ${refs.length} charts from songcache.bin (version ${version})`)
   } catch (error) {

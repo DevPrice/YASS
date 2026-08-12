@@ -100,8 +100,88 @@ const lengthPrefixed = (payload: Buffer): Buffer => Buffer.concat([int32(payload
 const loopable = (items: Buffer[]): Buffer =>
   Buffer.concat([int32(items.length), ...items.map(lengthPrefixed)])
 
+const uint32 = (value: number): Buffer => {
+  const buffer = Buffer.alloc(4)
+  buffer.writeUInt32LE(value)
+  return buffer
+}
+
 const HASH_A = 'A1B2C3D4E5F60718293A4B5C6D7E8F9012345678'
 const HASH_B = '00112233445566778899AABBCCDDEEFF00112233'
+
+/** YARG's "unset" sentinel for numeric metadata. */
+const INT_MAX = 2147483647
+
+/** Field positions in `AvailableParts`, which is a blob with no field names. */
+const PART_COUNT = 21
+const BAND = 0
+const FIVE_FRET_GUITAR = 1
+const LEAD_VOCALS = 19
+const HARMONY_VOCALS = 20
+
+/**
+ * The 42-byte `AvailableParts` struct: 21 × (`byte subTracks`, `sbyte intensity`).
+ *
+ * Defaults to every part absent and untiered, which is `PartValues.Default`.
+ */
+function availableParts(overrides: Record<number, [number, number]> = {}): Buffer {
+  const buffer = Buffer.alloc(PART_COUNT * 2)
+
+  for (let i = 0; i < PART_COUNT; i++) {
+    const [subTracks, intensity] = overrides[i] ?? [0, -1]
+    buffer.writeUInt8(subTracks, i * 2)
+    buffer.writeInt8(intensity, i * 2 + 1)
+  }
+
+  return buffer
+}
+
+interface MetadataOptions {
+  parts?: Record<number, [number, number]>
+  /** Indices into the nine string tables, in writer order. */
+  indices?: readonly number[]
+  isMaster?: boolean
+  albumTrack?: number
+  lengthMs?: bigint
+  rating?: number
+}
+
+/**
+ * The fixed-size metadata run every entry carries after its hash.
+ *
+ * Written in `SongEntry.Serialize`'s order, and deliberately followed by a tail
+ * of junk: the parser stops at `SongRating`, and the bytes after it stand in
+ * for the ~70 fields — venue hints, links, credits — it must never read.
+ */
+function metadata(options: MetadataOptions = {}): Buffer {
+  const indices = options.indices ?? [0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+  return Buffer.concat([
+    availableParts(options.parts),
+    ...indices.map(int32),
+    Buffer.from([options.isMaster === false ? 0 : 1]),
+    Buffer.from([0]), // VideoLoop
+    int32(options.albumTrack ?? INT_MAX),
+    int32(0), // PlaylistTrack
+    int64(options.lengthMs ?? 0n),
+    int64(0n), // SongOffset
+    uint32(options.rating ?? 4),
+    Buffer.from('venue hints, links and credits, none of which is read'),
+  ])
+}
+
+/** The nine string tables, in `CacheReadStrings` order. */
+const STRING_TABLES = [
+  ['Some Song', 'Packed Song', 'Con Song'],
+  ['<i>Some</i> Artist'],
+  ['An Album'],
+  ['Rock'],
+  [''],
+  ['1984 (remaster)'],
+  ['A Charter'],
+  ['A Playlist'],
+  ['rb3dlc'],
+]
 
 /**
  * A minimal but structurally faithful cache file.
@@ -110,8 +190,11 @@ const HASH_B = '00112233445566778899AABBCCDDEEFF00112233'
  * as an executable statement of the layout.
  */
 function buildCacheFile(version: number): Buffer {
-  const stringTable = lengthPrefixed(int32(0))
-  const stringTables = Buffer.concat(Array.from({ length: 9 }, () => stringTable))
+  const stringTables = Buffer.concat(
+    STRING_TABLES.map((table) =>
+      lengthPrefixed(Buffer.concat([int32(table.length), ...table.map(dotnetString)])),
+    ),
+  )
 
   const iniEntry = Buffer.concat([
     dotnetString('Some Artist - Some Song'),
@@ -119,7 +202,18 @@ function buildCacheFile(version: number): Buffer {
     int64(0n), // chart last write
     Buffer.from([0]), // no song.ini timestamp
     Buffer.from(HASH_A, 'hex'),
-    Buffer.from('metadata tail we never read'),
+    metadata({
+      indices: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      albumTrack: 3,
+      lengthMs: 197_500n,
+      rating: 2,
+      parts: {
+        [BAND]: [1, 4],
+        [FIVE_FRET_GUITAR]: [31, 2],
+        // Two harmony voices charted, which is what `VocalsCount` reads.
+        [HARMONY_VOCALS]: [0b011, 0],
+      },
+    }),
   ])
 
   const sngEntry = Buffer.concat([
@@ -128,6 +222,12 @@ function buildCacheFile(version: number): Buffer {
     int32(1), // sng version
     Buffer.from([0]), // chart format
     Buffer.from(HASH_B, 'hex'),
+    metadata({
+      indices: [1, 0, 0, 0, 0, 0, 0, 0, 0],
+      isMaster: false,
+      // Never charted a track number, and a part that exists but is untiered.
+      parts: { [FIVE_FRET_GUITAR]: [31, -1], [LEAD_VOCALS]: [1, 3] },
+    }),
   ])
 
   const iniGroup = Buffer.concat([
@@ -141,6 +241,7 @@ function buildCacheFile(version: number): Buffer {
     Buffer.from([0]), // index byte
     dotnetString('shortname'),
     Buffer.from(HASH_A, 'hex'),
+    metadata({ indices: [2, 0, 0, 0, 0, 0, 0, 0, 0] }),
   ])
 
   const conGroup = Buffer.concat([
@@ -164,24 +265,24 @@ function buildCacheFile(version: number): Buffer {
 
 describe('songcache.bin', () => {
   it('reads ini, sng and CON entries out of a well-formed file', () => {
-    const { refs } = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!))
+    const { songs } = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!))
 
-    assert.equal(refs.length, 3)
+    assert.equal(songs.length, 3)
 
-    assert.deepEqual(refs[0], {
+    assert.deepEqual(songs[0]?.ref, {
       hash: HASH_A,
       format: 'Ini',
       // The group's base directory joined to the entry's relative path.
       path: 'C:\\charts\\Some Artist - Some Song',
     })
 
-    assert.deepEqual(refs[1], {
+    assert.deepEqual(songs[1]?.ref, {
       hash: HASH_B,
       format: 'Sng',
       path: 'C:\\charts\\Packed.sng',
     })
 
-    assert.deepEqual(refs[2], {
+    assert.deepEqual(songs[2]?.ref, {
       hash: HASH_A,
       format: 'CON',
       path: 'C:\\packs\\pack_con',
@@ -190,11 +291,56 @@ describe('songcache.bin', () => {
     })
   })
 
-  it('skips a metadata tail it does not understand', () => {
-    // The ini entry above carries 27 bytes of trailing junk after its hash. The
-    // whole premise of the parser is that the length prefix makes that safe.
-    const { refs } = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!))
-    assert.equal(refs[0]?.hash, HASH_A)
+  it('resolves each entry against the shared string tables', () => {
+    const { songs } = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!))
+
+    // Three entries, three different titles, one artist string between them —
+    // which is the whole reason the tables exist.
+    assert.deepEqual(
+      songs.map((song) => song.meta.name),
+      ['Some Song', 'Packed Song', 'Con Song'],
+    )
+    for (const song of songs) {
+      assert.equal(song.meta.artist, '<i>Some</i> Artist')
+      assert.equal(song.meta.album, 'An Album')
+      assert.equal(song.meta.year, '1984 (remaster)')
+      assert.equal(song.meta.source, 'rb3dlc')
+    }
+  })
+
+  it('reads the scalar metadata after the string indices', () => {
+    const [ini, sng] = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!)).songs
+
+    assert.equal(ini?.meta.albumTrack, 3)
+    assert.equal(ini?.meta.lengthMs, 197_500)
+    assert.equal(ini?.meta.rating, 2)
+    assert.equal(ini?.meta.isMaster, true)
+
+    // An unset track number stays the sentinel here; `core/library.ts` is what
+    // decides that means "no track", not this file.
+    assert.equal(sng?.meta.albumTrack, INT_MAX)
+    assert.equal(sng?.meta.isMaster, false)
+  })
+
+  it('reads both bytes of every part, absent and untiered being different', () => {
+    const [ini, sng] = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!)).songs
+
+    assert.deepEqual(ini?.meta.parts.fiveFretGuitar, { subTracks: 31, intensity: 2 })
+    assert.deepEqual(ini?.meta.parts.bandDifficulty, { subTracks: 1, intensity: 4 })
+    assert.deepEqual(ini?.meta.parts.harmonyVocals, { subTracks: 0b011, intensity: 0 })
+    // Absent: no subtracks at all.
+    assert.deepEqual(ini?.meta.parts.proKeys, { subTracks: 0, intensity: -1 })
+    // Charted but never given a tier — the case an `intensity`-only read loses.
+    assert.deepEqual(sng?.meta.parts.fiveFretGuitar, { subTracks: 31, intensity: -1 })
+  })
+
+  it('skips the metadata tail it does not understand', () => {
+    // Every entry above carries trailing junk after `SongRating`. The whole
+    // premise of the parser is that the length prefix makes that safe, and the
+    // entry after it still lands in the right place.
+    const { songs } = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!))
+    assert.equal(songs[0]?.ref.hash, HASH_A)
+    assert.equal(songs[1]?.ref.hash, HASH_B)
   })
 
   it('refuses a version it has not been checked against', () => {
@@ -203,9 +349,9 @@ describe('songcache.bin', () => {
 
   it('accepts every version on the verified list', () => {
     for (const version of SUPPORTED_CACHE_VERSIONS) {
-      const { refs, version: reported } = parseSongCache(buildCacheFile(version))
+      const { songs, version: reported } = parseSongCache(buildCacheFile(version))
       assert.equal(reported, version)
-      assert.equal(refs.length, 3)
+      assert.equal(songs.length, 3)
     }
   })
 
@@ -235,7 +381,7 @@ describe('songcache.bin', () => {
       loopable([]),
     ])
 
-    assert.deepEqual(parseSongCache(file).refs, [])
+    assert.deepEqual(parseSongCache(file).songs, [])
   })
 
   it('fails loudly rather than reading past the end of a truncated entry', () => {

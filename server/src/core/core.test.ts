@@ -13,14 +13,78 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 
-import { parseCsv } from './csv.js'
 import { base64HashToHex, extractCurrentSongHash, normalizeHash } from './hash.js'
-import { parseCsvLibrary, parseDifficulty, parseLength, parseYear } from './library.js'
+import {
+  buildLibrarySongs,
+  parseYear,
+  partDifficulty,
+  trackNumber,
+  vocalPartCount,
+} from './library.js'
 import { stripRichText } from './richtext.js'
+import type { CacheSong, CacheSongMeta, PartName, PartValue } from '../media/cache.js'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures')
 
 const readFixture = (name: string) => readFile(join(FIXTURES, name), 'utf8')
+
+const ABSENT: PartValue = { subTracks: 0, intensity: -1 }
+
+/** Every part absent, which is what `PartValues.Default` deserializes to. */
+function noParts(): Record<PartName, PartValue> {
+  const names: PartName[] = [
+    'bandDifficulty',
+    'fiveFretGuitar',
+    'fiveFretBass',
+    'fiveFretRhythm',
+    'fiveFretCoopGuitar',
+    'keys',
+    'sixFretGuitar',
+    'sixFretBass',
+    'sixFretRhythm',
+    'sixFretCoopGuitar',
+    'fourLaneDrums',
+    'proDrums',
+    'fiveLaneDrums',
+    'eliteDrums',
+    'proGuitar17',
+    'proGuitar22',
+    'proBass17',
+    'proBass22',
+    'proKeys',
+    'leadVocals',
+    'harmonyVocals',
+  ]
+
+  return Object.fromEntries(names.map((name) => [name, { ...ABSENT }])) as Record<
+    PartName,
+    PartValue
+  >
+}
+
+/** One cache entry, with only the fields a test cares about spelled out. */
+function entry(hash: string, meta: Partial<CacheSongMeta> = {}): CacheSong {
+  return {
+    ref: { hash, format: 'Ini', path: `C:\\charts\\${hash}` },
+    meta: {
+      name: '',
+      artist: '',
+      album: '',
+      genre: '',
+      subgenre: '',
+      year: '',
+      charter: '',
+      playlist: '',
+      source: '',
+      isMaster: true,
+      albumTrack: 2147483647,
+      lengthMs: 0,
+      rating: 4,
+      parts: noParts(),
+      ...meta,
+    },
+  }
+}
 
 describe('stripRichText', () => {
   it('removes the tags YARG emits', () => {
@@ -79,37 +143,7 @@ describe('hash normalization', () => {
   })
 })
 
-describe('CSV parsing', () => {
-  it('handles quotes, embedded commas, and doubled quotes', () => {
-    const rows = parseCsv('a,b\n"x,y","he said ""hi"""\n')
-    assert.deepEqual(rows, [
-      ['a', 'b'],
-      ['x,y', 'he said "hi"'],
-    ])
-  })
-
-  it('handles CRLF and a missing trailing newline', () => {
-    assert.deepEqual(parseCsv('a,b\r\n1,2'), [
-      ['a', 'b'],
-      ['1', '2'],
-    ])
-  })
-
-  it('strips a UTF-8 BOM', () => {
-    const rows = parseCsv('﻿Name,Artist\nA,B\n')
-    assert.deepEqual(rows[0], ['Name', 'Artist'])
-  })
-})
-
 describe('scalar parsing', () => {
-  it('parses M:SS lengths, including minutes past 59', () => {
-    assert.equal(parseLength('4:07'), 247)
-    // YARG does not cap minutes; a 75-minute chart renders as 75:00.
-    assert.equal(parseLength('75:00'), 4500)
-    assert.equal(parseLength(''), null)
-    assert.equal(parseLength('garbage'), null)
-  })
-
   it('parses years leniently', () => {
     assert.equal(parseYear('1984 (remaster)'), 1984)
     assert.equal(parseYear('2010'), 2010)
@@ -118,57 +152,160 @@ describe('scalar parsing', () => {
     assert.equal(parseYear('2147483647'), null)
   })
 
-  it('maps the -1 difficulty sentinel to absent', () => {
-    assert.equal(parseDifficulty('-1'), null)
-    assert.equal(parseDifficulty('0'), 0)
-    assert.equal(parseDifficulty('5'), 5)
-    assert.equal(parseDifficulty(''), null)
+  it('tells an absent part from one that was never given a tier', () => {
+    // No subtracks: the instrument simply isn't charted.
+    assert.equal(partDifficulty({ subTracks: 0, intensity: -1 }), null)
+    // Charted but untiered clamps to 0, which is YARG's own `GetIntensity`.
+    assert.equal(partDifficulty({ subTracks: 31, intensity: -1 }), 0)
+    assert.equal(partDifficulty({ subTracks: 31, intensity: 5 }), 5)
+    // The distinction that matters: an absent part with a stale tier byte is
+    // still absent, and reading `intensity` alone would call it a 4.
+    assert.equal(partDifficulty({ subTracks: 0, intensity: 4 }), null)
+  })
+
+  it('counts vocal parts off the harmony subtracks', () => {
+    const of = (harmony: number, lead = 0) =>
+      vocalPartCount({ subTracks: harmony, intensity: 0 }, { subTracks: lead, intensity: 0 })
+
+    assert.equal(of(0b111), 3)
+    assert.equal(of(0b011), 2)
+    assert.equal(of(0b001), 1)
+    // No harmonies charted, but a lead vocal is still one part.
+    assert.equal(of(0, 1), 1)
+    assert.equal(of(0, 0), 0)
+  })
+
+  it('rejects the track numbers that are not track numbers', () => {
+    assert.equal(trackNumber(2147483647), null)
+    assert.equal(trackNumber(0), null)
+    assert.equal(trackNumber(-1), null)
+    assert.equal(trackNumber(3), 3)
+    // A real authored value, however odd, is kept rather than second-guessed.
+    assert.equal(trackNumber(16000), 16000)
   })
 })
 
-describe('library from the sample CSV', () => {
-  it('parses every row and its edge cases', async () => {
-    const { songs, warnings } = parseCsvLibrary(await readFixture('songs.sample.csv'))
+describe('library from cache entries', () => {
+  it('carries the metadata across, stripping the markup YARG stores raw', () => {
+    const { songs, warnings } = buildLibrarySongs([
+      entry('A'.repeat(40), {
+        name: '<color=#FF0000>Song</color> <i>Title</i>',
+        artist: 'Motörhead',
+        album: 'An Album',
+        year: '1984 (remaster)',
+        albumTrack: 7,
+        lengthMs: 247_800,
+        rating: 2,
+        isMaster: false,
+      }),
+    ])
 
-    assert.equal(warnings.length, 0)
-    assert.equal(songs.length, 8)
-
-    const quoted = songs.find((s) => s.name === 'Bohemian Rhapsody, Pt. 1')
-    assert.ok(quoted, 'a quoted field containing a comma should survive')
-    assert.equal(quoted.format, 'CON')
-
-    const doubled = songs.find((s) => s.name === 'He said "Hello"')
-    assert.ok(doubled, 'doubled quotes should unescape')
-    assert.equal(doubled.yearNumber, 1984)
-
-    const marathon = songs.find((s) => s.name === 'The Longest Jam In The World')
-    assert.equal(marathon?.lengthSeconds, 4500)
-
-    const unicode = songs.find((s) => s.artist === 'Motörhead')
-    assert.ok(unicode, 'non-ASCII metadata should decode as UTF-8')
-
-    const hashless = songs.find((s) => s.name === 'No Hash Song')
-    assert.equal(hashless?.hash, null)
-    assert.ok(hashless?.id.startsWith('row:'), 'hashless rows get a synthetic id')
+    assert.deepEqual(warnings, [])
+    const [song] = songs
+    // The CSV stripped rich text on its way out; the cache does not, so this is
+    // the one transformation that has to happen here or the list renders markup.
+    assert.equal(song?.name, 'Song Title')
+    assert.equal(song?.artist, 'Motörhead')
+    assert.equal(song?.yearNumber, 1984)
+    assert.equal(song?.year, '1984 (remaster)')
+    assert.equal(song?.albumTrack, 7)
+    // Truncated to the second the CSV's `M:SS` would have shown, not rounded up.
+    assert.equal(song?.lengthSeconds, 247)
+    assert.equal(song?.ageRating, 'Mature')
+    assert.equal(song?.isMaster, false)
   })
 
-  it('gives every song a unique id, so React keys are safe', async () => {
-    const { songs } = parseCsvLibrary(await readFixture('songs.sample.csv'))
-    assert.equal(new Set(songs.map((s) => s.id)).size, songs.length)
+  it('spells the ratings the way the CSV export did', () => {
+    const labels = [0, 1, 2, 3, 4, 5, 6].map(
+      (rating) => buildLibrarySongs([entry('B'.repeat(40), { name: 'x', rating })]).songs[0]?.ageRating,
+    )
+
+    assert.deepEqual(labels, [
+      'Family Friendly',
+      'Supervision Recommended',
+      'Mature',
+      'Sensitive Content',
+      // Unspecified, No_Rating and None all read as "No Rating", which is the
+      // fallback arm of YARG's own switch.
+      'No Rating',
+      'No Rating',
+      'No Rating',
+    ])
+  })
+
+  it('maps every instrument to its part in the struct', () => {
+    const parts = noParts()
+    parts.fiveFretGuitar = { subTracks: 31, intensity: 3 }
+    parts.proDrums = { subTracks: 31, intensity: 6 }
+    parts.harmonyVocals = { subTracks: 0b111, intensity: 1 }
+    parts.bandDifficulty = { subTracks: 1, intensity: 4 }
+
+    const [song] = buildLibrarySongs([entry('C'.repeat(40), { name: 'x', parts })]).songs
+
+    assert.equal(song?.difficulties.guitar5, 3)
+    assert.equal(song?.difficulties.proDrums, 6)
+    assert.equal(song?.difficulties.harmony, 1)
+    assert.equal(song?.difficulties.bass5, null)
+    assert.equal(song?.bandDifficulty, 4)
+    assert.equal(song?.vocalParts, 3)
+  })
+
+  it('gives duplicate charts of one song distinct ids', () => {
+    const hash = 'D'.repeat(40)
+    const { songs } = buildLibrarySongs([
+      entry(hash, { name: 'Same Song' }),
+      entry(hash, { name: 'Same Song' }),
+      entry(hash, { name: 'Same Song' }),
+    ])
+
+    // Both charts are kept — YARG keeps them too — but React needs the keys to
+    // differ, and the hash alone cannot provide that.
+    assert.equal(songs.length, 3)
+    assert.equal(new Set(songs.map((s) => s.id)).size, 3)
+    assert.equal(songs[0]?.hash, hash)
+    assert.equal(songs[1]?.hash, hash)
+  })
+
+  it('drops an entry with no identifying text at all, and says so', () => {
+    const { songs, warnings } = buildLibrarySongs([
+      entry('E'.repeat(40)),
+      entry('F'.repeat(40), { artist: 'Has An Artist' }),
+    ])
+
+    assert.equal(songs.length, 1)
+    assert.equal(songs[0]?.artist, 'Has An Artist')
+    assert.match(warnings[0] ?? '', /1 chart/)
+  })
+
+  it('does not let a dropped entry push a real duplicate onto a suffix', () => {
+    const hash = 'E'.repeat(40)
+    const { songs } = buildLibrarySongs([entry(hash), entry(hash, { name: 'The Real One' })])
+
+    // The nameless chart never claimed the id, so the song that survives gets
+    // the plain hash rather than `…#2`.
+    assert.equal(songs.length, 1)
+    assert.equal(songs[0]?.id, hash)
   })
 })
 
 describe('now-playing to library join', () => {
   it('matches the live currentSong.json capture against a library row', async () => {
     // This is the join the whole now-playing highlight depends on: the JSON
-    // carries base64, the CSV carries hex, and they must meet in the middle.
+    // carries base64, the cache carries raw SHA-1 bytes, and the two have to
+    // meet on the same canonical hex.
     const currentSong = JSON.parse(await readFixture('currentSong.playing.json')) as {
       Hash: unknown
     }
-    const { songs } = parseCsvLibrary(await readFixture('songs.sample.csv'))
 
     const hash = extractCurrentSongHash(currentSong.Hash)
     assert.equal(hash, 'BE60A886C9FB79D14A7C28F62D71E26999D2EF25')
+
+    const { songs } = buildLibrarySongs([
+      entry('BE60A886C9FB79D14A7C28F62D71E26999D2EF25', {
+        name: 'Dayglow Visa Rd. (Autochart)',
+      }),
+      entry('0'.repeat(40), { name: 'Some Other Song' }),
+    ])
 
     const matched = songs.find((song) => song.hash === hash)
     assert.ok(matched, 'the playing song should resolve to a library row')

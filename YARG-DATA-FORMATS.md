@@ -322,15 +322,15 @@ Always compare hashes case-insensitively as a safety measure.
 
 ## 4. The song list
 
-### 4.1 The fundamental constraint
+### 4.1 The constraint on the *exports* — and the way around it
 
-**YARG does not automatically publish the song library anywhere.** All four export
-formats are *manual, user-initiated actions* — the user opens
-Settings → Export Songs List, picks a format, and chooses a save location through a
-native file dialog. [VERIFIED — `Assets/Script/Song/Exporters/SongExport.cs:22-41`,
+**YARG does not automatically publish the song library in any export format.** All four
+are *manual, user-initiated actions* — the user opens Settings → Export Songs List,
+picks a format, and chooses a save location through a native file dialog.
+[VERIFIED — `Assets/Script/Song/Exporters/SongExport.cs:22-41`,
 `Assets/Script/Settings/SettingsManager.cs:192-198`]
 
-Design consequences for your app:
+Design consequences, if an export is what you read:
 - The song list is a **snapshot**, not a feed. It goes stale when the user adds songs.
 - You must either ask the user to perform an export and point you at the file, or
   have them re-export after library changes.
@@ -340,18 +340,35 @@ Design consequences for your app:
 Settings entry points are `ExportSongsJson`, `ExportSongsText`, `ExportSongsCsv`,
 `ExportSongsWeb`. [VERIFIED — `SettingsManager.Settings.cs:531-548`]
 
+> **This section used to end here, and that was the wrong conclusion.** YARG *does*
+> publish the library automatically — just not as an export. It rewrites
+> `songcache.bin` on every scan, and that file carries the same metadata plus the
+> chart paths and the album track number that no export has. **See section 9, and
+> prefer it to everything in this section.** What follows is still accurate, and is
+> still the right reference if you want a format with a published spec and no version
+> risk; it is no longer the recommendation.
+
 ### 4.2 Choosing a format
 
-| Format | Has hash? | Per-instrument difficulty? | Verdict |
-|---|---|---|---|
-| CSV | **Yes** | **Yes** (all 21 instruments) | **Best for a webapp** |
-| HTML (web browser) | No | Aggregated to 5 slots | Good if you want compact data |
-| JSON (Ouvert) | No | Bitmask, 10 instruments | Legacy; avoid |
-| Text | No | No | Human-readable only |
+| Format | Has hash? | Per-instrument difficulty? | Automatic? | Verdict |
+|---|---|---|---|---|
+| `songcache.bin` (§9) | **Yes** | **Yes** (all 21) | **Yes** | **Best, if you accept a version check** |
+| CSV | **Yes** | **Yes** (all 21) | No | Best of the exports |
+| HTML (web browser) | No | Aggregated to 5 slots | No | Good if you want compact data |
+| JSON (Ouvert) | No | Bitmask, 10 instruments | No | Legacy; avoid |
+| Text | No | No | No | Human-readable only |
 
-**Recommendation: use the CSV export.** It is the only format carrying the song
-hash, which is what you need to correlate against `currentSong.json` and to write
-playlist files.
+**Recommendation: read `songcache.bin`.** It is written without the user being asked,
+it carries everything the CSV does, and it adds the two things no export has — where
+each chart lives on disk, and the album track number. The cost is an undocumented
+layout that changes between versions, which is why section 9 insists on an allowlist
+of verified `CACHE_VERSION` stamps and a fallback.
+
+**If you want the CSV instead**, it is the only *export* carrying the song hash, which
+is what correlates against `currentSong.json` and writes playlist files. Two behaviours
+to know: it exports `SongContainer.Songs`, which is filtered by the player's Max Song
+Rating setting, and its `Genre` column is the value YARG *genrelized* after the scan
+rather than the one the chart author wrote.
 
 ### 4.3 CSV export — full spec
 
@@ -582,8 +599,15 @@ them from `YARG.Core` if you need the ints.
 7. Filter out `SortBasedLocation`, `ActualLocation`, and `Location` from anything you
    display or transmit (§3.2e).
 8. Normalize hashes to uppercase hex; compare case-insensitively (§3.4).
-9. Use the **CSV export** for the library — it is the only one with hashes (§4.2).
-10. Guard `YearAsNumber == 2147483647` and difficulty `-1` sentinels.
+9. Read **`songcache.bin`** for the library (§9) — it needs no user action, and it is
+   the only source with chart paths and track numbers. Pin an allowlist of verified
+   `CACHE_VERSION` stamps, read only the fixed-size run from the hash to `SongRating`,
+   and have something to fall back on. Use the **CSV export** (§4.2) if you would
+   rather have a stable format than an automatic one.
+10. Guard `YearAsNumber == 2147483647` and difficulty `-1` sentinels. From the cache,
+    also guard `AlbumTrack == 2147483647`, and read *both* bytes of a `PartValues` —
+    `subTracks == 0` is an absent instrument, which is not the same fact as an
+    `intensity` of `-1` on one that exists.
 11. Tolerate unknown JSON keys; never depend on key order or on the schema being
     stable across YARG versions.
 

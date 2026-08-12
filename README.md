@@ -25,10 +25,10 @@ library rendering as a raw id again. Clone with `--recurse-submodules` to skip t
 step.
 
 It is a build-time dependency only. Nothing reads it at runtime, and the song list itself
-still comes from the YARG CSV export and nothing else.
+comes from YARG's own song index and nothing else.
 
-Set the two paths described under [Configuration](#configuration) before the first run —
-there is no settings screen, deliberately — then open <http://localhost:5173>.
+Point `yargDataDir` at your YARG install — see [Configuration](#configuration) — and open
+<http://localhost:5173>. That is the only path there is to set.
 
 For a production run:
 
@@ -62,8 +62,7 @@ bake that port into your configuration the next time anything saves.
 
 | Setting | Env var | Notes |
 |---|---|---|
-| `yargDataDir` | `YASS_YARG_DATA_DIR` | Folder containing `currentSong.json` |
-| `songListCsvPath` | `YASS_SONG_LIST_CSV` | Your CSV export (see below) |
+| `yargDataDir` | `YASS_YARG_DATA_DIR` | Folder containing `currentSong.json` and `songcache.bin` |
 | `pollIntervalMs` | `YASS_POLL_INTERVAL_MS` | Default 1000 |
 | `host` | `YASS_HOST` | Default `0.0.0.0` (LAN-accessible) |
 | `port` | `YASS_PORT` | Default 4321 |
@@ -84,15 +83,20 @@ set it here manually.
 
 ### The song list
 
-**In YARG: Settings → Export Songs List → CSV**, save it anywhere, then point
-`songListCsvPath` at it.
+There is nothing to configure. The list is read from `songcache.bin` — the index YARG
+writes into its data folder every time it scans — which is the same file the app already
+used to find each chart on disk for album art.
 
-CSV is the only export format carrying the song hash, which is what links a library
-row to the currently playing song.
+So adding songs means scanning in YARG and nothing else: the server watches the file and
+re-reads it within half a second of a scan, then pushes the new list to every connected
+phone.
 
-It is a snapshot, but not a stale one: the server watches the file and re-reads it
-within half a second of a re-export, then pushes the new list to every connected phone.
-Adding songs to YARG means exporting again and nothing else.
+This replaced a CSV export the user had to produce by hand from Settings → Export Songs
+List. Two consequences of the switch are worth knowing, because both are visible in the
+UI. **Genres read as authored** — `Alt. Rock` rather than `Alternative` — because YARG
+normalizes them against a downloaded mapping *after* it writes the cache. And **nothing is
+hidden**: the export dropped anything above YARG's Max Song Rating setting, where the
+cache holds the whole library.
 
 ## The tray app
 
@@ -163,7 +167,7 @@ proxy needs a single upstream. All client URLs are relative.
 | Route | Purpose |
 |---|---|
 | `GET /api/songs` | Full library + facets + metadata (ETag-cached) |
-| `POST /api/songs/reload` | Force a re-read of the CSV — **host-only**, 404 otherwise |
+| `POST /api/songs/reload` | Force a re-read of the song cache — **host-only**, 404 otherwise |
 | `GET /api/now-playing` | Current state, one shot |
 | `GET /api/events` | SSE stream: `now-playing`, `library`, `venue`, `reload`, `ping` |
 | `GET /api/art/current` | Album art for the playing song, straight off disk |
@@ -184,18 +188,18 @@ event on the stream the phone already holds.
 
 ### The song list reloads itself
 
-The CSV is a snapshot YARG writes only when someone picks Settings → Export Songs
-List, so it goes stale silently. The server watches the file and re-reads it on change,
-then emits a `library` event on the SSE stream; every connected phone refetches through
-a conditional GET, so an unchanged list costs a 304.
+YARG rewrites `songcache.bin` every time it scans. The server watches that file and
+re-reads it on change, then emits a `library` event on the SSE stream; every connected
+phone refetches through a conditional GET, so an unchanged list costs a 304. The same
+event rebuilds the chart index behind it, since the songs that just appeared are also the
+ones that just gained files on disk.
 
-It watches the *directory* and filters by filename, because an export replaces the file
+It watches the *directory* and filters by filename, because a scan replaces the file
 rather than appending to it — on Windows a watch bound to the path itself follows the
-old inode and goes deaf after the first export. Events are debounced 500ms and confirmed
-against size and mtime, since a CSV write is not atomic and fires a burst.
+old inode and goes deaf after the first rewrite. Events are debounced 500ms and confirmed
+against size and mtime, since the write is not atomic and fires a burst.
 
-There is deliberately no reload button in the UI. Re-exporting from YARG is the whole
-gesture.
+There is deliberately no reload button in the UI. Scanning in YARG is the whole gesture.
 
 ### The banner picks up YARG's stage lighting
 
@@ -260,10 +264,11 @@ Sentinels are mapped to `null` on the way in: `-1` for an uncharted instrument,
 
 ### Album art and previews
 
-Every song has a cover and a ~30 second preview, in all three chart formats. The CSV
-export still has no path column — what changed is that YARG turns out to publish the
-missing one already, in `songcache.bin`, which it rewrites on every scan. `server/src/media/`
-reads that into a `hash → location` map and everything else follows from it.
+Every song has a cover and a ~30 second preview, in all three chart formats. This is the
+feature that found `songcache.bin` in the first place: no export YARG writes says where a
+chart *lives*, and the cache does. `server/src/media/` reads it into a `hash → location`
+map and everything else follows from it — including, since the song list moved there too,
+the list itself.
 
 - **`media/cache.ts`** parses the cache. Every group and entry is length-prefixed, so it
   reads the two or three fields at the head of each and skips the ~90-field metadata
@@ -332,21 +337,15 @@ pass reads a real library instead, and is skipped everywhere else:
 
 ```bash
 YASS_MEDIA_FIXTURE_YARG_DIR="$LOCALAPPDATA/../LocalLow/YARC/YARG/release" \
-YASS_MEDIA_FIXTURE_CSV="N:/path/to/songs.csv" \
 npm test --workspace=server
 ```
 
-It asserts the claim the whole feature rests on: every hash in the CSV export resolves to
-a chart on disk, and every packed chart re-hashes to what the cache recorded.
+It asserts the two claims the features rest on: every song resolves to a chart on disk and
+every packed chart re-hashes to what the cache recorded, and the metadata read back out of
+the cache is coherent rather than a plausible-looking misalignment.
 
 ## Planned
 
-- **Publish the song index from YARG.** The intended replacement for the manual CSV:
-  patch YARG to write a JSON index after each scan. That uses YARG's real scanner and
-  never goes stale, so it would remove the "re-export the CSV" step entirely.
-  `loadLibraryFromCsv` is isolated behind the `SongLibrary` type precisely so this is a
-  drop-in swap. **This is no longer what unblocks album art** — reading `songcache.bin`
-  did that without touching YARG; what is left here is the staleness of the song *list*.
 - **Design system.** `client/src/ui/` and the tokens in `client/src/index.css` are
   placeholders. The YARG design system will become the authority; feature components
   are written against the primitives so adopting it is a contained change.

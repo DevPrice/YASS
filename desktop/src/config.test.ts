@@ -12,7 +12,6 @@ describe('sanitizePatch', () => {
   it('keeps the editable fields', () => {
     const patch = sanitizePatch({
       yargDataDir: 'C:/yarg',
-      songListCsvPath: 'C:/songs.csv',
       pollIntervalMs: 500,
       host: '127.0.0.1',
       port: 4321,
@@ -20,11 +19,17 @@ describe('sanitizePatch', () => {
 
     assert.deepEqual(patch, {
       yargDataDir: 'C:/yarg',
-      songListCsvPath: 'C:/songs.csv',
       pollIntervalMs: 500,
       host: '127.0.0.1',
       port: 4321,
     })
+  })
+
+  it('drops a setting that no longer exists', () => {
+    // The song list used to be a path the user pointed at by hand. A stale
+    // popover, or an old settings file being replayed, must not be able to put
+    // it back.
+    assert.deepEqual(sanitizePatch({ songListCsvPath: 'C:/songs.csv' }), {})
   })
 
   it('drops anything not on the list', () => {
