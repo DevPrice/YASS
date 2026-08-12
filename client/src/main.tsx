@@ -4,7 +4,21 @@ import { createRoot } from 'react-dom/client'
 import faviconUrl from '@opensource/base/icons/yarg.png'
 
 import { App } from './App'
+import { installMock } from './mock'
 import './index.css'
+
+/*
+ * The demo build's fake server, stood up before anything can ask for a song.
+ *
+ * `import.meta.env.VITE_MOCK` is a literal `false` in every build but
+ * `--mode mock` (see `vite.config.ts`), so this whole branch and the module it
+ * reaches are removed from the normal bundle. Synchronous rather than a dynamic
+ * import, because `fetch` and `EventSource` have to be replaced before React
+ * mounts — an awaited import would let the first request race the shim.
+ */
+if (import.meta.env.VITE_MOCK === true) {
+  installMock()
+}
 
 /*
  * Favicon: YARG's own mark, from the OpenSource submodule.

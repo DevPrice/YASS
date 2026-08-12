@@ -6,6 +6,22 @@
  */
 
 import type { NowPlaying, SongLibrary } from '@shared/types'
+import { mockArtUrl } from '../mock/art'
+
+/**
+ * True only in the published demo build (`vite build --mode mock`).
+ *
+ * Defined as a literal by `vite.config.ts`, so in every other build this is
+ * `false` at compile time and each branch below it — plus the import above and
+ * everything it reaches — is removed from the bundle rather than shipped and
+ * skipped. See `mock/index.ts`.
+ *
+ * The art routes are the one part of the API that a `fetch` shim cannot cover:
+ * these URLs end up in `<img src>` and in a CSS `background-image`, neither of
+ * which goes through `fetch`. So the demo answers them here, at the same seam
+ * that decides every other URL in the app.
+ */
+const DEMO = typeof import.meta.env === 'object' && import.meta.env.VITE_MOCK === true
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { Accept: 'application/json' } })
@@ -46,6 +62,8 @@ export function fetchNowPlaying(): Promise<NowPlaying> {
  * art from cache when the song changes.
  */
 export function currentArtUrl(hash: string | null): string {
+  if (DEMO) return mockArtUrl(hash)
+
   return `/api/art/current?v=${encodeURIComponent(hash ?? 'none')}`
 }
 
@@ -61,6 +79,10 @@ export function currentArtUrl(hash: string | null): string {
  * thousand requests to learn something the payload already said.
  */
 export function artUrl(hash: string, size: 'sm' | 'lg' = 'sm'): string {
+  // One SVG for both sizes: it is vector, so the 256px list thumbnail and the
+  // 640px detail plate are the same bytes at two scales.
+  if (DEMO) return mockArtUrl(hash)
+
   return `/api/art/${encodeURIComponent(hash)}?size=${size}`
 }
 

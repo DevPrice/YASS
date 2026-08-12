@@ -64,41 +64,72 @@ const API_TARGET =
   process.env.YASS_API_TARGET ??
   `http://127.0.0.1:${process.env.YASS_PORT ?? storedPort() ?? 4321}`
 
-// Said out loud at startup, because a proxy target is invisible until it is
-// wrong, and this is the line that turns "500 on every request" into a
-// one-glance diagnosis.
-console.log(`  proxying /api → ${API_TARGET}\n`)
+export default defineConfig(({ mode }) => {
+  // Said out loud at startup, because a proxy target is invisible until it is
+  // wrong, and this is the line that turns "500 on every request" into a
+  // one-glance diagnosis. Not in mock mode, where there is no server to reach
+  // and announcing one would be the misleading half of the same problem.
+  if (mode !== 'mock') console.log(`  proxying /api → ${API_TARGET}\n`)
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@shared': fileURLToPath(new URL('../shared/src', import.meta.url)),
-      // The OpenSource submodule: YARG's own registry of song-source ids,
-      // display names and icons. Aliased so the import path says what it is
-      // instead of counting `../`s out of the client workspace.
-      '@opensource': fileURLToPath(new URL('../vendor/opensource', import.meta.url)),
-    },
-  },
-  server: {
-    port: 5173,
-    fs: {
-      // The submodule lives above the client workspace root, so dev has to be
-      // told it's allowed to serve from there. Build doesn't care.
-      allow: [fileURLToPath(new URL('..', import.meta.url))],
-    },
-    proxy: {
-      '/api': {
-        target: API_TARGET,
-        changeOrigin: true,
-        // SSE needs the connection held open and unbuffered.
-        ws: false,
+  return {
+    /*
+     * The published demo, and the one flag that produces it.
+     *
+     * `vite build --mode mock` builds a static site with no server behind it:
+     * `src/mock/` invents a library, draws covers for it and replaces `fetch`
+     * and `EventSource` with a simulation. Defining the flag as a literal here
+     * rather than reading an environment variable is what makes it a
+     * compile-time constant, so every mock branch — and every module only those
+     * branches reach — is dead code Rollup drops from the normal build. It also
+     * means the demo needs no `.env` file and no shell-specific `VAR=1` prefix,
+     * which would not have run on Windows anyway.
+     */
+    define: { 'import.meta.env.VITE_MOCK': JSON.stringify(mode === 'mock') },
+
+    /*
+     * Relative asset URLs for the demo, absolute for the real thing.
+     *
+     * GitHub Pages serves a project site from `/<repo>/`, and an absolute
+     * `/assets/…` would 404 there. `./` is correct for any subpath without the
+     * repo name having to be baked in — which works only because nothing in
+     * this app routes on the path: the whole view lives in the query string
+     * (`lib/urlState.ts`), so there is one document and no deep links for a
+     * static host to resolve.
+     *
+     * The real server serves the client from the root and keeps `/`.
+     */
+    base: mode === 'mock' ? './' : '/',
+
+    plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        '@shared': fileURLToPath(new URL('../shared/src', import.meta.url)),
+        // The OpenSource submodule: YARG's own registry of song-source ids,
+        // display names and icons. Aliased so the import path says what it is
+        // instead of counting `../`s out of the client workspace.
+        '@opensource': fileURLToPath(new URL('../vendor/opensource', import.meta.url)),
       },
     },
-  },
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
-    sourcemap: true,
-  },
+    server: {
+      port: 5173,
+      fs: {
+        // The submodule lives above the client workspace root, so dev has to be
+        // told it's allowed to serve from there. Build doesn't care.
+        allow: [fileURLToPath(new URL('..', import.meta.url))],
+      },
+      proxy: {
+        '/api': {
+          target: API_TARGET,
+          changeOrigin: true,
+          // SSE needs the connection held open and unbuffered.
+          ws: false,
+        },
+      },
+    },
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
+      sourcemap: true,
+    },
+  }
 })

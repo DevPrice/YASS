@@ -1,0 +1,76 @@
+# Publishes the demo build to GitHub Pages.
+#
+# What gets deployed is `npm run build:demo` — the client with `src/mock/`
+# standing in for the server: a synthetic song library, generated cover art and
+# a simulated now-playing feed. There is no YARG install on a runner and no
+# server in the artifact, which is the whole reason that build mode exists.
+#
+# Pages has to be pointed at Actions once, by hand, before the first run:
+# Settings → Pages → Build and deployment → Source → GitHub Actions.
+name: Deploy demo to Pages
+
+on:
+  push:
+    branches: [main]
+    # The demo is the client and the registry it resolves badges from. A change
+    # to the server or the tray cannot alter the published page, so it does not
+    # need to rebuild it.
+    paths:
+      - client/**
+      - shared/**
+      - vendor/**
+      - package.json
+      - package-lock.json
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and a superseded run is not worth finishing.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `lib/sources.ts` reads YARG's OpenSource registry out of
+          # vendor/opensource at build time — without the submodule the build
+          # fails on a missing `@opensource/base/index.json`.
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # The install has to be the whole workspace root for the lockfile to be
+      # honoured, which drags in the tray's `electron` devDependency — and with
+      # it a ~100 MB platform binary that nothing in this job runs.
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - run: npm run build:demo
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

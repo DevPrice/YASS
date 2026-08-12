@@ -355,6 +355,69 @@ The typographic plate stays, and is still what a song with no cover gets. It was
 written as a square image slot standing in for a record it did not have a photograph of
 yet — so nothing below it moved when the photographs arrived.
 
+## The demo build
+
+There is a serverless build of the client for showing the app to somebody who does not
+have YARG, a library, or any interest in installing either:
+
+```bash
+npm run dev:demo      # the demo on the dev server, no YARG install needed
+npm run build:demo    # a static site in client/dist
+```
+
+It is the real client — the real hooks, the real components, the real filtering and
+sorting — with `client/src/mock/` standing in for everything behind the network:
+
+- **`library.ts`** invents 1,650 songs across ~270 bands. All of it is generated from
+  word banks; nothing is a real release and nothing is anyone's actual library. Two things
+  in it *are* real, because they are the parts the UI resolves rather than displays: the
+  source ids come from the OpenSource registry so the badges resolve to real icons, and the
+  genres are spelled the way the Genrelizer spells them. The ids are restricted to YARG's
+  own setlists and community packs — attributing invented songs to a licensed catalogue
+  would be a fabricated record rather than a demo.
+- **`art.ts`** draws a cover per song, since there are no chart files to read one from:
+  an abstract SVG data URI seeded by the song's hash, in the app's own palette.
+- **`backend.ts`** replaces `fetch` and `EventSource`, and runs a simulated
+  now-playing feed — a song plays, the venue lighting drifts under it, the feed goes
+  idle, the next song starts. That is the only way to demo the banner, the wash and the
+  route from the banner into a song's details, all of which exist only while YARG is
+  running.
+- **`notice.ts`** says on screen that this is a demo, once per session. A build that
+  looks exactly like a real one has to admit what it is somewhere.
+
+The whole library is generated from one fixed seed, so it is identical in every browser
+and on every load. That is what keeps a link copied out of the demo working: the view —
+including which song is selected — lives in the query string, and a reshuffled library
+would quietly break every URL anyone shared.
+
+Previews are the one feature the demo does not have. No audio ships with it, and
+synthesising tones would be worse than silence, so every song reports `hasPreview: false`
+— which hides the sound control, exactly as it does on a machine with no ffmpeg.
+
+**None of this reaches a normal build.** `vite.config.ts` defines
+`import.meta.env.VITE_MOCK` as a literal, so outside `--mode mock` every branch that
+reaches `src/mock/` is dead code and Rollup drops the modules with it. The check is a grep:
+
+```bash
+npm run build --workspace=client
+grep -c "bramblecast" client/dist/assets/index-*.js   # 0
+```
+
+### Publishing it
+
+`.github/workflows/pages.yml` builds the demo and deploys it to GitHub Pages on a push to
+`main` that touches the client, or on demand from the Actions tab. Two things it needs:
+
+- **Pages pointed at Actions**, once, by hand: Settings → Pages → Build and deployment →
+  Source → GitHub Actions.
+- **The submodule**, which the workflow checks out recursively — the build fails without
+  it, the same way a local one does.
+
+Assets are built with a relative `base`, so the site works from `/<repo>/` without the
+repository name being configured anywhere. That only works because nothing in this app
+routes on the path: the whole view is in the query string, so there is one document and
+no deep links for a static host to resolve.
+
 ## Testing
 
 ```bash
