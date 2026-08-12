@@ -72,6 +72,7 @@ import {
   intensityName,
 } from '../../lib/format'
 import { resolveSource, sourceName } from '../../lib/sources'
+import type { RowMark } from './columns'
 import { FacetPicker } from './FacetPicker'
 import { LensPicker } from './LensPicker'
 import type { DerivedFacets, Filters } from './filtering'
@@ -150,6 +151,15 @@ interface FiltersPanelProps {
   sortKey: SortKey
   sortDirection: SortDirection
   onSort: (key: SortKey) => void
+  /**
+   * The one mark a phone row draws beside the time.
+   *
+   * Here rather than on the list, because this is the panel that exists at
+   * exactly the widths the list has no column header to hang a picker off —
+   * see the `row shows` section below.
+   */
+  mark: RowMark
+  onMarkChange: (mark: RowMark) => void
   /** Jump to a random song in the current results. */
   onRandom: () => void
   /** Owned by the app shell so Escape can close a panel before clearing filters. */
@@ -171,6 +181,8 @@ export function FiltersPanel({
   sortKey,
   sortDirection,
   onSort,
+  mark,
+  onMarkChange,
   onRandom,
   open,
   onOpenChange,
@@ -397,29 +409,75 @@ export function FiltersPanel({
       ) : null}
 
       <Disclosure id="sort-panel" open={open === 'sort'} className="@2xl/list:hidden">
-        <FieldLabel>sort by</FieldLabel>
-        <div className="flex flex-wrap gap-[10px]">
-          {COMPACT_SORTS.map(({ key }) => {
-            const isActive = key === sortKey
-            const spoken = spokenSortName(key, lens)
+        {/*
+         * Two sections in the sheet the phone sorts from, and the second one is
+         * not a sort.
+         *
+         * It is here because of where it is *not* possible: from 672px of list
+         * up, the table has a header, and the header's corner cell holds a
+         * picker over all nine columns. Below that there is no header to hang
+         * anything off, and there is no nine-column question either — a 60px
+         * row has room for one mark, so the whole of the same idea is which of
+         * the two it is. Exactly one of the two controls exists at any width,
+         * which is the same trade the sort chips above make against the table's
+         * sortable headers.
+         */}
+        <FilterSection label="sort by">
+          <div className="flex flex-wrap gap-[10px]">
+            {COMPACT_SORTS.map(({ key }) => {
+              const isActive = key === sortKey
+              const spoken = spokenSortName(key, lens)
 
-            return (
-              <ToggleChip
-                key={key}
-                active={isActive}
-                onClick={() => onSort(key)}
-                label={
-                  isActive
-                    ? `${spoken}, ${sortDirection === 'asc' ? 'ascending' : 'descending'}. Tap to reverse`
-                    : `Sort by ${spoken}`
-                }
-              >
-                {sortLabelFor(key, lens)}
-                {isActive ? <SortArrow direction={sortDirection} /> : null}
-              </ToggleChip>
-            )
-          })}
-        </div>
+              return (
+                <ToggleChip
+                  key={key}
+                  active={isActive}
+                  onClick={() => onSort(key)}
+                  label={
+                    isActive
+                      ? `${spoken}, ${sortDirection === 'asc' ? 'ascending' : 'descending'}. Tap to reverse`
+                      : `Sort by ${spoken}`
+                  }
+                >
+                  {sortLabelFor(key, lens)}
+                  {isActive ? <SortArrow direction={sortDirection} /> : null}
+                </ToggleChip>
+              )
+            })}
+          </div>
+        </FilterSection>
+
+        <FilterSection label="row shows">
+          {/*
+           * A group of two, not a radiogroup.
+           *
+           * Exactly one is always chosen, which is the shape `role="radio"`
+           * describes — and describing it that way promises arrow-key traversal
+           * between them, which this does not have and should not: the same two
+           * keys walk the song selection everywhere else in the app. Two
+           * pressed-state buttons say the state honestly and promise only the
+           * tap that delivers it. Same call `FacetPicker` makes about `listbox`.
+           */}
+          <div role="group" aria-label="What each row shows beside the time" className="flex flex-wrap gap-[10px]">
+            <ToggleChip
+              active={mark === 'source'}
+              onClick={() => onMarkChange('source')}
+              label="Show the game each song came from"
+            >
+              source
+            </ToggleChip>
+            <ToggleChip
+              active={mark === 'difficulty'}
+              onClick={() => onMarkChange('difficulty')}
+              label={`Show ${spokenSortName('difficulty', lens).toLowerCase()} on every row`}
+            >
+              {/* The lens renames this the way it renames the sort chip beside
+                  it: under drums the ring is drawing a drum kit, and `Drums` is
+                  both shorter and the more truthful label for it. */}
+              {lens === 'band' ? 'difficulty' : LENS_LABELS[lens]}
+            </ToggleChip>
+          </div>
+        </FilterSection>
       </Disclosure>
 
       <Disclosure id="filters-panel" open={open === 'filters'}>

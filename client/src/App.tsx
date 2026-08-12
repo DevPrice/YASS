@@ -37,6 +37,8 @@ import { setPreviewNavigating, setPreviewSong, usePreviewSound } from './lib/use
 import { decodeAppState, syncUrl } from './lib/urlState'
 import { FiltersPanel } from './features/library/Filters'
 import type { OpenPanel } from './features/library/Filters'
+import type { ListView, RowMark } from './features/library/columns'
+import { readView, writeView } from './features/library/columns'
 import { SongList } from './features/library/SongList'
 import type { Selection } from './features/library/SongList'
 import { SongDetail, SongDetailEmpty } from './features/library/SongDetail'
@@ -97,6 +99,34 @@ export function App() {
    * Escape can dismiss it before falling through to clearing the filters.
    */
   const [openPanel, setOpenPanel] = useState<OpenPanel>('none')
+
+  /**
+   * Which columns the table draws, and what a phone row shows beside the time.
+   *
+   * The one piece of state here that is *not* in the address bar. Everything
+   * else on this page is a description of what you are looking at and is worth
+   * handing to the phone next to you; this is a description of the screen you
+   * are holding, and a desktop's seven-column table means nothing on somebody
+   * else's phone. So it lives on the device instead — see `columns.ts`, and
+   * `lib/urlState.ts` for what the URL is for.
+   *
+   * Written on change rather than from an effect, so a first visit that touches
+   * nothing leaves no entry behind. Read once, in a lazy initialiser, for the
+   * same reason the URL is: the first paint should already be the right table.
+   */
+  const [view, setView] = useState<ListView>(readView)
+
+  const changeView = useCallback((next: ListView) => {
+    setView(next)
+    writeView(next)
+  }, [])
+
+  const changeMark = useCallback(
+    (mark: RowMark) => {
+      changeView({ ...view, mark })
+    },
+    [changeView, view],
+  )
 
   /**
    * The song being looked at, and how the list should reveal it.
@@ -563,6 +593,9 @@ export function App() {
             derivedFacets={derivedFacets}
             lens={lens}
             onLensChange={setLens}
+            view={view}
+            onViewChange={changeView}
+            onMarkChange={changeMark}
             visible={visible}
             sortKey={sortKey}
             sortDirection={sortDirection}
@@ -704,6 +737,9 @@ function LibraryView({
   derivedFacets,
   lens,
   onLensChange,
+  view,
+  onViewChange,
+  onMarkChange,
   visible,
   sortKey,
   sortDirection,
@@ -726,6 +762,9 @@ function LibraryView({
   derivedFacets: ReturnType<typeof deriveFacets>
   lens: DifficultyLens
   onLensChange: (lens: DifficultyLens) => void
+  view: ListView
+  onViewChange: (view: ListView) => void
+  onMarkChange: (mark: RowMark) => void
   visible: Parameters<typeof SongList>[0]['songs']
   sortKey: SortKey
   sortDirection: SortDirection
@@ -790,6 +829,8 @@ function LibraryView({
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSort={onSort}
+        mark={view.mark}
+        onMarkChange={onMarkChange}
         onRandom={onRandom}
         open={openPanel}
         onOpenChange={onOpenPanelChange}
@@ -801,6 +842,8 @@ function LibraryView({
         sortDirection={sortDirection}
         onSort={onSort}
         lens={lens}
+        view={view}
+        onViewChange={onViewChange}
         playingId={playingId}
         selection={selection}
         onSelect={onSelect}

@@ -18,16 +18,19 @@
  * the detail pane, so the same 1280px desktop gives it 870px of width, and the
  * same 1600px one gives it 1140px. Asking the viewport how wide the list is
  * would answer a question nobody asked — it would reveal the album column at a
- * viewport width where the column has nowhere to go. Widths named below (`@2xl`
- * = 672px, `@5xl` = 1024px, and so on) are the *list's* widths, and the
- * container is declared in `App`.
+ * viewport width where the column has nowhere to go. The container is declared
+ * in `App`; this file measures it.
  *
- * Two of those decisions are made in JavaScript rather than by a container
- * query, off the same box the queries resolve against: which of the two rows to
- * build, and how tall it is. Height has to be — the virtualizer needs a number
- * before anything is laid out. The row's shape follows it because building both
- * rows and hiding one costs a third of the DOM on every row in the list; see
- * `SongRow`. Everything the wide row reveals *within* itself is still a query.
+ * That measurement decides three things, all in JavaScript rather than in CSS.
+ * How tall a row is, which it has to — the virtualizer needs a number before
+ * anything is laid out. Which of the two rows to build, because building both
+ * and hiding one costs a third of the DOM on every row in the list; see
+ * `SongRow`. And which columns the wide row has room for, which used to be a
+ * container query per column and is now `columns.ts` — a CSS-hidden column
+ * still builds its `<img>` elements, the header and the row had to repeat the
+ * same query in two different display modes, and neither of them could explain
+ * itself to the picker in the header's corner. `sameShape` keeps the cost of
+ * measuring continuously down to one render per threshold crossed.
  *
  * Semantically a `list`, not a `grid`, even though the wide layout is a table.
  * The narrow layout is a different shape entirely — title over a metadata line,
@@ -49,8 +52,10 @@ import {
   SourceBadge,
 } from '../../ui/library'
 import type { DifficultyLens } from '../../lib/difficulty'
-import { LENS_LABELS } from '../../lib/difficulty'
 import { formatDuration, formatYear } from '../../lib/format'
+import type { Column, ListView, RowMark } from './columns'
+import { COLUMNS, WIDE_AT, columnLabel, sameShape, showsColumn } from './columns'
+import { ColumnPicker } from './ColumnPicker'
 import { groupSongs } from './grouping'
 import type { ListItem } from './grouping'
 import { IndexRail } from './IndexRail'
@@ -75,18 +80,6 @@ const ROW_HEIGHT_NARROW = 60
 /** Enough to read as a division of the list without competing with a row. */
 const HEADER_HEIGHT_WIDE = 40
 const HEADER_HEIGHT_NARROW = 35
-
-/**
- * The list width the narrow row gives way at — Tailwind's `@2xl`, the same
- * 672px every `@2xl/list:` class in this file switches on.
- *
- * Duplicated as a number because the virtualizer has to know a row's height
- * before anything is laid out, and a container query has no answer to give
- * JavaScript. Measured off the scroll container, which is exactly as wide as
- * the `@container/list` column declared in `App` — so the two agree to the
- * pixel, scrollbar included.
- */
-const WIDE_AT = 672
 
 /**
  * A pixel of slack at the top edge, when deciding which item the list is on.
@@ -135,52 +128,6 @@ function indexOfSong(items: readonly ListItem[], id: string): number {
   return items.findIndex((item) => item.kind === 'song' && item.song.id === id)
 }
 
-/**
- * The wide layout's columns, revealed by how much room the list actually has.
- *
- * Hidden columns reveal as `flex`, not `block`: these classes land on a button
- * that is itself `flex`, and a container-scoped `@6xl/list:block` outranks a
- * bare `flex`, which silently dropped `items-center` off the album and genre
- * headers.
- *
- * Source drops out below `@5xl` rather than shrinking to a bare icon, because
- * the width where it drops is a width where the detail pane exists — and the
- * pane names the source in full. The narrow layout keeps its source icon, since
- * that is a phone, where there is no pane to fall back to.
- */
-const COLUMNS: Array<{
-  /** Null for a column there is nothing sensible to order by. */
-  key: SortKey | null
-  label: string
-  className: string
-}> = [
-  { key: 'name', label: 'title', className: 'flex-[3] min-w-0' },
-  { key: 'artist', label: 'artist', className: 'flex-[2] min-w-0' },
-  { key: 'album', label: 'album', className: 'flex-[2] min-w-0 hidden @6xl/list:flex' },
-  { key: 'genre', label: 'genre', className: 'w-32 shrink-0 hidden @7xl/list:flex' },
-  { key: 'year', label: 'year', className: 'w-16 shrink-0 text-right' },
-  { key: 'length', label: 'time', className: 'w-16 shrink-0 text-right' },
-  // Five fixed slots, so the column reads as a matrix down the page rather
-  // than a ragged list. Sorting by it would mean inventing an order over a set.
-  { key: null, label: 'parts', className: 'w-28 shrink-0 hidden @4xl/list:flex' },
-  { key: 'difficulty', label: 'diff', className: 'w-20 shrink-0 text-right' },
-  { key: 'source', label: 'source', className: 'w-40 shrink-0 hidden @5xl/list:flex' },
-]
-
-/**
- * What the difficulty column is called, which is the lens's name or nothing.
- *
- * `diff` under the band lens, because the ring below it wears YARG's BAND mark
- * and the word would be naming what the picture already says. Under an
- * instrument it becomes `drums` — the column is quoting a different scale from
- * the one it quoted a moment ago, and 80px is enough for the word that says so.
- * Not `drums diff`: the ring is the only thing in the column, so what it is
- * measuring is not in question. Which part is.
- */
-function difficultyColumnLabel(lens: DifficultyLens): string {
-  return lens === 'band' ? 'diff' : LENS_LABELS[lens].toLowerCase()
-}
-
 interface SongListProps {
   songs: readonly Song[]
   sortKey: SortKey
@@ -188,6 +135,9 @@ interface SongListProps {
   onSort: (key: SortKey) => void
   /** Which part every difficulty on this surface is about. See `lib/difficulty`. */
   lens: DifficultyLens
+  /** Which columns to draw, and what a phone row shows. See `columns.ts`. */
+  view: ListView
+  onViewChange: (view: ListView) => void
   playingId: string | null
   selection: Selection | null
   onSelect: (song: Song) => void
@@ -203,6 +153,8 @@ export function SongList({
   sortDirection,
   onSort,
   lens,
+  view,
+  onViewChange,
   playingId,
   selection,
   onSelect,
@@ -240,18 +192,25 @@ export function SongList({
   const [gutter, setGutter] = useState(0)
 
   /**
-   * Which row the list is rendering, as a number the virtualizer can use.
+   * How much room the list has, which is what every shape decision reads.
    *
    * Taken in the same pass as the gutter, off the *column* rather than the
-   * scroll container. The column is the `@container/list` box every
-   * `@2xl/list:` class in this file resolves against, and it is what the
-   * scroller used to be — until the rail took a strip off the scroller's right
-   * and left the two disagreeing by the rail's width at exactly the point where
-   * the row changes shape. Read in a layout effect, so the first paint is
-   * already at the right height rather than laying a phone out in 80px rows and
-   * correcting after.
+   * scroll container. The column is the `@container/list` box `App` declares,
+   * and it is what the scroller used to be — until the rail took a strip off
+   * the scroller's right and left the two disagreeing by the rail's width at
+   * exactly the point where the row changes shape. Read in a layout effect, so
+   * the first paint is already at the right height rather than laying a phone
+   * out in 80px rows and correcting after.
+   *
+   * **Held to the widths that change something.** A window drag reports a new
+   * number every frame, and almost all of them draw the identical table — so
+   * the state only moves when the measurement crosses one of the thresholds in
+   * `columns.ts`, and a resize across an empty stretch costs nothing. Starts
+   * wide, because that is what the first render assumed before this existed and
+   * the layout effect corrects it before anything is painted.
    */
-  const [isNarrow, setIsNarrow] = useState(false)
+  const [listWidth, setListWidth] = useState(WIDE_AT)
+  const isNarrow = listWidth < WIDE_AT
 
   const hasRows = songs.length > 0
 
@@ -263,7 +222,7 @@ export function SongList({
     const measure = () => {
       const outer = column.getBoundingClientRect()
       setGutter(outer.right - content.getBoundingClientRect().right)
-      setIsNarrow(outer.width < WIDE_AT)
+      setListWidth((current) => (sameShape(current, outer.width) ? current : outer.width))
     }
     measure()
 
@@ -398,6 +357,19 @@ export function SongList({
    */
   const marks = useMemo(() => buildIndex(items, sortKey, lens), [items, sortKey, lens])
 
+  /**
+   * The columns the header labels and every row fills, resolved once.
+   *
+   * Once, and not per row: this is a filter over a nine-entry table and the
+   * list renders ~26 rows sixty times a second under a flick. Memoizing it also
+   * keeps the array's identity stable between scroll frames, which is what lets
+   * `SongRow` stay memoized now that it takes the columns as a prop.
+   */
+  const visibleColumns = useMemo(
+    () => COLUMNS.filter((column) => showsColumn(view, column, listWidth)),
+    [view, listWidth],
+  )
+
   const virtualItems = virtualizer.getVirtualItems()
 
   /**
@@ -458,13 +430,22 @@ export function SongList({
 
   return (
     <div ref={columnRef} className="flex min-h-0 flex-1 flex-col">
-      <SortHeader
-        sortKey={sortKey}
-        sortDirection={sortDirection}
-        onSort={onSort}
-        lens={lens}
-        gutter={gutter}
-      />
+      {/* No table, no header — and no header means the compact sort chips in
+          the filter bar are the sort control instead. The two switch at the
+          same 672px, which is what keeps exactly one of them on screen. */}
+      {isNarrow ? null : (
+        <SortHeader
+          columns={visibleColumns}
+          sortKey={sortKey}
+          sortDirection={sortDirection}
+          onSort={onSort}
+          lens={lens}
+          view={view}
+          onViewChange={onViewChange}
+          listWidth={listWidth}
+          gutter={gutter}
+        />
+      )}
 
       {/*
        * The scroller and the rail, side by side.
@@ -570,6 +551,8 @@ export function SongList({
                   <SongRow
                     song={item.song}
                     lens={lens}
+                    columns={visibleColumns}
+                    mark={view.mark}
                     narrow={isNarrow}
                     isPlaying={item.song.id === playingId}
                     isSelected={item.song.id === selection?.id}
@@ -640,8 +623,11 @@ function CategoryHeader({ label }: { label: string }) {
  * The column labels.
  *
  * Everything about this element's horizontal box has to match `SongRow`'s, or
- * the labels stop naming the thing underneath them. Two of those measurements
- * are not in the class list and are easy to lose:
+ * the labels stop naming the thing underneath them. The columns themselves no
+ * longer have to be kept in step by hand — both sides draw the same array in
+ * the same order and take their widths from the same `box` string in
+ * `columns.ts`. Two measurements are still repeated here, and both are easy to
+ * lose because neither is in that table:
  *
  *   The 2px side borders are the row's, not the header's — `SongRow` reserves
  *   them for the white border the playing row wears, so its columns live in a
@@ -653,15 +639,26 @@ function CategoryHeader({ label }: { label: string }) {
  *   measured as one number so this doesn't have to know which of them is there.
  */
 function SortHeader({
+  columns,
   sortKey,
   sortDirection,
   onSort,
   lens,
+  view,
+  onViewChange,
+  listWidth,
   gutter,
-}: Pick<SongListProps, 'sortKey' | 'sortDirection' | 'onSort' | 'lens'> & { gutter: number }) {
+}: Pick<
+  SongListProps,
+  'sortKey' | 'sortDirection' | 'onSort' | 'lens' | 'view' | 'onViewChange'
+> & {
+  columns: readonly Column[]
+  listWidth: number
+  gutter: number
+}) {
   return (
     <div
-      className="yarg-wash-header hidden items-center gap-[15px] px-[25px] py-[10px] @2xl/list:flex"
+      className="yarg-wash-header flex items-center gap-[15px] px-[25px] py-[10px]"
       style={{
         borderBottom: '1px solid var(--color-border-strong)',
         borderLeft: '2px solid transparent',
@@ -671,33 +668,37 @@ function SortHeader({
       }}
     >
       {/*
-       * The cover's slot, reserved and unlabelled.
+       * The cover's slot — reserved, unlabelled, and now the one control over
+       * the whole table.
        *
        * Every row leads with a 48px square before the title column, and this
        * header is a sibling *above* the scroll container rather than part of
        * it — so nothing makes the two agree except repeating the measurement.
-       * Without this spacer every label sits 63px left of the column it names.
+       * Without this square every label sits 63px left of the column it names.
        *
-       * Unlabelled because the pictures beneath it are self-evident and there
-       * is no ordering to offer: sorting by album art is not a thing.
+       * It has never carried a label, because the pictures beneath it are
+       * self-evident and there is no ordering to offer: sorting by album art is
+       * not a thing. That makes it the only cell in the header not spoken for
+       * by a column, which is exactly where a control over all of them belongs
+       * — and it spends no width the columns were using. See `ColumnPicker`.
        */}
-      <span aria-hidden className="size-[48px] shrink-0" />
+      <ColumnPicker view={view} onChange={onViewChange} lens={lens} listWidth={listWidth} />
 
-      {COLUMNS.map((column) => {
+      {columns.map((column) => {
         const active = column.key === sortKey
-        const alignEnd = column.className.includes('text-right')
-        // One column renames itself; `column.label` stays the stable React key.
-        const text = column.key === 'difficulty' ? difficultyColumnLabel(lens) : column.label
+        const alignEnd = column.align === 'end'
+        // One column renames itself; `column.id` stays the stable React key.
+        const text = columnLabel(column, lens)
 
         // Not every column is an ordering. `parts` is a set per row, and
         // sorting by a set means inventing a comparison the data doesn't have.
         if (column.key === null) {
           return (
             <span
-              key={column.label}
+              key={column.id}
               className={cx(
-                column.className,
-                'yarg-label items-center text-[13px] text-content-header opacity-70',
+                column.box,
+                'yarg-label flex items-center text-[13px] text-content-header opacity-70',
                 alignEnd && 'justify-end',
               )}
             >
@@ -710,7 +711,7 @@ function SortHeader({
 
         return (
           <button
-            key={key}
+            key={column.id}
             type="button"
             onClick={() => onSort(key)}
             // `aria-sort` belongs on a `columnheader` inside a grid; on a bare
@@ -723,7 +724,7 @@ function SortHeader({
                 : `Sort by ${text}`
             }
             className={cx(
-              column.className,
+              column.box,
               'yarg-label flex cursor-pointer items-center gap-[5px] text-[13px] transition-colors duration-160',
               active ? 'text-white' : 'text-content-header opacity-70 hover:opacity-100',
               alignEnd && 'justify-end',
@@ -756,19 +757,22 @@ function SortHeader({
  * `App`), so the comparison is cheap and it holds: rows re-render when they are
  * genuinely new, not when the page moves under them.
  *
- * **One layout, not both.** The wide and narrow rows are different shapes rather
- * than the same shape reflowed — see `ROW_HEIGHT_WIDE` — and this used to build
- * them both and let a container query hide one. That is ten `<img>` elements and
- * around sixty nodes for a row that shows six images and forty, on a list that
- * mounts a fresh row for every 80px of scroll. `narrow` is the same measurement
- * that already decides the row's height, taken off the same box the container
- * queries resolve against, so the two cannot disagree — and the columns *inside*
- * the wide row are still revealed by container query, which is what that measure
- * is for.
+ * **One layout, not both, and only the columns that are on.** The wide and
+ * narrow rows are different shapes rather than the same shape reflowed — see
+ * `ROW_HEIGHT_WIDE` — and this used to build them both and let a container query
+ * hide one. That is ten `<img>` elements and around sixty nodes for a row that
+ * shows six images and forty, on a list that mounts a fresh row for every 80px
+ * of scroll. The columns went the same way for the same reason: `parts` alone is
+ * five images per row, and with it switched off by default a CSS gate would have
+ * kept building all five for four thousand rows to show nobody. `narrow` and
+ * `columns` come off one measurement of one box, so nothing here can disagree
+ * with the header above it.
  */
 const SongRow = memo(function SongRow({
   song,
   lens,
+  columns,
+  mark,
   narrow,
   isPlaying,
   isSelected,
@@ -776,6 +780,10 @@ const SongRow = memo(function SongRow({
 }: {
   song: Song
   lens: DifficultyLens
+  /** The wide row's cells, in order. Stable between scroll frames. */
+  columns: readonly Column[]
+  /** The narrow row's one mark. See `columns.ts`. */
+  mark: RowMark
   /** Which of the two rows to build. See `WIDE_AT`. */
   narrow: boolean
   isPlaying: boolean
@@ -853,101 +861,187 @@ const SongRow = memo(function SongRow({
     >
       {isPlaying ? <span className="sr-only">Now playing. </span> : null}
 
-      {narrow ? <NarrowRow song={song} lens={lens} /> : <WideRow song={song} lens={lens} />}
+      {narrow ? (
+        <NarrowRow song={song} lens={lens} mark={mark} />
+      ) : (
+        <WideRow song={song} lens={lens} columns={columns} />
+      )}
     </button>
   )
 })
 
-/** Wide layout: aligned columns, revealed by how much room the list has. */
-function WideRow({ song, lens }: { song: Song; lens: DifficultyLens }) {
+/**
+ * Wide layout: the cover, then whichever columns are on.
+ *
+ * Driven by the same array the header labels, in the same order, so a column
+ * and the word naming it cannot come apart — which they could when this was
+ * nine hand-written cells opposite a nine-entry table, each repeating the
+ * other's widths.
+ */
+function WideRow({
+  song,
+  lens,
+  columns,
+}: {
+  song: Song
+  lens: DifficultyLens
+  columns: readonly Column[]
+}) {
   return (
-    <>
-      <div className="flex w-full items-center gap-[15px]">
-        {/*
-         * The cover leads the row, outside the `title` column rather than
-         * inside it.
-         *
-         * Inside, it would eat into the flex-[3] the title is measured against
-         * and change where every column below lands — the sort header opposite
-         * has no cover and would stop naming the thing under it. As its own
-         * fixed 48px slot the table's geometry is untouched, and a song with no
-         * art simply leaves that slot empty rather than shifting the row.
-         */}
-        <div className="size-[48px] shrink-0">
-          <AlbumThumb song={song} size={48} className="size-full" />
-        </div>
-        <div
-          dir="auto"
-          className="min-w-0 flex-[3] truncate-tight text-[22px] leading-none font-semibold text-white"
-        >
-          <SongTitle song={song} />
-        </div>
-        {/*
-         * Unclipped, and the truncation moved onto the name inside: the cover
-         * credit is a second element in this cell now, and `overflow: hidden`
-         * out here would cut the top and bottom off its two lines.
-         */}
-        <div className="flex min-w-0 flex-[2] text-[18px] leading-none font-medium text-content-secondary italic">
-          <ArtistName song={song} credit="label" />
-        </div>
-        <div className="hidden min-w-0 flex-[2] truncate text-[16px] text-content-muted @6xl/list:block">
-          {song.album || '—'}
-        </div>
-        <div className="hidden w-32 shrink-0 truncate text-[15px] text-content-muted @7xl/list:block">
-          {song.genre || '—'}
-        </div>
-        <div className="font-numeric w-16 shrink-0 text-right text-[16px] tabular-nums text-count">
-          <span className="sr-only">Released </span>
-          {formatYear(song.yearNumber)}
-        </div>
-        <div className="font-numeric w-16 shrink-0 text-right text-[16px] tabular-nums text-count">
-          <span className="sr-only">Length </span>
-          {formatDuration(song.lengthSeconds)}
-        </div>
-        {/* `shrink-0` to match the header's `parts` column, which has it. Without
-            it this is the one cell that gives up width under pressure, and the
-            five slots stop lining up with the label above them. */}
-        <InstrumentStrip song={song} className="hidden w-28 shrink-0 @4xl/list:flex" />
-        <div className="flex w-20 shrink-0 justify-end">
-          <LensDifficulty song={song} lens={lens} />
-        </div>
-        <SourceBadge
-          source={song.source}
-          size={26}
-          className="hidden w-40 shrink-0 @5xl/list:flex"
-        />
+    <div className="flex w-full items-center gap-[15px]">
+      {/*
+       * The cover leads the row, outside the `title` column rather than inside
+       * it.
+       *
+       * Inside, it would eat into the flex-[3] the title is measured against
+       * and change where every column below lands — the sort header opposite
+       * holds the same square for its column picker and would stop naming the
+       * thing under it. As its own fixed 48px slot the table's geometry is
+       * untouched, and a song with no art simply leaves that slot empty rather
+       * than shifting the row.
+       */}
+      <div className="size-[48px] shrink-0">
+        <AlbumThumb song={song} size={48} className="size-full" />
       </div>
-    </>
+
+      {columns.map((column) => (
+        <WideCell key={column.id} column={column} song={song} lens={lens} />
+      ))}
+    </div>
   )
 }
 
 /**
- * Narrow layout: a picture, then title over a metadata line.
+ * One cell, set the way its own value wants to be read.
  *
-       * Something leads the row rather than sitting in the metadata cluster on
-       * the right. It is the one field on a phone row that is a picture rather
-       * than a number, so it reads at a glance from a fixed column down the
-       * left edge — where the eye already is when it starts each row — instead
-       * of shuffling left and right with the width of the time beside it.
-       *
-       * **The cover takes that place when there is one, and the source icon
-       * keeps it otherwise.** A 60px row has room for exactly one picture, and
-       * between the two the cover wins easily: it identifies the record, which
-       * is what somebody scanning for a song is actually looking for, while the
-       * source identifies which game it was ripped from. The source is still
-       * named in full on the detail sheet, which is one tap away and is where
-       * that question gets asked. For the songs with no art the row is
- * unchanged from what it has always been.
+ * `column.box` is the geometry and comes from `columns.ts`, shared verbatim
+ * with the header cell above. Everything else — size, colour, weight, the
+ * screen-reader preamble that says what a bare number is — belongs to the value
+ * and stays here.
  */
-function NarrowRow({ song, lens }: { song: Song; lens: DifficultyLens }) {
+function WideCell({
+  column,
+  song,
+  lens,
+}: {
+  column: Column
+  song: Song
+  lens: DifficultyLens
+}) {
+  switch (column.id) {
+    case 'name':
+      return (
+        <div
+          dir="auto"
+          className={cx(
+            column.box,
+            'truncate-tight text-[22px] leading-none font-semibold text-white',
+          )}
+        >
+          <SongTitle song={song} />
+        </div>
+      )
+
+    case 'artist':
+      // Unclipped, and the truncation moved onto the name inside: the cover
+      // credit is a second element in this cell, and `overflow: hidden` out
+      // here would cut the top and bottom off its two lines.
+      return (
+        <div
+          className={cx(
+            column.box,
+            'flex text-[18px] leading-none font-medium text-content-secondary italic',
+          )}
+        >
+          <ArtistName song={song} credit="label" />
+        </div>
+      )
+
+    case 'album':
+      return (
+        <div className={cx(column.box, 'truncate text-[16px] text-content-muted')}>
+          {song.album || '—'}
+        </div>
+      )
+
+    case 'genre':
+      return (
+        <div className={cx(column.box, 'truncate text-[15px] text-content-muted')}>
+          {song.genre || '—'}
+        </div>
+      )
+
+    case 'year':
+      return (
+        <div className={cx(column.box, 'font-numeric text-[16px] tabular-nums text-count')}>
+          <span className="sr-only">Released </span>
+          {formatYear(song.yearNumber)}
+        </div>
+      )
+
+    case 'length':
+      return (
+        <div className={cx(column.box, 'font-numeric text-[16px] tabular-nums text-count')}>
+          <span className="sr-only">Length </span>
+          {formatDuration(song.lengthSeconds)}
+        </div>
+      )
+
+    case 'parts':
+      // `shrink-0` rides in `box`, shared with the header. Without it this is
+      // the one cell that gives up width under pressure, and the five slots
+      // stop lining up with the label above them.
+      return <InstrumentStrip song={song} className={column.box} />
+
+    case 'difficulty':
+      return (
+        <div className={cx(column.box, 'flex justify-end')}>
+          <LensDifficulty song={song} lens={lens} />
+        </div>
+      )
+
+    case 'source':
+      return <SourceBadge source={song.source} size={26} className={column.box} />
+  }
+}
+
+/**
+ * Narrow layout: a picture, then title over a metadata line, then the time and
+ * one mark.
+ *
+ * The cover leads the row rather than sitting in the metadata cluster on the
+ * right. It is the one field on a phone row that is a picture rather than a
+ * number, so it reads at a glance from a fixed column down the left edge —
+ * where the eye already is when it starts each row — instead of shuffling left
+ * and right with the width of the time beside it. The slot holds its 44px
+ * whether or not there is art to put in it, so the titles keep one left edge
+ * all the way down the list and a library filling in its covers never re-lays
+ * out the rows underneath somebody mid-scroll.
+ *
+ * **The trailing mark is one thing, and which one is a preference.** A 60px row
+ * has room for the time and a single picture beside it, and the two candidates
+ * answer different questions: the difficulty ring says how hard this is, the
+ * source icon says which game it came from. The source is the default because
+ * it is the one a row can *only* get here — the difficulty is on the detail
+ * sheet a tap away, carries a number that wants reading rather than glancing,
+ * and reads the same for a whole run of the list the moment anybody sorts by
+ * it. `row shows` in the compact sort panel switches them; see `columns.ts`.
+ *
+ * **The source falls back into the cover's slot only when it has no slot of its
+ * own.** With the ring showing, a song with no art puts its source icon up
+ * front, which is the row this has always drawn. With the source already out on
+ * the right, drawing it twice would be the same fact said twice on the device
+ * with the least room to say anything.
+ */
+function NarrowRow({ song, lens, mark }: { song: Song; lens: DifficultyLens; mark: RowMark }) {
   return (
     <>
-      <span className="shrink-0">
+      <span className="flex size-[44px] shrink-0 items-center justify-center">
         {song.hasArt ? (
           <AlbumThumb song={song} size={44} className="size-[44px]" />
-        ) : (
+        ) : mark === 'difficulty' ? (
           <SourceBadge source={song.source} size={24} showName={false} />
-        )}
+        ) : null}
       </span>
 
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4px]">
@@ -963,9 +1057,16 @@ function NarrowRow({ song, lens }: { song: Song; lens: DifficultyLens }) {
           <span className="sr-only">Length </span>
           {formatDuration(song.lengthSeconds)}
         </span>
-        {/* 28px on the phone row, not 32: the narrow row is 60px tall and the
-            ring is the only thing in that cluster with real height to it. */}
-        <LensDifficulty song={song} lens={lens} size={28} />
+        {mark === 'source' ? (
+          // 26px, the size the table's own source column draws — the icons are
+          // drawn to be read at a glance and this is the one on the device that
+          // does the most glancing.
+          <SourceBadge source={song.source} size={26} showName={false} />
+        ) : (
+          // 28px on the phone row, not 32: the narrow row is 60px tall and the
+          // ring is the only thing in that cluster with real height to it.
+          <LensDifficulty song={song} lens={lens} size={28} />
+        )}
       </div>
     </>
   )
