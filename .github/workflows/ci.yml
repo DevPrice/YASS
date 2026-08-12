@@ -1,0 +1,80 @@
+# Typechecks, tests and builds every push to master, then packages the tray.
+#
+# Two jobs because they want two operating systems. The checks are platform
+# agnostic and run on Linux, which is cheaper and faster; the portable .exe is
+# a Windows target and electron-builder only produces one on Windows without
+# dragging Wine into it.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# A push that supersedes another on the same branch makes the older run's
+# artifact stale before it finishes uploading.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `lib/sources.ts` reads YARG's OpenSource registry out of
+          # vendor/opensource at build time — without the submodule the client
+          # build fails on a missing `@opensource/base/index.json`.
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # Nothing in this job launches Electron, so the ~100 MB platform binary
+      # its postinstall would fetch is pure download time. The package is still
+      # installed — `npm ci` honours the lockfile for the whole workspace root
+      # or not at all — just without its runtime.
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # The client and server builds. The tray's is left to the packaging job,
+      # which has to run it anyway on the machine that packages it.
+      - run: npm run build
+
+  package:
+    # Wait for the checks: an .exe built from a revision that fails its own
+    # tests is not worth the runner minutes, let alone downloading.
+    needs: checks
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # No skipping the binary here. electron-builder packages the Electron
+      # runtime into the .exe, and reads the exact version to fetch from the
+      # installed package.
+      - run: npm ci
+
+      # Client, server, tray, then electron-builder over the lot of it. Lands
+      # in dist/ at the repository root — see desktop/electron-builder.yml.
+      - run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YASS-portable
+          path: dist/YASS-*.exe
+          if-no-files-found: error
