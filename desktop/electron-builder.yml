@@ -27,11 +27,24 @@ files:
 # `.mjs` on the way in: the bundle is ESM only because `server/package.json`
 # sits next to it saying so, and that file does not come along. The extension
 # is what carries the module system into the packaged layout.
+#
+# The three licence files ride along for a plainer reason: two of them are
+# obligations. The popover's woff2 faces are SIL OFL, which requires the notice
+# to travel with the fonts, and the genre normaliser inside the server bundle is
+# ported from YARG's LGPL-3.0 source. A build that carries the code and leaves
+# the terms behind in the repository is not distributing the same thing it was
+# given. See THIRD-PARTY-NOTICES.md.
 extraResources:
   - from: ../server/dist/index.js
     to: server/index.mjs
   - from: ../client/dist
     to: client
+  - from: ../LICENSE
+    to: LICENSE
+  - from: ../THIRD-PARTY-NOTICES.md
+    to: THIRD-PARTY-NOTICES.md
+  - from: ui/fonts/OFL.txt
+    to: fonts-OFL.txt
 
 asar: true
 

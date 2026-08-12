@@ -2,6 +2,7 @@
   "name": "yass",
   "version": "0.1.0",
   "private": true,
+  "license": "Unlicense",
   "type": "module",
   "description": "YARG song browser — sortable, filterable, searchable song list with now-playing, served alongside a YARG install",
   "workspaces": [

@@ -8,7 +8,7 @@
   "type": "commonjs",
   "main": "dist/main.js",
   "author": "DevPrice",
-  "license": "MIT",
+  "license": "Unlicense",
   "scripts": {
     "build": "tsup && vite build && node scripts/make-icon.mjs",
     "build:main": "tsup",
