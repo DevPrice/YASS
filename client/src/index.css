@@ -208,6 +208,100 @@
   }
 
   /*
+   * The volume track.
+   *
+   * A native `input[type=range]`, restyled rather than rebuilt: the drag, the
+   * arrow keys, Home and End, the announced value and the whole of the pointer
+   * capture come with it, and a div with a `role="slider"` would be re-earning
+   * every one of them. What is authored here is only the part the platform
+   * draws differently on each engine.
+   *
+   * A hairline rather than a bar, because this sits in the helper bar beside
+   * 12px muted labels and is the only control in it — a 6px filled track would
+   * be the loudest thing in the app's quietest strip. The fill is the accent,
+   * for the same reason the speaker beside it is: the accent marks the state
+   * that is doing something, and at three pixels it is a mark and not a colour
+   * field.
+   *
+   * `--slider-value` is the only value set from React; everything else is
+   * decided here, so the two engines cannot drift apart.
+   */
+  .yarg-slider {
+    --slider-track: var(--yarg-dark-6);
+    --slider-fill: var(--yarg-vivid-sky-blue);
+    --slider-thumb: var(--yarg-white);
+
+    appearance: none;
+    -webkit-appearance: none;
+    width: 76px;
+    /* The hit area, not the track: everything visible is drawn on the track. */
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  /* Muted is not disabled — it is the state a drag upward leaves. */
+  .yarg-slider[data-live='false'] {
+    --slider-fill: var(--yarg-dark-7);
+    --slider-thumb: var(--yarg-dark-7);
+  }
+
+  .yarg-slider[data-live='false']:hover,
+  .yarg-slider[data-live='false']:focus-visible {
+    --slider-thumb: var(--yarg-white);
+  }
+
+  @media (pointer: coarse) {
+    .yarg-slider {
+      height: 44px;
+    }
+  }
+
+  .yarg-slider::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: var(--radius-round);
+    background: linear-gradient(
+      90deg,
+      var(--slider-fill) var(--slider-value, 0%),
+      var(--slider-track) var(--slider-value, 0%)
+    );
+  }
+
+  .yarg-slider::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 9px;
+    height: 9px;
+    border-radius: var(--radius-round);
+    background: var(--slider-thumb);
+    /* Centred on the track it rides, whatever the hit area's height. */
+    margin-top: -3px;
+    transition: background-color 160ms var(--ease-standard);
+  }
+
+  /* Firefox fills the track itself, so it needs no gradient. */
+  .yarg-slider::-moz-range-track {
+    height: 3px;
+    border-radius: var(--radius-round);
+    background: var(--slider-track);
+  }
+
+  .yarg-slider::-moz-range-progress {
+    height: 3px;
+    border-radius: var(--radius-round);
+    background: var(--slider-fill);
+  }
+
+  .yarg-slider::-moz-range-thumb {
+    width: 9px;
+    height: 9px;
+    border: none;
+    border-radius: var(--radius-round);
+    background: var(--slider-thumb);
+    transition: background-color 160ms var(--ease-standard);
+  }
+
+  /*
    * Grows a control's hit area to the 44px touch minimum without changing a
    * pixel of how it looks. Only for controls with clear space around them —
    * on a tight row the invisible boxes would overlap each other.

@@ -66,13 +66,11 @@ import { Badge, Button, cx } from '../../ui'
 import {
   ArtistName,
   PartsGrid,
-  PreviewSoundToggle,
   SongTitle,
   SourceBadge,
   hasUntieredPart,
 } from '../../ui/library'
 import { artUrl, currentArtUrl } from '../../lib/api'
-import { usePreviewSound } from '../../lib/usePreview'
 import { formatDuration, formatYear, titleCredit } from '../../lib/format'
 
 /*
@@ -109,22 +107,6 @@ interface SongDetailProps {
 export function SongDetail({ song, isPlaying, artHash, className }: SongDetailProps) {
   const genre = [song.genre, song.subgenre].filter(Boolean).join(' · ')
 
-  const sound = usePreviewSound()
-
-  /*
-   * The sound control appears when there is something to hear — or when the
-   * sound is already on, whatever this particular song has.
-   *
-   * The second half is what keeps the preference reachable. Muting is done from
-   * the same control, so hiding it on a song with no preview would strand
-   * somebody who unmuted, walked into a chart the server could not mix, and
-   * then had no way to turn it off. The first half is what keeps it out of the
-   * way on a machine with no ffmpeg, where no song has a preview and the
-   * default is muted: the control never appears at all, and the app is the one
-   * that existed before any of this.
-   */
-  const showSound = song.hasPreview || !sound.muted
-
   return (
     /*
      * 25px is the resting interval; the one 35px break is bought with a margin
@@ -138,28 +120,22 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
 
       <div className="flex flex-col gap-[10px]">
         {/*
-         * The status strip: what YARG is doing with this song, and what this
-         * phone is doing with it.
+         * What YARG is doing with this song, and nothing else.
          *
-         * Directly under the plate rather than on it. A preview control laid
-         * over the artwork was the first design and it was the one thing on
-         * this surface guaranteed to cover a picture somebody opened the pane
-         * to look at — see `PreviewSoundToggle`. Here it costs a 38px line, is
-         * in reach without scrolling on a phone sheet, and the cover is whole.
+         * The preview control used to stand here too, as a filled accent pill
+         * under the artwork — the loudest object on a surface whose subject is
+         * a cover and a title, answering a question about the room from inside
+         * a card about one record. It is chrome now, in the helper bar and in
+         * the sheet's own header; see `features/preview/PreviewSound.tsx`.
          *
-         * The row renders only when it has something in it, so a song that is
-         * neither playing nor previewable does not leave a 10px gap behind.
+         * The badge renders only when it is true, so a song nobody is playing
+         * does not leave a 10px gap above its title.
          */}
-        {isPlaying || showSound ? (
-          <div className="flex flex-wrap items-center gap-[10px]">
-            {isPlaying ? <Badge tone="accent">Now playing</Badge> : null}
-            {showSound ? (
-              <PreviewSoundToggle
-                muted={sound.muted}
-                status={sound.status}
-                onToggle={sound.toggle}
-              />
-            ) : null}
+        {/* Wrapped, because a bare badge is a flex child here and would stretch
+            to the width of the pane rather than to its own two words. */}
+        {isPlaying ? (
+          <div>
+            <Badge tone="accent">Now playing</Badge>
           </div>
         ) : null}
 

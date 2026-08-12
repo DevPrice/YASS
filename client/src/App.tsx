@@ -33,7 +33,7 @@ import { formatTitleCredit } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
-import { setPreviewNavigating, setPreviewSong } from './lib/usePreview'
+import { setPreviewNavigating, setPreviewSong, usePreviewSound } from './lib/usePreview'
 import { decodeAppState, syncUrl } from './lib/urlState'
 import { FiltersPanel } from './features/library/Filters'
 import type { OpenPanel } from './features/library/Filters'
@@ -50,6 +50,7 @@ import {
 } from './features/library/filtering'
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
 import { NowPlayingBar } from './features/nowPlaying/NowPlayingBar'
+import { PreviewSoundButton, PreviewVolume } from './features/preview/PreviewSound'
 
 /**
  * Where the detail stops being a sheet and becomes a pane.
@@ -221,6 +222,27 @@ export function App() {
   useEffect(() => {
     setPreviewSong(previewHash)
   }, [previewHash])
+
+  /**
+   * Whether the sound control is worth drawing at all.
+   *
+   * The control moved into the chrome, where it is always on screen rather than
+   * appearing under whichever song happens to have a preview — so the question
+   * it now asks is about the library and not about one chart: has the server
+   * got the media pipeline to produce a preview of *anything*. On a machine
+   * with no ffmpeg the answer is no for all four thousand, and the app is the
+   * one that existed before any of this.
+   *
+   * `!sound.muted` is the second half, and it is what keeps the preference
+   * reachable: somebody who unmuted while the pipeline was up must not be
+   * stranded with the sound on and no way to turn it off if it goes away.
+   *
+   * Memoized on the library rather than recomputed per render — this walks
+   * every song, and the array is four thousand long.
+   */
+  const sound = usePreviewSound()
+  const anyPreview = useMemo(() => songs.some((song) => song.hasPreview), [songs])
+  const showSound = anyPreview || !sound.muted
 
   /**
    * The other half of that: the key coming back up.
@@ -586,22 +608,44 @@ export function App() {
       {/*
        * The helper bar is the strongest identity cue in YARG's chrome, so the
        * design system keeps it on the companion app even though a browser has
-       * no gamepad. It's branding with a shortcut function, not a control bar.
+       * no gamepad. It's branding with a shortcut function first — and it is
+       * where this app's one standing control lives, because a preference about
+       * whether the room hears anything belongs with the other things that are
+       * true of the whole session rather than inside a card about one song.
        *
        * Which is exactly why it stops at `md`. On a phone it was spending the
        * one screen region a thumb can comfortably reach on shortcuts the device
        * cannot produce; below `md` the filter bar takes that space and fills it
-       * with controls. Nothing is lost — the shortcuts don't apply without a
-       * keyboard, and the play state is already the subject of the now-playing
-       * banner at the top of the screen.
+       * with controls, and the sound control rides in the detail sheet's header
+       * instead. Nothing is lost — the shortcuts don't apply without a keyboard,
+       * and the play state is already the subject of the now-playing banner at
+       * the top of the screen.
+       *
+       * The two right-hand items are one cluster and are spaced as one, closer
+       * to each other than the bar's own 25px: they are both answers to "what
+       * is making noise", and the shortcut hints on the left are not.
        */}
       <HelperBar className="hidden md:flex">
         <HelperHint keyLabel="/" action="search" />
         {selection !== null ? <HelperHint keyLabel="↑↓" action="next song" /> : null}
         {escapeAction ? <HelperHint keyLabel="esc" action={escapeAction} /> : null}
-        <span className="ml-auto text-[12px] text-content-faint">
-          {nowPlaying.playing ? 'yarg is playing' : 'yarg is idle'}
-        </span>
+        <div className="ml-auto flex items-center gap-[20px]">
+          <span className="text-[12px] text-content-faint">
+            {nowPlaying.playing ? 'yarg is playing' : 'yarg is idle'}
+          </span>
+          {/*
+           * The sheet's breakpoint, not the bar's own.
+           *
+           * The bar appears at `md` and the detail is still a modal sheet until
+           * `lg`, so between the two — a phone held sideways, a half-width
+           * window — a control drawn here would spend the whole time a song is
+           * open sitting behind the sheet's backdrop: visible, dimmed, and
+           * inert. Below two panes the chip in the sheet header is the one that
+           * can actually be reached, and exactly one of the two exists at any
+           * width.
+           */}
+          {twoPane && showSound ? <PreviewVolume /> : null}
+        </div>
       </HelperBar>
 
       {/*
@@ -610,7 +654,13 @@ export function App() {
        * is still a dialog waiting to trap focus.
        */}
       {!twoPane && selected ? (
-        <SongDetailSheet label={formatTitleCredit(selected)} onClose={() => setSelection(null)}>
+        <SongDetailSheet
+          label={formatTitleCredit(selected)}
+          onClose={() => setSelection(null)}
+          // The sheet only exists below two panes, which is exactly where the
+          // helper bar's copy of this control does not — see the note there.
+          leading={showSound ? <PreviewSoundButton /> : null}
+        >
           <SongDetail
             song={selected}
             isPlaying={selected.id === playingId}

@@ -54,6 +54,25 @@
  * gain and the fades collapse to cuts. The feature still works; it just arrives
  * abruptly, exactly as it did before this.
  *
+ * ## One master, so the level is not the fade
+ *
+ * How loud the previews are and where a crossfade has got to are two different
+ * questions, and the moment they share a gain node they stop being separable:
+ * dragging a slider mid-fade would have to guess what the ramp was going to do
+ * next, and a fade would have to remember what the level was supposed to be.
+ * The decks therefore keep ramping between 0 and 1 exactly as they always have,
+ * and a single master gain downstream of both of them carries the level. One
+ * parameter, written from one place, and no interaction between the two at all.
+ *
+ * Its own ramp is 50 ms — not a fade anybody is meant to hear, just long enough
+ * that dragging a slider is a slide rather than a few hundred stepped writes to
+ * an audio parameter, which is audible as a zip.
+ *
+ * The taper is square, not linear. Loudness is roughly the square of amplitude
+ * over the range a person is actually adjusting, so a linear slider spends its
+ * top third on changes nobody can hear and drops off a cliff near the bottom.
+ * Squaring the position puts the halfway point at something that sounds halfway.
+ *
  * ## Two decks
  *
  * A crossfade is two songs audible at once, so one element cannot do it. The
@@ -81,6 +100,15 @@ interface PreviewState {
   hash: string | null
   status: PreviewStatus
   muted: boolean
+  /**
+   * How loud, as the position of the control that sets it — 0 to 1.
+   *
+   * The position rather than the gain, because that is the thing a person
+   * chose; `gainFor` turns it into an amplitude at the one place that needs
+   * one. Never 0: reaching the bottom of the slider mutes instead, so this
+   * always holds a level worth restoring to.
+   */
+  volume: number
 }
 
 /**
@@ -130,6 +158,16 @@ const FADE_OUT_MS = 400
 const CUT_MS = 60
 
 /**
+ * How long the master takes to reach a new level.
+ *
+ * A drag produces a continuous stream of values, and writing each one straight
+ * onto an audio parameter is a staircase — audible as a zip on anything with a
+ * sustained note in it. Short enough to feel like the slider *is* the volume,
+ * long enough that the steps join up.
+ */
+const LEVEL_MS = 50
+
+/**
  * Equal-power crossfade curves, rather than two straight lines.
  *
  * Two uncorrelated signals sum by power, not amplitude, so linear ramps that
@@ -164,6 +202,7 @@ const FALLING = powerCurve(false)
  * decision feel like it did not take.
  */
 const STORAGE_KEY = 'yass.previews.muted'
+const VOLUME_KEY = 'yass.previews.volume'
 
 /**
  * Muted unless the device has explicitly said otherwise.
@@ -181,13 +220,48 @@ function storedMuted(): boolean {
   }
 }
 
-let state: PreviewState = { hash: null, status: 'idle', muted: storedMuted() }
+/**
+ * Full, unless this device has turned it down.
+ *
+ * Anything outside `(0, 1]` — a missing entry, a corrupt one, a hand-edited
+ * zero — comes back as full. Zero in particular has to be refused rather than
+ * clamped upward silently: it is the one stored value that would make unmuting
+ * do nothing visible, and "the sound button is broken" is a worse failure than
+ * "the level was forgotten".
+ */
+function storedVolume(): number {
+  try {
+    const raw = window.localStorage.getItem(VOLUME_KEY)
+    const value = raw === null ? Number.NaN : Number.parseFloat(raw)
+
+    return Number.isFinite(value) && value > 0 && value <= 1 ? value : 1
+  } catch {
+    return 1
+  }
+}
+
+/** Position to amplitude. See the taper note at the top of this file. */
+function gainFor(position: number): number {
+  return position * position
+}
+
+let state: PreviewState = {
+  hash: null,
+  status: 'idle',
+  muted: storedMuted(),
+  volume: storedVolume(),
+}
 const listeners = new Set<() => void>()
 
 function publish(next: PreviewState): void {
   // Reference equality is the store's change signal, so only replace when
   // something actually moved.
-  if (next.hash === state.hash && next.status === state.status && next.muted === state.muted) {
+  if (
+    next.hash === state.hash &&
+    next.status === state.status &&
+    next.muted === state.muted &&
+    next.volume === state.volume
+  ) {
     return
   }
 
@@ -231,6 +305,8 @@ interface Deck {
 }
 
 let context: AudioContext | null = null
+/** Both decks' output, carrying the level. Null wherever the context is. */
+let master: GainNode | null = null
 let decks: [Deck, Deck] | null = null
 
 /** The deck carrying the current song, and the one loading the next. */
@@ -259,6 +335,15 @@ function ensureDecks(): [Deck, Deck] {
     context = null
   }
 
+  if (context !== null) {
+    // Before the decks, because they connect into it as they are built — and
+    // at the stored level, so the first note of the first preview is already
+    // as loud as this device asked for rather than ramping up to it.
+    master = context.createGain()
+    master.gain.value = gainFor(state.volume)
+    master.connect(context.destination)
+  }
+
   decks = [makeDeck(), makeDeck()]
   return decks
 }
@@ -272,7 +357,7 @@ function makeDeck(): Deck {
 
   const deck: Deck = { element, gain: null, hash: null, token: 0, timer: null }
 
-  if (context !== null) {
+  if (context !== null && master !== null) {
     try {
       const source = context.createMediaElementSource(element)
       const gain = context.createGain()
@@ -280,7 +365,7 @@ function makeDeck(): Deck {
       // announce the first frame of every song at full volume before its ramp
       // had a chance to be scheduled.
       gain.gain.value = 0
-      source.connect(gain).connect(context.destination)
+      source.connect(gain).connect(master)
       deck.gain = gain
     } catch {
       // Routing failed, so this element plays at its own volume or not at all.
@@ -289,6 +374,13 @@ function makeDeck(): Deck {
       deck.gain = null
     }
   }
+
+  // No gain stage means no master either, so the level has to be carried by the
+  // element itself. Safari ignores this write and keeps the hardware buttons in
+  // charge, which is the right answer on the device where that is true — and it
+  // is also the device that always has an `AudioContext`, so this path is a
+  // desktop fallback rather than the iOS one.
+  if (deck.gain === null) element.volume = gainFor(state.volume)
 
   element.addEventListener('playing', () => arrived(deck))
   element.addEventListener('error', () => failed(deck))
@@ -689,21 +781,94 @@ export function setPreviewMuted(muted: boolean): void {
   if (hash !== null) start(hash)
 }
 
+/** Slide the master to the current level, or the elements if there is no master. */
+function applyLevel(): void {
+  const target = gainFor(state.volume)
+
+  if (master !== null && context !== null) {
+    const param = master.gain
+    const now = context.currentTime
+
+    // From wherever the last drag got to, rather than from the last target: two
+    // input events 8 ms apart would otherwise stack ramps that each start from
+    // a value the parameter never actually held.
+    param.cancelScheduledValues(now)
+    param.setValueAtTime(param.value, now)
+    param.linearRampToValueAtTime(target, now + LEVEL_MS / 1000)
+    return
+  }
+
+  if (decks === null) return
+  for (const deck of decks) {
+    if (deck.gain === null) deck.element.volume = target
+  }
+}
+
+/**
+ * Set how loud previews are, as a position between 0 and 1.
+ *
+ * **The bottom of the range is mute, not silence.** Sound nobody can hear is
+ * still a file being downloaded and looped, and this feature's one hard rule is
+ * that quiet costs nothing — see the top of this file. So zero hands over to
+ * `setPreviewMuted`, which stops the fetching, and the stored level is left
+ * alone so that unmuting has somewhere to come back to.
+ *
+ * Moving off zero is the other half of that: it unmutes, which starts the
+ * selected song. Safe to do from a slider because the autoplay policy counts a
+ * drag as the gesture it is asking for, and this runs inside the event.
+ */
+export function setPreviewVolume(position: number): void {
+  const level = Math.min(1, Math.max(0, position))
+
+  if (level === 0) {
+    setPreviewMuted(true)
+    return
+  }
+
+  if (level !== state.volume) {
+    try {
+      window.localStorage.setItem(VOLUME_KEY, String(level))
+    } catch {
+      // Same as the mute preference: a device that cannot remember it still
+      // honours it for this session.
+    }
+
+    publish({ ...state, volume: level })
+    applyLevel()
+  }
+
+  // After the level is in place, so an unmute starts at the volume being asked
+  // for rather than at the one that was stored a moment ago.
+  if (state.muted) setPreviewMuted(false)
+}
+
 /**
  * The sound preference and what it is currently doing.
  *
  * `status` is here for the surface that wants to say something while a cold
  * preview is being generated — that takes about a second the first time a song
  * is asked for, and it is the one wait in this feature a person can notice.
+ *
+ * `volume` is what a control should *show*, which is not quite what the store
+ * holds: a muted app reads zero however loud it will be when it comes back.
+ * That is what makes one slider carry both facts.
  */
 export function usePreviewSound(): {
   muted: boolean
   status: PreviewStatus
+  volume: number
   toggle: () => void
+  setVolume: (position: number) => void
 } {
   const current = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   const toggle = useCallback(() => setPreviewMuted(!current.muted), [current.muted])
 
-  return { muted: current.muted, status: current.status, toggle }
+  return {
+    muted: current.muted,
+    status: current.status,
+    volume: current.muted ? 0 : current.volume,
+    toggle,
+    setVolume: setPreviewVolume,
+  }
 }

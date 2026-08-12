@@ -17,8 +17,7 @@ import type { DifficultyLens } from '../lib/difficulty'
 import { LENS_LABELS, groupTier, lensTier } from '../lib/difficulty'
 import { artistCredit, formatVocalParts, titleCredit } from '../lib/format'
 import { resolveSource } from '../lib/sources'
-import type { PreviewStatus } from '../lib/usePreview'
-import { Button, cx } from './index'
+import { cx } from './index'
 
 const GROUP_LABELS: Record<InstrumentGroup, string> = {
   guitar: 'Guitar',
@@ -149,97 +148,15 @@ export function AlbumThumb({
   )
 }
 
-/**
- * A speaker, with waves or with a cross through it.
+/*
+ * `PreviewSoundToggle` used to live here — the filled accent pill that turned
+ * previews on, and the speaker glyph it carried.
  *
- * Drawn rather than imported because the design system has no audio glyph — its
- * icon set is instruments and gamepad buttons, which is what a game menu needs.
- * The cone is filled and everything hung off it is stroked, so the two states
- * differ in the mark beside the speaker rather than in the speaker itself.
+ * Both moved to `features/preview/PreviewSound.tsx` when the control stopped
+ * being part of a song and became part of the app. `git log -S
+ * PreviewSoundToggle` for the pill; the reasoning for where it went instead is
+ * at the top of that file.
  */
-function SpeakerGlyph({ muted }: { muted: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" width={18} height={18} aria-hidden className="shrink-0">
-      <path
-        fill="currentColor"
-        d="M4 9h3.6L12.4 5.1A.75.75 0 0 1 13.6 5.7v12.6a.75.75 0 0 1-1.2.6L7.6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z"
-      />
-      <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-        {muted ? (
-          <>
-            <path d="M17 9.5l5 5" />
-            <path d="M22 9.5l-5 5" />
-          </>
-        ) : (
-          <>
-            <path d="M16.8 9.2a4 4 0 0 1 0 5.6" />
-            <path d="M19.6 6.8a7.5 7.5 0 0 1 0 10.4" />
-          </>
-        )}
-      </g>
-    </svg>
-  )
-}
-
-/**
- * Whether previews make a sound.
- *
- * The only preview control in the app. There is no per-song play button: a
- * preview follows the selection and loops for as long as that song is the one
- * being looked at, so the only decision left to a person is whether they want
- * to hear it at all — and that is a property of the room, not of the song.
- *
- * **Labelled with the verb, not the state.** `aria-pressed` on an unlabelled
- * speaker would be the compact version and it would put the one question that
- * matters — is this thing about to make noise in a quiet room — behind an icon
- * somebody has to interpret. The button says what the tap will do.
- *
- * Accent only while the sound is on, which is the same rule the rest of this
- * system uses for it: the accent marks the state that is doing something. Off,
- * it takes the neutral fill — **and it keeps the fill**, which is not a detail.
- * The quiet variant was the first cut and it made the muted state, which is the
- * state every device starts in, a line of white text with an icon: the only
- * affordance the feature has, drawn as if it were a caption. A control nobody
- * can tell is a control is a feature nobody finds.
- *
- * Nothing here is positioned over a cover. That was the first design, and a
- * disc on the artwork is exactly what album art is for looking at.
- */
-export function PreviewSoundToggle({
-  muted,
-  status,
-  onToggle,
-  className,
-}: {
-  muted: boolean
-  status: PreviewStatus
-  onToggle: () => void
-  className?: string
-}) {
-  /*
-   * A cold preview is generated on the spot, which takes about a second — the
-   * one wait in this feature anybody notices. The pulse is the whole report:
-   * a spinner for one second is a flash of anxiety, and the button has already
-   * said what it is doing.
-   */
-  const starting = !muted && status === 'loading'
-
-  return (
-    <Button
-      tone={muted ? 'neutral' : 'accent'}
-      aria-busy={starting || undefined}
-      onClick={onToggle}
-      icon={
-        <span className={cx('flex', starting && 'animate-pulse')}>
-          <SpeakerGlyph muted={muted} />
-        </span>
-      }
-      className={className}
-    >
-      {muted ? 'play previews' : 'mute previews'}
-    </Button>
-  )
-}
 
 export function SourceBadge({
   source,

@@ -27,15 +27,27 @@ const EXIT_MS = 200
 
 export function SongDetailSheet({
   label,
+  leading,
   onClose,
   children,
 }: {
   /** Names the dialog. The song's title, so a screen reader says what opened. */
   label: string
+  /**
+   * The left end of the header, opposite the close button.
+   *
+   * One slot rather than a named prop for the one thing in it, because the
+   * sheet has no business knowing about previews — what it owns is a header
+   * with a grab handle in the middle, a way out on the right, and room on the
+   * left. See `features/preview/PreviewSound.tsx` for what fills it and why
+   * that is where the sound control lives on a phone.
+   */
+  leading?: ReactNode
   onClose: () => void
   children: ReactNode
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 
   /** Where the sheet is vertically: false until it has risen, then `drag` px. */
@@ -51,6 +63,18 @@ export function SongDetailSheet({
     if (dialog === null) return
 
     dialog.showModal()
+
+    /*
+     * Focus the way out, rather than whatever happens to come first.
+     *
+     * `showModal` runs the dialog focusing steps, which take the first focusable
+     * descendant — and the header now has a sound toggle to the left of the
+     * close button. That put the opening focus ring around a preference on
+     * every song anybody tapped. React's `autoFocus` cannot fix it: it calls
+     * `focus()` on mount instead of setting the attribute the dialog algorithm
+     * looks for, so it has already happened by the time this runs.
+     */
+    closeRef.current?.focus()
 
     // Two frames, not one: the first commits the off-screen transform, the
     // second is the earliest one that can transition away from it. Collapsing
@@ -169,9 +193,17 @@ export function SongDetailSheet({
           aria-hidden
           className="pointer-events-none absolute top-[7px] left-1/2 h-[4px] w-[44px] -translate-x-1/2 rounded-full bg-[var(--yarg-dark-6)]"
         />
+        {/*
+         * `mr-auto` on the slot rather than `justify-between` on the header:
+         * what goes in here is hidden at the width where the helper bar takes
+         * the job over, and a header justifying between one remaining child and
+         * nothing would walk the close button to the left edge.
+         */}
+        {leading ? <span className="mr-auto">{leading}</span> : null}
         <button
           type="button"
           onClick={dismiss}
+          ref={closeRef}
           aria-label="Close song details"
           className="yarg-focusable flex size-[44px] cursor-pointer items-center justify-center text-content-muted transition-colors duration-160 hover:text-white"
         >

@@ -201,9 +201,10 @@ class FakeAudio {
 }
 
 /** A `localStorage` that records, or one that throws the way Safari's can. */
-function fakeStorage(seed?: string, broken = false) {
+function fakeStorage(seed?: string, broken = false, volume?: string) {
   const values = new Map<string, string>()
   if (seed !== undefined) values.set('yass.previews.muted', seed)
+  if (volume !== undefined) values.set('yass.previews.volume', volume)
 
   return {
     values,
@@ -227,8 +228,10 @@ let caseNumber = 0
  * preference is read while the module body evaluates, which is the only chance
  * a device gets to say it has been unmuted before.
  */
-async function load(options: { stored?: string; broken?: boolean; noWebAudio?: boolean } = {}) {
-  const storage = fakeStorage(options.stored, options.broken)
+async function load(
+  options: { stored?: string; broken?: boolean; noWebAudio?: boolean; volume?: string } = {},
+) {
+  const storage = fakeStorage(options.stored, options.broken, options.volume)
 
   const globals = globalThis as unknown as Record<string, unknown>
   globals.window = {
@@ -252,23 +255,36 @@ async function load(options: { stored?: string; broken?: boolean; noWebAudio?: b
     return element
   }
 
-  /** Deck `index`'s scheduled ramps, in order. */
-  const ramps = (index: number): string[] => {
-    const gain = FakeGain.instances[index]
+  /**
+   * A deck's gain node.
+   *
+   * Offset by one, because the master is built before the pair and is therefore
+   * gain node zero — the level lives on it, and the decks below it still ramp
+   * between 0 and 1 as if it were not there. That separation is the point of
+   * having it, and this offset is the only place the tests can see it.
+   */
+  const gainOf = (index: number): FakeGain => {
+    const gain = FakeGain.instances[index + 1]
     assert.ok(gain, `no gain node ${index} was ever constructed`)
-    return gain.gain.events
+    return gain
   }
 
-  const level = (index: number): number => {
-    const gain = FakeGain.instances[index]
-    assert.ok(gain)
+  /** Deck `index`'s scheduled ramps, in order. */
+  const ramps = (index: number): string[] => gainOf(index).gain.events
+
+  const level = (index: number): number => round(gainOf(index).gain.value)
+
+  /** What the master is currently worth, which is the volume as an amplitude. */
+  const masterLevel = (): number => {
+    const gain = FakeGain.instances[0]
+    assert.ok(gain, 'no master gain was ever constructed')
     return round(gain.gain.value)
   }
 
   /** The browser reporting that a deck has begun to make sound. */
   const arrive = (index: number) => deck(index).emit('playing')
 
-  return { store, storage, deck, ramps, level, arrive }
+  return { store, storage, deck, ramps, level, masterLevel, arrive }
 }
 
 const wait = (milliseconds: number) =>
@@ -735,5 +751,87 @@ describe('preview sound', () => {
     store.setPreviewSong(null)
     assert.equal(deck(0).paused, true, 'a deck with no fade to wait for kept playing')
     assert.equal(deck(0).src, '')
+  })
+
+  /*
+   * The level and the fades are separate parameters on purpose. Sharing one
+   * would make every drag of the slider an interruption of whatever ramp was in
+   * flight, and every crossfade a decision about what the volume was supposed
+   * to be — so this asserts the thing that keeps them apart: turning the sound
+   * down mid-song moves the master and leaves the deck's own ramp untouched.
+   */
+  it('carries the level on the master and leaves the fades alone', async () => {
+    const { store, storage, ramps, level, masterLevel, arrive } = await load({ stored: 'false' })
+
+    store.setPreviewSong('ABC123')
+    await wait(SETTLED)
+    arrive(0)
+    await wait(FADED_IN)
+
+    assert.equal(masterLevel(), 1)
+
+    store.setPreviewVolume(0.5)
+    await wait(120)
+
+    // Squared, not linear: half the slider is a quarter of the amplitude, which
+    // is what sounds like half. See the taper note in the module.
+    assert.equal(masterLevel(), 0.25)
+    assert.equal(level(0), 1, 'the deck ramp was dragged along by the volume')
+    assert.deepEqual(fades(ramps(0)), ['curve:0->1:600'])
+    assert.equal(storage.values.get('yass.previews.volume'), '0.5')
+  })
+
+  it('opens at the level this device stored, and refuses a stored zero', async () => {
+    const quiet = await load({ stored: 'false', volume: '0.5' })
+
+    quiet.store.setPreviewSong('ABC123')
+    await wait(SETTLED)
+    assert.equal(quiet.masterLevel(), 0.25, 'the first note played at the wrong volume')
+
+    // A hand-edited or half-written zero would leave the sound button doing
+    // nothing anybody can hear, which is worse than forgetting the level.
+    assert.equal((await load({ volume: '0' })).store.previewState().volume, 1)
+    assert.equal((await load({ volume: 'loud' })).store.previewState().volume, 1)
+    assert.equal((await load({ volume: '4' })).store.previewState().volume, 1)
+  })
+
+  /*
+   * The bottom of the slider is the same decision as the mute button, and has
+   * to have the same consequence: no bytes. A master parked at zero would go on
+   * downloading and looping every song somebody tapped, inaudibly — which is
+   * the exact failure the muted default exists to prevent.
+   */
+  it('mutes at the bottom of the range rather than playing silence', async () => {
+    const { store, storage, deck, ramps, arrive } = await load({ stored: 'false' })
+
+    store.setPreviewSong('ABC123')
+    await wait(SETTLED)
+    arrive(0)
+    await wait(FADED_IN)
+
+    store.setPreviewVolume(0)
+
+    assert.equal(store.previewState().muted, true)
+    assert.deepEqual(fades(ramps(0)), ['curve:0->1:600', 'curve:1->0:400'])
+
+    await wait(500)
+    assert.equal(deck(0).src, '', 'a silent preview was left downloading')
+
+    // And the level it will come back to survives the trip to zero.
+    assert.equal(storage.values.get('yass.previews.volume'), undefined)
+    assert.equal(store.previewState().volume, 1)
+  })
+
+  it('unmutes when the level is raised, and starts at the level asked for', async () => {
+    const { store, deck, masterLevel } = await load()
+
+    store.setPreviewSong('ABC123')
+    // The gesture is the drag, and this is inside it — the same contract the
+    // mute button honours, which is what satisfies the autoplay policy.
+    store.setPreviewVolume(0.5)
+
+    assert.equal(store.previewState().muted, false)
+    assert.deepEqual(deck(0).plays, ['/api/preview/ABC123'])
+    assert.equal(masterLevel(), 0.25, 'the graph was built at the old level')
   })
 })
