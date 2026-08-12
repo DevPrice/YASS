@@ -100,6 +100,32 @@ const HEADER_HEIGHT_NARROW = 35
 const TOP_EDGE_SLACK = 1
 
 /**
+ * How much list there has to be before the jump rail is worth its width.
+ *
+ * The rail exists because four thousand songs have exactly one gesture through
+ * them, and a flick answers "further down" rather than "at the M's". Thirty
+ * songs have both answers already: the whole list is two flicks end to end, and
+ * a scroll bar's worth of feedback is enough to place you in it. What the rail
+ * costs does not shrink with the list — 38px off every row, a strip of chrome
+ * down the edge somebody has to read past, and a second gesture to discover —
+ * so on a short list it is all cost and no reach.
+ *
+ * **Counted in screenfuls rather than in songs, because "short" is a property
+ * of the window and not of the library.** Forty songs is two screens on a
+ * desktop and four on a phone, and the phone is both the device where the flick
+ * is longest and the one where 38px of width is worth the most; a song count
+ * would have to be wrong on one of them to be right on the other. The viewport
+ * is the honest unit, and it is the unit already in hand — the virtualizer
+ * knows the height of the whole list and the height of the box showing it,
+ * headers and row heights and the current filter all included.
+ *
+ * Three of them, which is where the flick stops being the shorter path: two
+ * screens is one throw, and anything you cannot reach in one throw is worth an
+ * index. On both layouts that works out around thirty songs.
+ */
+const RAIL_AT_SCREENFULS = 3
+
+/**
  * The selected song, and how the list should bring it into view.
  *
  * The two are one value because they always change together and the alignment
@@ -178,8 +204,9 @@ export function SongList({
    * platform's business — 10px in Chromium via the `::-webkit-scrollbar` rule,
    * something else in Firefox, nothing at all where scrollbars overlay. The
    * jump rail is a sibling column beside the scroller and takes another 38px,
-   * but only for the sorts it can index. Measuring the whole gap in one number
-   * means the header never has to know which of them is there.
+   * but only for an ordering it can index and a list long enough to be worth
+   * indexing. Measuring the whole gap in one number means the header never has
+   * to know which of them is there.
    *
    * Taken off the two boxes' rects rather than `offsetWidth - clientWidth`,
    * because both of those are rounded to whole pixels. At anything but 100%
@@ -393,9 +420,10 @@ export function SongList({
    */
   const scrollOffset = virtualizer.scrollOffset ?? 0
   const viewport = virtualizer.scrollRect?.height ?? scrollRef.current?.clientHeight ?? 0
+  const totalSize = virtualizer.getTotalSize()
   // A pixel of tolerance: `scrollTop` is fractional under zoom and on a phone,
   // and browsers do not promise it reaches the maximum exactly.
-  const atEnd = viewport > 0 && scrollOffset + viewport >= virtualizer.getTotalSize() - 1
+  const atEnd = viewport > 0 && scrollOffset + viewport >= totalSize - 1
 
   const currentItem = atEnd
     ? items.length - 1
@@ -419,14 +447,27 @@ export function SongList({
   }
 
   /*
-   * One mark is not an index.
+   * Two ways to be a list that needs no index, and both give the width back to
+   * the rows — which is what a list narrowed down to a handful wants it for.
    *
-   * A rail appears for any ordering `indexing.ts` can divide, and disappears
-   * when the current results collapse into a single division — filtering down
-   * to one artist, one decade, one source. There is nowhere to jump at that
-   * point, and the width goes back to the rows.
+   * *One mark is not an index.* A rail appears for any ordering `indexing.ts`
+   * can divide, and disappears when the current results collapse into a single
+   * division — filtering down to one artist, one decade, one source. There is
+   * nowhere to jump at that point.
+   *
+   * *Three screenfuls is not a scroll.* See `RAIL_AT_SCREENFULS`. This is the
+   * common one of the two: an index over twenty songs still has a dozen marks
+   * on it, so the first rule never catches the case where the rail is dense,
+   * legible, and pointing at things already on screen.
+   *
+   * `viewport` is 0 for the single render before the scroller has been
+   * measured, and an unmeasured height is not evidence of a short list — so the
+   * rail holds until there is a measurement to hide it on, rather than
+   * appearing late over every library that does need it. That render never
+   * reaches the screen either way: the virtualizer takes the scroller's rect in
+   * a layout effect, so the re-render with a real height lands before paint.
    */
-  const showRail = marks.length > 1
+  const showRail = marks.length > 1 && (viewport === 0 || totalSize > viewport * RAIL_AT_SCREENFULS)
 
   return (
     <div ref={columnRef} className="flex min-h-0 flex-1 flex-col">
@@ -492,7 +533,7 @@ export function SongList({
             // scrollbar the full height, and it must not sit between the list and
             // its items.
             role="presentation"
-            style={{ height: `${virtualizer.getTotalSize()}px` }}
+            style={{ height: `${totalSize}px` }}
           >
             {virtualItems.map((virtualRow) => {
               const item = items[virtualRow.index]
