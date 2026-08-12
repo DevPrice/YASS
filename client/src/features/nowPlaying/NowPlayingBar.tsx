@@ -234,13 +234,25 @@ function Shell({
         aria-hidden
         className="venue-wash"
         style={{
-          backgroundColor: wash.color ?? 'transparent',
           opacity: wash.opacity,
           // The fade fills the whole gap between colours, so the wash is always
           // mid-transition rather than resting and then switching.
           '--venue-fade': `${wash.fadeMs}ms`,
         } as CSSProperties}
-      />
+      >
+        {/* The colour already on screen, held while the next comes up over it. */}
+        <div
+          className="venue-wash-layer"
+          style={{ backgroundColor: wash.previous ?? 'transparent' }}
+        />
+        {/* Keyed by the colour, so each one is a new element that starts its
+            fade at zero. See `.venue-wash-in`. */}
+        <div
+          key={wash.color ?? 'none'}
+          className="venue-wash-layer venue-wash-in"
+          style={{ backgroundColor: wash.color ?? 'transparent' }}
+        />
+      </div>
       <div className="relative flex h-full items-center gap-[15px] px-[25px]">{children}</div>
     </div>
   )

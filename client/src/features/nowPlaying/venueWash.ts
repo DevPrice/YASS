@@ -22,7 +22,7 @@
  * reaches this the same way it reaches everything else.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { LightingCue, PostProcessing, VenueState } from '@shared/types'
 
@@ -130,13 +130,29 @@ function stepMs(bpm: number | null): number {
 export interface VenueWash {
   /** A colour token, or null when the banner should sit at its own colour. */
   color: string | null
+  /**
+   * The colour already on screen, which `color` comes up over.
+   *
+   * The drift is drawn as one layer fading in on top of another rather than as
+   * a `background-color` that interpolates, because the second of those repaints
+   * — see `.venue-wash` in `index.css`. Two layers need to know what they are
+   * fading *from*, and it has to be what was actually last painted: the palette
+   * changes under this whenever the cue does, so the colour one step back in the
+   * current palette is frequently a colour that was never on screen.
+   */
+  previous: string | null
   /** How much of it to let through. */
   opacity: number
   /** Fade length — always the full step, so the colour never sits still. */
   fadeMs: number
 }
 
-export const NO_WASH: VenueWash = { color: null, opacity: 0, fadeMs: DEFAULT_STEP_MS }
+export const NO_WASH: VenueWash = {
+  color: null,
+  previous: null,
+  opacity: 0,
+  fadeMs: DEFAULT_STEP_MS,
+}
 
 /** The palette in play right now, before any drift is applied. */
 function palette(venue: VenueState): readonly string[] {
@@ -176,10 +192,29 @@ export function useVenueWash(venue: VenueState): VenueWash {
     return () => clearInterval(timer)
   }, [key, period, colors.length])
 
-  if (colors.length === 0) return NO_WASH
+  const color = colors.length === 0 ? null : (colors[step % colors.length] ?? null)
+
+  /*
+   * What was on screen last time this committed.
+   *
+   * Read during render and written after it, which is the only order that is
+   * safe: a ref written while rendering would be a different value depending on
+   * how many times React chose to render, and this has to be the colour that
+   * was actually *painted*. Null on the first pass, so a wash arriving on a
+   * banner that had none fades up out of nothing rather than out of a colour
+   * the palette had not shown yet.
+   */
+  const shown = useRef<string | null>(null)
+  const previous = shown.current
+  useEffect(() => {
+    shown.current = color
+  }, [color])
+
+  if (color === null) return NO_WASH
 
   return {
-    color: colors[step % colors.length] ?? null,
+    color,
+    previous,
     opacity: venue.section === 'chorus' ? CHORUS_OPACITY : BASE_OPACITY,
     fadeMs: period,
   }

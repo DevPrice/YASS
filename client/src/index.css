@@ -336,6 +336,20 @@
    * wash is permanently mid-transition — it drifts rather than switching, and
    * there is no moment at which a colour arrives. `linear` for that reason
    * too: an eased curve would put a visible settle at each end.
+   *
+   * **Two layers cross-fading, not one `background-color` interpolating.**
+   * That is the same picture drawn a cheaper way, and the difference is not
+   * small: `background-color` is not a property the compositor can animate, so
+   * a wash that is *permanently* mid-transition repainted the banner on every
+   * frame for as long as a song was playing — measured at ~150ms of raster per
+   * second, around 450 raster tasks a second, on a completely idle app. That is
+   * the largest single cost in the client and it was being paid for a colour
+   * nobody is looking at. `opacity` animates on the compositor, and one opaque
+   * layer coming up over another is exactly a linear interpolation between two
+   * colours, which is what the transition was computing the expensive way.
+   *
+   * The blend, the mask and the 900ms in/out stay on the wrapper. Only the
+   * colour moved inward.
    */
   .venue-wash {
     position: absolute;
@@ -344,9 +358,32 @@
     mix-blend-mode: screen;
     mask-image: linear-gradient(90deg, #000 0%, transparent 72%);
     -webkit-mask-image: linear-gradient(90deg, #000 0%, transparent 72%);
-    transition:
-      background-color var(--venue-fade, 4000ms) linear,
-      opacity 900ms ease;
+    transition: opacity 900ms ease;
+  }
+
+  .venue-wash-layer {
+    position: absolute;
+    inset: 0;
+  }
+
+  /*
+   * An animation rather than a transition, because the layer is *new* — React
+   * remounts it on every colour, keyed by the colour. A transition on a
+   * freshly inserted element has no previous value to run from and would land
+   * on its final opacity in one frame; an animation starts at `from` on the
+   * first frame it exists, with no double-rAF to arrange it.
+   */
+  .venue-wash-in {
+    animation: venue-wash-in var(--venue-fade, 4000ms) linear both;
+  }
+
+  @keyframes venue-wash-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   /*
@@ -362,6 +399,12 @@
   @media (prefers-reduced-motion: reduce) {
     .venue-wash {
       opacity: 0 !important;
+    }
+
+    /* The wrapper is invisible, so this changes nothing on screen — it stops
+       an animation nobody can see from being kept alive under it. */
+    .venue-wash-in {
+      animation: none !important;
     }
   }
 
