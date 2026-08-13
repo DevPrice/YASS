@@ -161,7 +161,7 @@ input, and both other workflows call it, so a release ships what CI has been che
 
 ```bash
 npm version --no-git-tag-version --workspaces --include-workspace-root 1.2.3
-git commit -am "1.2.3"                    # README quotes the filenames; update those too
+git commit -am "1.2.3"                    # README quotes the release filenames; update those
 git push origin master
 git tag -a v1.2.3 -m "1.2.3" && git push origin v1.2.3
 ```
@@ -177,11 +177,17 @@ Things that follow from how this is wired:
   create the tag until a draft is published, so a workflow woken by the draft has no tagged
   commit to check out — only the branch, which may have moved on.
 - **Bumping the manifests is optional.** `.github/scripts/stamp-version.mjs` writes the
-  tag's version into all four `package.json` files on the runner, so the tag decides the
-  filenames either way. That stamp is never committed. Bumping in the repo keeps a local
-  `npm run dist` producing the same names. It runs **after `npm ci`, never before** — the
-  lockfile records those versions and rewriting them first makes the install fail as out of
-  sync.
+  tag's version into all four `package.json` files on the runner *and* switches
+  `desktop/electron-builder.yml`'s two `artifactName` lines over to their versioned
+  templates, so the tag decides the filenames either way. Neither edit is ever committed. It
+  runs **after `npm ci`, never before** — the lockfile records those versions and rewriting
+  them first makes the install fail as out of sync.
+- **A local `npm run dist` is deliberately unversioned.** `dist/YASS.exe` and
+  `dist/YASS.AppImage`, overwritten in place, so a pinned shortcut, a script or a Windows
+  firewall rule keeps matching across rebuilds. The version appears only on what the
+  releases page hands out, where a file in somebody's Downloads folder has to be datable
+  against a bug report. Bumping the manifests locally does not change what a local build is
+  called — only tagging does.
 - **A failed build produces no release**, because the `draft` job needs `build`.
 - **Re-pushing the same tag updates the draft in place** rather than erroring (`gh release
   view` first, then `upload --clobber`).

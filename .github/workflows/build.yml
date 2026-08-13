@@ -29,12 +29,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `YASS*` and not `YASS-*`: the packaged file is `YASS.exe` unless a
+          # version was stamped, and only then `YASS-1.2.3.exe`. One glob has
+          # to match both, because the same job packages both cases.
           - os: windows-latest
             artifact: YASS-windows-portable
-            files: dist/YASS-*.exe
+            files: dist/YASS*.exe
           - os: ubuntu-latest
             artifact: YASS-linux-appimage
-            files: dist/YASS-*.AppImage
+            files: dist/YASS*.AppImage
 
     runs-on: ${{ matrix.os }}
 
@@ -96,7 +99,7 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: dist
         run: |
-          ./YASS-*.AppImage --appimage-extract > /dev/null
+          ./YASS*.AppImage --appimage-extract > /dev/null
           # No `--no-sandbox`: launched the way a person would launch it, so
           # that a sandbox this platform refuses to grant fails here rather
           # than on their machine.

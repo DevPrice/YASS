@@ -49,9 +49,14 @@ address to hand guests, settings behind native file pickers, and the server runn
 underneath it.
 
 ```bash
-npm run dist            # -> dist/YASS-1.0.0.exe            on Windows (~96 MB)
-                        # -> dist/YASS-1.0.0-x86_64.AppImage on Linux
+npm run dist            # -> dist/YASS.exe      on Windows (~82 MB)
+                        # -> dist/YASS.AppImage on Linux
 ```
+
+The files the [releases page](https://github.com/DevPrice/YASS/releases) hands out
+carry the version — `YASS-1.0.0.exe`, `YASS-1.0.0-x86_64.AppImage` — so a download
+can be told apart from the next one. A local build keeps the plain name and
+overwrites itself, which is what you want when you are building it repeatedly.
 
 Nothing to install either way, and it builds for the platform you run it on. The
 Windows build is unsigned, so SmartScreen warns on first run.

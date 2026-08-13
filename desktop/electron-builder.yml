@@ -14,6 +14,24 @@ directories:
   output: ../dist
   buildResources: build
 
+# Ship one language, not fifty-five.
+#
+# Electron carries a `.pak` of translated Chromium strings per locale — 49 MB
+# unpacked and ~8 MB of the shipped executable, the single largest thing in the
+# build that is not Chromium itself. They translate Chromium's own UI: context
+# menus, the certificate errors, the print dialog. This app has one frameless
+# window with `setMenu(null)` on it and never navigates, so none of that surface
+# is reachable, and the popover's own strings are in the bundle either way.
+#
+# The cost is that Chromium's built-in menus would be English on a non-English
+# machine. There are no such menus here.
+electronLanguages:
+  - en-US
+
+# Removes the DirectX shader compiler after the runtime is copied but before it
+# is packaged; see the script for what it takes and what it deliberately leaves.
+afterPack: scripts/prune-runtime.mjs
+
 # Main, preload and the popover's built UI go inside the asar: only Electron
 # reads them, and its patched `fs` handles the archive transparently. The icon
 # rides along because the tray reads it at runtime through `nativeImage`, which
@@ -45,6 +63,19 @@ extraResources:
     to: server/index.mjs
   - from: ../client/dist
     to: client
+    # Without the sourcemap, which is 1.5 MB of the client build and of use to
+    # exactly nobody here: it is only ever fetched by a devtools window, and the
+    # people opening this app are guests on their phones. It stays in
+    # `client/dist` for a local `npm run build`, so debugging the client against
+    # a dev server is unaffected — only the copy inside the installer loses it.
+    #
+    # The `sourceMappingURL` comment stays behind in the JS and now points at a
+    # file that isn't there. That is a 404 in a devtools panel nobody opens, and
+    # stripping it would mean post-processing the client's build output from the
+    # desktop workspace, which is a worse trade than the 404.
+    filter:
+      - '**/*'
+      - '!**/*.map'
   - from: ../LICENSE
     to: LICENSE
   - from: ../THIRD-PARTY-NOTICES.md
@@ -61,7 +92,18 @@ win:
   icon: build/icon.ico
 
 portable:
-  artifactName: YASS-${version}.exe
+  # Unversioned, because a developer building this repeatedly wants one path
+  # that keeps working — a pinned shortcut, a firewall rule, a script — rather
+  # than a new filename every time the manifests move. `dist/YASS.exe` is
+  # overwritten in place by the next `npm run dist`.
+  #
+  # Releases are the other case entirely, and there the version is the point:
+  # a file called `YASS.exe` sitting in somebody's Downloads folder is not
+  # datable against a bug report. `.github/scripts/stamp-version.mjs` rewrites
+  # this line to `YASS-${version}.exe` on the runner when a tag is being
+  # packaged, so the name below is what a person building locally gets and the
+  # versioned one is what the releases page gets. Neither is committed.
+  artifactName: YASS.exe
 
   # A fixed extraction directory, and the reason is Windows Firewall.
   #
@@ -107,4 +149,8 @@ linux:
     game and reads its library from YARG's own song cache.
 
 appImage:
-  artifactName: YASS-${version}-x86_64.AppImage
+  # Same rule as the portable .exe above, including the arch marker: a local
+  # build is `YASS.AppImage`, and the release is stamped up to
+  # `YASS-${version}-x86_64.AppImage`. The arch only earns its place next to a
+  # version, on a page offering more than one file.
+  artifactName: YASS.AppImage
