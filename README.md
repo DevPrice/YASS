@@ -49,8 +49,8 @@ address to hand guests, settings behind native file pickers, and the server runn
 underneath it.
 
 ```bash
-npm run dist            # -> dist/YASS-0.2.0.exe            on Windows (~96 MB)
-                        # -> dist/YASS-0.2.0-x86_64.AppImage on Linux
+npm run dist            # -> dist/YASS-0.2.1.exe            on Windows (~96 MB)
+                        # -> dist/YASS-0.2.1-x86_64.AppImage on Linux
 ```
 
 Nothing to install either way, and it builds for the platform you run it on. The
