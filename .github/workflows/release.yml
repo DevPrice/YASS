@@ -1,0 +1,73 @@
+# Push a version tag, come back to a draft release with both binaries on it.
+#
+#     npm version --no-git-tag-version 0.2.0   # optional; see below
+#     git tag v0.2.0 && git push origin v0.2.0
+#
+# Then edit the notes and press publish. The release stays a draft because the
+# notes are worth writing by hand, and because a draft is the last chance to
+# download the two files and check them before anybody else can.
+#
+# Tag-triggered rather than triggered by drafting the release in the web UI,
+# which is the more obvious way round and does not work: GitHub does not create
+# the tag until a draft is published, so a workflow woken by the draft has no
+# tagged commit to check out — only the branch the release points at, which may
+# have moved on since. A tag is a commit, and that is what wants building.
+#
+# Bumping the package.json files first is optional: build.yml stamps the tag's
+# version into them for the packaging run either way, so the filenames are
+# right regardless. Doing it in the repository too keeps `npm run dist` on a
+# developer's machine honest, and is a good habit rather than a requirement.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# `gh release create` writes to the repository. Nothing else here does.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Typecheck, test, package, and — on Linux — actually launch the packaged
+    # app and wait for it to serve. A release that cannot start is worth
+    # failing before it exists rather than after somebody downloads it.
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  draft:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # Flattened into one directory: the two artifacts are one file each, and
+      # `gh release create` takes a list of files rather than a tree.
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # No checkout — `gh` needs a repository, not a working copy, and GH_REPO
+      # tells it which without cloning one to be ignored.
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -l artifacts
+
+          # Re-running this workflow on a tag whose draft already exists should
+          # replace the files on it, not fail on the release already being
+          # there. `--clobber` because same tag, same filenames.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "$TAG already has a release; replacing its files"
+            gh release upload "$TAG" artifacts/* --clobber
+          else
+            gh release create "$TAG" artifacts/* \
+              --draft \
+              --title "$TAG" \
+              --generate-notes
+          fi
+
+          echo "::notice::draft release $TAG is ready to edit and publish"

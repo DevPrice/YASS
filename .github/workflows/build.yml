@@ -1,0 +1,125 @@
+# Typechecks, tests and packages YASS on both platforms it ships a build for,
+# and uploads the two artifacts. Called by ci.yml on every push to master and
+# by release.yml on a version tag — the same job either way, so what gets
+# attached to a release is what CI has been checking all along.
+#
+# The two runners are not interchangeable. electron-builder produces a target
+# for the machine it runs on — a portable .exe on Windows, an AppImage on Linux
+# — and the songcache tests read paths with the host's own rules, because that
+# is what the parser does and what YARG wrote. So each platform checks itself.
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: >-
+          Version to package as, with or without the leading `v`. Left empty,
+          the package.json files decide — which is what CI wants, and what a
+          release does not; see release.yml.
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  build:
+    strategy:
+      # One platform failing should not hide the other's result — most of the
+      # interesting failures here are things that work on exactly one of them.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: YASS-windows-portable
+            files: dist/YASS-*.exe
+          - os: ubuntu-latest
+            artifact: YASS-linux-appimage
+            files: dist/YASS-*.AppImage
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `lib/sources.ts` reads YARG's OpenSource registry out of
+          # vendor/opensource at build time — without the submodule the client
+          # build fails on a missing `@opensource/base/index.json`.
+          submodules: recursive
+
+      - uses: actions/setup-node@v7
+        with:
+          # 22, not the 20 the engines field floors at. The test scripts hand
+          # `src/**/*.test.ts` to `node --test` still quoted, so no shell ever
+          # expands it and the test runner has to do the globbing itself —
+          # which it only learned to do in 22. The app itself still runs on 20.
+          node-version: '22'
+          cache: npm
+
+      # No skipping the Electron binary: electron-builder packages the runtime
+      # into the artifact and reads the exact version from the installed
+      # package.
+      - run: npm ci
+
+      # After `npm ci`, never before: the lockfile records the workspace
+      # packages' own versions, and rewriting them first makes the install fail
+      # as out of sync. Nothing between here and `npm run dist` reads a version,
+      # so late is as good as early and much less trouble.
+      - name: Stamp the release version
+        if: inputs.version != ''
+        # Bash rather than the Windows default, so one script covers both
+        # runners. Through the environment rather than interpolated into the
+        # command, so a tag name is data and never shell.
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node .github/scripts/stamp-version.mjs "$VERSION"
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # Client, server, tray, then electron-builder over the lot of it — `dist`
+      # runs the builds itself, so there is no separate build step. Lands in
+      # dist/ at the repository root; see desktop/electron-builder.yml.
+      - run: npm run dist
+
+      # Proof that the thing being uploaded starts, which nothing above checks:
+      # a build can package perfectly and still die on a missing shared library
+      # or a tray that cannot be created. The server answering on loopback means
+      # Electron came up, the tray was constructed, and the child process the
+      # whole app exists to run is serving.
+      #
+      # Extracted rather than mounted because AppImage needs FUSE, which the
+      # runner image does not have; `--appimage-extract` is the documented way
+      # round that and exercises the same payload.
+      - name: Smoke-test the AppImage
+        if: runner.os == 'Linux'
+        working-directory: dist
+        run: |
+          ./YASS-*.AppImage --appimage-extract > /dev/null
+          # No `--no-sandbox`: launched the way a person would launch it, so
+          # that a sandbox this platform refuses to grant fails here rather
+          # than on their machine.
+          xvfb-run -a ./squashfs-root/AppRun > app.log 2>&1 &
+          echo $! > app.pid
+
+          for _ in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4321/api/health; then
+              echo
+              echo "the packaged app is serving"
+              kill "$(cat app.pid)" || true
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::the packaged app never answered on 127.0.0.1:4321"
+          cat app.log
+          kill "$(cat app.pid)" || true
+          exit 1
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
