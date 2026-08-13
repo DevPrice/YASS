@@ -94,6 +94,12 @@ linux:
   # PNG, not the ICO: this is what fills the desktop entry and what the tray
   # reads at runtime. `scripts/make-icon.mjs` writes both.
   icon: build/icon.png
+  # Spelled out because the default is the *package* name, and this package is
+  # `@yass/desktop` — which electron-builder sanitises to `@yassdesktop` and
+  # then refuses, a scope marker being no kind of filename. Lowercase because
+  # this is a Linux binary, and it is what `Icon=` in the autostart entry
+  # written by `src/autostart.ts` resolves against.
+  executableName: yass
   category: AudioVideo
   synopsis: Song browser for YARG
   description: >-
