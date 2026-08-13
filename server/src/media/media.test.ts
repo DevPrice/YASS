@@ -17,6 +17,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
 import { parseSongCache, readLeb128, CacheFormatError, SUPPORTED_CACHE_VERSIONS } from './cache.js'
@@ -183,6 +184,24 @@ const STRING_TABLES = [
   ['rb3dlc'],
 ]
 
+/*
+ * The fixtures' directories, in the host's own spelling.
+ *
+ * A real `songcache.bin` holds whatever the machine that wrote it writes, and
+ * `resolveRelative` joins the parts back together with that machine's rules —
+ * which is right, because YARG writes the file on the machine that reads it.
+ * A fixture pinned to `C:\charts` therefore only describes reality on Windows:
+ * on Linux those become one long filename that `join` hangs off the working
+ * directory, and the containment check has no separators to reason about.
+ *
+ * So the shape is asserted on both platforms and the spelling is the host's.
+ */
+const WINDOWS = process.platform === 'win32'
+const CHARTS_DIR = WINDOWS ? 'C:\\charts' : '/charts'
+const PACK_DIR = WINDOWS ? 'C:\\packs\\pack_con' : '/packs/pack_con'
+/** A relative path that climbs out of its group — the thing being refused. */
+const ESCAPING_PATH = WINDOWS ? '..\\..\\Windows\\System32' : '../../etc/shadow'
+
 /**
  * A minimal but structurally faithful cache file.
  *
@@ -231,7 +250,7 @@ function buildCacheFile(version: number): Buffer {
   ])
 
   const iniGroup = Buffer.concat([
-    dotnetString('C:\\charts'),
+    dotnetString(CHARTS_DIR),
     loopable([iniEntry]),
     loopable([sngEntry]),
   ])
@@ -245,7 +264,7 @@ function buildCacheFile(version: number): Buffer {
   ])
 
   const conGroup = Buffer.concat([
-    dotnetString('C:\\packs\\pack_con'),
+    dotnetString(PACK_DIR),
     int64(0n), // root last write
     int32(0), // PackedCONEntry
     loopable([conEntry]),
@@ -273,19 +292,19 @@ describe('songcache.bin', () => {
       hash: HASH_A,
       format: 'Ini',
       // The group's base directory joined to the entry's relative path.
-      path: 'C:\\charts\\Some Artist - Some Song',
+      path: join(CHARTS_DIR, 'Some Artist - Some Song'),
     })
 
     assert.deepEqual(songs[1]?.ref, {
       hash: HASH_B,
       format: 'Sng',
-      path: 'C:\\charts\\Packed.sng',
+      path: join(CHARTS_DIR, 'Packed.sng'),
     })
 
     assert.deepEqual(songs[2]?.ref, {
       hash: HASH_A,
       format: 'CON',
-      path: 'C:\\packs\\pack_con',
+      path: PACK_DIR,
       subName: 'shortname',
       dtaName: 'dtanode',
     })
@@ -357,7 +376,7 @@ describe('songcache.bin', () => {
 
   it('refuses a relative path that escapes its group directory', () => {
     const escaping = Buffer.concat([
-      dotnetString('..\\..\\Windows\\System32'),
+      dotnetString(ESCAPING_PATH),
       Buffer.from([0]),
       int64(0n),
       Buffer.from([0]),
@@ -365,7 +384,7 @@ describe('songcache.bin', () => {
     ])
 
     const group = Buffer.concat([
-      dotnetString('C:\\charts'),
+      dotnetString(CHARTS_DIR),
       loopable([escaping]),
       loopable([]),
     ])
