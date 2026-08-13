@@ -1,18 +1,10 @@
-# Typechecks, tests and packages every push to master.
+# Typechecks, tests and packages every push to master, on both platforms YASS
+# ships a build for.
 #
-# One job, on Windows, which is not the obvious choice for work that is mostly
-# platform agnostic — the checks would be faster and cheaper on Linux. Two
-# things pull them onto the same runner as the packaging:
-#
-#  - `desktop` only targets Windows, and electron-builder only produces that
-#    portable .exe on Windows without Wine underneath it.
-#  - The songcache tests are written in Windows paths. `resolveRelative` in
-#    server/src/media/cache.ts joins with the host's path rules, which is right
-#    in production — YARG writes songcache.bin on the machine that reads it —
-#    but it means a fixture full of `C:\charts` resolves to nonsense on Linux.
-#
-# So the checks run where the app runs. Splitting them back onto Linux means
-# building those fixtures out of the host's separators first.
+# The two runners are not interchangeable. electron-builder produces a target
+# for the machine it runs on — a portable .exe on Windows, an AppImage on Linux
+# — and the songcache tests read paths with the host's own rules, because that
+# is what the parser does and what YARG wrote. So each platform checks itself.
 name: CI
 
 on:
@@ -21,14 +13,28 @@ on:
   workflow_dispatch:
 
 # A push that supersedes another on the same branch makes the older run's
-# artifact stale before it finishes uploading.
+# artifacts stale before they finish uploading.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      # One platform failing should not hide the other's result — most of the
+      # interesting failures here are things that work on exactly one of them.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: YASS-windows-portable
+            files: dist/YASS-*.exe
+          - os: ubuntu-latest
+            artifact: YASS-linux-appimage
+            files: dist/YASS-*.AppImage
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v7
         with:
@@ -47,7 +53,8 @@ jobs:
           cache: npm
 
       # No skipping the Electron binary: electron-builder packages the runtime
-      # into the .exe and reads the exact version from the installed package.
+      # into the artifact and reads the exact version from the installed
+      # package.
       - run: npm ci
 
       - run: npm run typecheck
@@ -55,12 +62,47 @@ jobs:
       - run: npm test
 
       # Client, server, tray, then electron-builder over the lot of it — `dist`
-      # runs the builds itself, so there is no separate build step above. Lands
-      # in dist/ at the repository root; see desktop/electron-builder.yml.
+      # runs the builds itself, so there is no separate build step. Lands in
+      # dist/ at the repository root; see desktop/electron-builder.yml.
       - run: npm run dist
+
+      # Proof that the thing being uploaded starts, which nothing above checks:
+      # a build can package perfectly and still die on a missing shared library
+      # or a tray that cannot be created. The server answering on loopback means
+      # Electron came up, the tray was constructed, and the child process the
+      # whole app exists to run is serving.
+      #
+      # Extracted rather than mounted because AppImage needs FUSE, which the
+      # runner image does not have; `--appimage-extract` is the documented way
+      # round that and exercises the same payload.
+      - name: Smoke-test the AppImage
+        if: runner.os == 'Linux'
+        working-directory: dist
+        run: |
+          ./YASS-*.AppImage --appimage-extract > /dev/null
+          # No `--no-sandbox`: launched the way a person would launch it, so
+          # that a sandbox this platform refuses to grant fails here rather
+          # than on their machine.
+          xvfb-run -a ./squashfs-root/AppRun > app.log 2>&1 &
+          echo $! > app.pid
+
+          for _ in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4321/api/health; then
+              echo
+              echo "the packaged app is serving"
+              kill "$(cat app.pid)" || true
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::the packaged app never answered on 127.0.0.1:4321"
+          cat app.log
+          kill "$(cat app.pid)" || true
+          exit 1
 
       - uses: actions/upload-artifact@v7
         with:
-          name: YASS-portable
-          path: dist/YASS-*.exe
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
           if-no-files-found: error
