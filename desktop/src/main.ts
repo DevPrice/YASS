@@ -23,6 +23,7 @@ import {
 } from '@server/core/paths.js'
 import { bindingChanged } from '@server/core/settings.js'
 
+import { readAutostart, writeAutostart } from './autostart.js'
 import {
   apiJson,
   installFfmpeg,
@@ -67,15 +68,36 @@ let pollTimer: NodeJS.Timeout | null = null
 let fetchingFfmpeg = false
 
 /**
- * Where "start with Windows" should point.
+ * Where "start when I log in" should point.
  *
- * A portable build runs from a temp directory that is cleaned up between
- * launches, so `process.execPath` would register a login item that stops
- * existing. `PORTABLE_EXECUTABLE_FILE` is the `.exe` the user actually
- * double-clicked.
+ * Neither portable format runs from where the user put it. The Windows build
+ * unpacks itself into a temp directory that is cleaned up between launches, and
+ * an AppImage mounts itself at a fresh `/tmp/.mount_*` every time — so
+ * `process.execPath` would register a login item that stops existing the moment
+ * the app closes. Both formats say where the real file is, in their own
+ * variable: `PORTABLE_EXECUTABLE_FILE` is the `.exe` that was double-clicked,
+ * `APPIMAGE` the `.AppImage` that was run.
  */
 function launchPath(): string {
-  return process.env.PORTABLE_EXECUTABLE_FILE ?? process.execPath
+  return process.env.PORTABLE_EXECUTABLE_FILE ?? process.env.APPIMAGE ?? process.execPath
+}
+
+/**
+ * Whether the app starts at login, asked of whichever mechanism this platform
+ * has. See `autostart.ts` for why Linux has its own.
+ */
+function openAtLogin(): boolean {
+  if (process.platform === 'linux') return readAutostart()
+  return app.getLoginItemSettings({ path: launchPath() }).openAtLogin
+}
+
+function setOpenAtLogin(enabled: boolean): void {
+  if (process.platform === 'linux') {
+    writeAutostart(enabled, launchPath())
+    return
+  }
+
+  app.setLoginItemSettings({ openAtLogin: enabled, path: launchPath() })
 }
 
 async function buildState(): Promise<DesktopState> {
@@ -97,7 +119,7 @@ async function buildState(): Promise<DesktopState> {
     lan: running && server.isLanBound && boundPort ? lanAddresses(boundPort) : [],
     localUrl: running ? server.localUrl : null,
     liveApply: origin !== null,
-    openAtLogin: app.getLoginItemSettings({ path: launchPath() }).openAtLogin,
+    openAtLogin: openAtLogin(),
     version: app.getVersion(),
   }
 }
@@ -232,7 +254,7 @@ function registerIpc(): void {
     // Read back from the OS rather than stored in `settings.json`: this is a
     // property of the machine, not of the app's configuration, and the file is
     // meant to be portable between them.
-    app.setLoginItemSettings({ openAtLogin: Boolean(enabled), path: launchPath() })
+    setOpenAtLogin(Boolean(enabled))
     return buildState()
   })
 

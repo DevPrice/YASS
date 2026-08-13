@@ -25,6 +25,17 @@
  * When none resolve, the media features stay dark: `hasArt` and `hasPreview`
  * come back false and the client draws exactly what it drew before any of this
  * existed. Nothing errors, and nothing half-works.
+ *
+ * ## The fetch is Windows-only, and the rest of this file is not
+ *
+ * Only step 2 is: the pinned artifact below is a Windows build, and installing
+ * it anywhere else would leave a PE executable named `ffmpeg` sitting in the
+ * app's own directory, found by step 2 on every subsequent run and failing to
+ * execute every time. So `fetchFfmpeg` refuses, and Linux and macOS resolve
+ * through `YASS_FFMPEG` or `PATH` — where a package manager has almost
+ * certainly already put one, and where the answer is one command rather than a
+ * 110 MB download. Everything else here — resolution, running it, the timeout
+ * — is the same code on every platform.
  */
 
 import { spawn } from 'node:child_process'
@@ -67,6 +78,21 @@ export interface FfmpegInfo {
 
 const executableName = (name: string): string =>
   process.platform === 'win32' ? `${name}.exe` : name
+
+/**
+ * Whether this platform has a build to fetch.
+ *
+ * Asked by the API so the popover can offer the download where it exists and
+ * say where to get ffmpeg where it doesn't, rather than presenting a button
+ * that always fails.
+ */
+export function canFetchFfmpeg(): boolean {
+  return process.platform === 'win32'
+}
+
+/** What to tell somebody who has no ffmpeg and no download to offer them. */
+export const FFMPEG_INSTALL_HINT =
+  'Install ffmpeg with your package manager — `apt install ffmpeg`, `dnf install ffmpeg`, `brew install ffmpeg` — or point YASS_FFMPEG at one.'
 
 /** Where a fetched ffmpeg lives. */
 export function managedFfmpegPath(): string {
@@ -278,6 +304,10 @@ export const FFMPEG_DOWNLOAD_BYTES = DOWNLOAD.bytes
  * binary somewhere the app will later execute.
  */
 export async function fetchFfmpeg(onProgress?: (progress: FetchProgress) => void): Promise<string> {
+  if (!canFetchFfmpeg()) {
+    throw new Error(`No ffmpeg build is bundled for ${process.platform}. ${FFMPEG_INSTALL_HINT}`)
+  }
+
   const response = await fetch(DOWNLOAD.url, { redirect: 'follow' })
   if (!response.ok || response.body === null) {
     throw new Error(`Could not download ffmpeg: ${response.status} ${response.statusText}`)

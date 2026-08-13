@@ -1,7 +1,11 @@
-# A single portable .exe — a file you can hand to somebody, or drop on the
+# A single file per platform — one you can hand to somebody, or drop on the
 # machine that runs the party, with nothing to install and nothing left behind
-# but `%APPDATA%\yass` (a settings file) and `%LOCALAPPDATA%\yass` (everything
-# it can rebuild).
+# but a settings file and a cache directory it can rebuild: `%APPDATA%\yass`
+# and `%LOCALAPPDATA%\yass` on Windows, `~/.config/yass` and `~/.cache/yass`
+# on Linux.
+#
+# A portable .exe on Windows and an AppImage on Linux, which is the same idea
+# twice: self-contained, `chmod +x` and run, no package manager involved.
 appId: com.yarg.yass
 productName: YASS
 copyright: ''
@@ -17,6 +21,7 @@ directories:
 files:
   - dist/**/*
   - build/icon.ico
+  - build/icon.png
   - package.json
 
 # These two stay *outside* the asar, and that is the whole point of listing
@@ -77,3 +82,23 @@ portable:
   # build; this extends it to two *different* builds, which is a thing only a
   # developer does, and cheaply undone by bumping the name.
   unpackDirName: YASS
+
+# AppImage is the Linux answer to the portable .exe: a single file carrying its
+# own runtime, run from wherever it was downloaded to. It needs FUSE to mount
+# itself, which most desktops have and Ubuntu 24.04 does not ship by default —
+# `--appimage-extract-and-run` is the way out of that, and the README says so.
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  # PNG, not the ICO: this is what fills the desktop entry and what the tray
+  # reads at runtime. `scripts/make-icon.mjs` writes both.
+  icon: build/icon.png
+  category: AudioVideo
+  synopsis: Song browser for YARG
+  description: >-
+    A song browser for YARG, served to the phones at your party. Runs beside the
+    game and reads its library from YARG's own song cache.
+
+appImage:
+  artifactName: YASS-${version}-x86_64.AppImage

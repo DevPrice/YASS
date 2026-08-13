@@ -476,6 +476,21 @@ function MediaLine({ state, busy }: { state: DesktopState; busy: boolean }) {
   if (!media) return null
 
   if (!media.ffmpeg) {
+    // No build to fetch on this platform — see `canFetchFfmpeg` in the server's
+    // `media/ffmpeg.ts`. A package manager is a better answer than a download
+    // anyway; what the popover owes the user is the command, not a button.
+    if (!media.canFetchFfmpeg) {
+      return (
+        <div className="mt-2">
+          <p className="text-body text-content-muted">
+            Album art and previews need ffmpeg. Install it with your package manager —{' '}
+            <code className="font-numeric text-content-default">apt install ffmpeg</code> — and
+            restart the server.
+          </p>
+        </div>
+      )
+    }
+
     return (
       <div className="mt-2">
         <p className="text-body text-content-muted">

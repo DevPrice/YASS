@@ -11,6 +11,7 @@ import { streamSSE } from 'hono/streaming'
 
 import type { ServerStatus, Settings } from '@shared/types.js'
 import type { AppState } from '../state.js'
+import { canFetchFfmpeg, FFMPEG_INSTALL_HINT } from '../media/ffmpeg.js'
 import { isArtSize } from '../media/store.js'
 import { serveFile } from '../static.js'
 import { isLocalRequest, localOnly } from './local.js'
@@ -61,6 +62,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
         // A boolean, not the path: the tray asks "does this work", and the
         // location of the binary is one more absolute path with nowhere to be.
         ffmpeg: media.ffmpeg !== null,
+        canFetchFfmpeg: canFetchFfmpeg(),
         charts: media.charts,
         source: state.charts.meta.source,
         precomputing: media.precomputing,
@@ -98,6 +100,13 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
    * exactly one of these at a time; a second caller joins the first.
    */
   api.post('/media/ffmpeg', localOnly, async (c) => {
+    // 501 rather than 500: there is nothing wrong here and retrying will not
+    // help. This platform has no build to fetch, and the message says what to
+    // do instead.
+    if (!canFetchFfmpeg()) {
+      return c.json({ ok: false, error: FFMPEG_INSTALL_HINT }, 501)
+    }
+
     try {
       const path = await state.installFfmpeg()
       return c.json({ ok: true, installed: path !== null })

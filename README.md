@@ -44,15 +44,26 @@ Swap `release` for `nightly` or `dev` to match your build. If YARG was launched 
 
 ### Or use the tray app
 
-A portable Windows executable that puts YASS in the notification area: a QR code with the
+A portable executable that puts YASS in the notification area: a QR code with the
 address to hand guests, settings behind native file pickers, and the server running
 underneath it.
 
 ```bash
-npm run dist            # -> dist/YASS-0.1.0.exe  (~96 MB, no installer)
+npm run dist            # -> dist/YASS-0.1.0.exe            on Windows (~96 MB)
+                        # -> dist/YASS-0.1.0-x86_64.AppImage on Linux
 ```
 
-It's unsigned, so SmartScreen warns on first run. Windows-only for now.
+Nothing to install either way, and it builds for the platform you run it on. The
+Windows build is unsigned, so SmartScreen warns on first run.
+
+On Linux, `chmod +x` the AppImage and run it. Two things differ from Windows:
+
+- AppImages mount themselves with FUSE, which Ubuntu 24.04 and up no longer ship.
+  Either install `libfuse2`, or run it with `--appimage-extract-and-run`.
+- ffmpeg — which album art and previews need — is not fetched for you, because the
+  build YASS pins is a Windows one. `apt install ffmpeg` (or your distro's
+  equivalent, or `YASS_FFMPEG=/path/to/ffmpeg`) and restart the server. Without it
+  the song list works and the art stays dark.
 
 ## Configuring it
 
@@ -89,7 +100,7 @@ shared/   Types used by both
 | `npm start` | The built server, one process, one port |
 | `npm run dev:demo` | The serverless demo, locally |
 | `npm run build:demo` | The demo as a static site in `client/dist` |
-| `npm run dist` | Everything, packaged as a Windows executable |
+| `npm run dist` | Everything, packaged for the platform you're on |
 | `npm test` | Tests, against real captures in `fixtures/` |
 
 **The submodule isn't optional.** `vendor/opensource` is

@@ -295,6 +295,15 @@ export interface ServerStatus {
 export interface MediaSummary {
   /** False when the media features are dark, which the tray offers to fix. */
   ffmpeg: boolean
+  /**
+   * Whether this platform has an ffmpeg build YASS can fetch for itself.
+   *
+   * Windows only: the pinned artifact is a Windows build. Everywhere else the
+   * popover says how to install one instead of offering a download that cannot
+   * work. Sent from the server rather than read off the renderer's platform
+   * because the server is the process that would do the fetching.
+   */
+  canFetchFfmpeg: boolean
   /** Charts the index resolved — i.e. how many songs can have art. */
   charts: number
   /** Where the index came from. `none` means neither strategy produced one. */
