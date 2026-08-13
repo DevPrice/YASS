@@ -28,20 +28,25 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
   process.exit(1)
 }
 
+// The version is the second key in every one of these files, so the first match
+// is the right match. A textual replace rather than a JSON round-trip because
+// they carry `//` comment keys and a deliberate key order, and reserializing
+// would reformat all of it for the sake of one field.
+const FIELD = /"version":\s*"[^"]*"/
+
 for (const file of PACKAGES) {
   const before = await readFile(file, 'utf8')
-  // A textual replace rather than a JSON round-trip: these files carry `//`
-  // comment keys and a deliberate key order, and reserializing them would
-  // reformat all of it for the sake of one field. The version is the second
-  // key in every one of them, so the first match is the right match.
-  const after = before.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`)
 
-  if (after === before) {
+  // Asked of the text, not of the result of rewriting it. A tag matching what
+  // the manifests already say — the normal case, since bumping before tagging
+  // is the habit this is here to make optional — rewrites to a byte-identical
+  // file, and comparing before to after would read that as a missing field.
+  if (!FIELD.test(before)) {
     console.log(`::error::no version field to stamp in ${file}`)
     process.exit(1)
   }
 
-  await writeFile(file, after)
+  await writeFile(file, before.replace(FIELD, `"version": "${version}"`))
 }
 
 console.log(`packaging as ${version}`)
