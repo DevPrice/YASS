@@ -161,7 +161,7 @@ input, and both other workflows call it, so a release ships what CI has been che
 
 ```bash
 npm version --no-git-tag-version --workspaces --include-workspace-root 1.2.3
-git commit -am "1.2.3"                    # README quotes the release filenames; update those
+git commit -am "1.2.3"                    # the README names no version — nothing to update there
 git push origin master
 git tag -a v1.2.3 -m "1.2.3" && git push origin v1.2.3
 ```

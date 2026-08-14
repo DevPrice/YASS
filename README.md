@@ -10,24 +10,42 @@ phone updates itself; there is nothing to export and nothing to keep in sync.
 **[Try the demo →](https://devprice.github.io/YASS/)** — the real app, a made-up library,
 no install required.
 
-## Running it
+## Getting it
 
-Needs Node 20+ and a YARG install that has scanned at least once.
+Download the latest build from the
+[releases page](https://github.com/DevPrice/YASS/releases): the `.exe` for Windows, the
+`.AppImage` for Linux. It's a single file with nothing to install, and it needs a YARG
+that has scanned its songs at least once.
 
-```bash
-git clone --recurse-submodules https://github.com/DevPrice/YASS.git
-cd YASS
-npm install
-npm run build
-npm start                       # http://localhost:4321
-```
+1. Run it on the machine YARG is on. There's no window — it appears in the notification
+   area (the system tray, next to the clock).
+2. Click the tray icon (on Linux, right-click → *Settings…*). It shows whether the server
+   is up, the address to reach it at, and a QR code for that address.
+3. Point a phone's camera at the QR code, or type the address in by hand. Anyone on the
+   same Wi-Fi can open it — the address looks like `http://192.168.1.24:4321`.
 
-Open the address on your phone — the server listens on the LAN, so
-`http://<your-lan-ip>:4321` works from anywhere in the house.
+Right-click the icon for the rest: a browser link, the folders YASS writes to, *Quit* —
+which stops the server for everyone, not just for you.
 
-If YARG isn't in the default location, set `YASS_YARG_DATA_DIR` to the folder holding
-`currentSong.json` and `songcache.bin`. That's the only path there is to set, and usually
-it's found for you.
+A phone that opens the address gets the song list and nothing else: settings are reachable
+from the host machine only.
+
+**On Windows**, the build is unsigned, so SmartScreen warns the first time. *More info →
+Run anyway.*
+
+**On Linux**, `chmod +x` the AppImage before running it, and two things differ:
+
+- AppImages mount themselves with FUSE, which Ubuntu 24.04 and up no longer ship.
+  Either install `libfuse2`, or run it with `--appimage-extract-and-run`.
+- ffmpeg — which album art and previews need — is not fetched for you, because the build
+  YASS pins is a Windows one. `apt install ffmpeg` (or your distro's equivalent) and
+  restart the server. Without it the song list works and the art stays dark.
+
+### If it can't find YARG
+
+YASS looks in the usual place for your OS. If YARG lives somewhere else, point *Settings
+→ YARG data folder* at the folder holding `currentSong.json` and `songcache.bin`. That's
+the only path there is to set.
 
 <details>
 <summary>Default YARG data folders</summary>
@@ -42,40 +60,12 @@ Swap `release` for `nightly` or `dev` to match your build. If YARG was launched 
 `-persistent-data-path`, that path wins and you'll have to set this by hand.
 </details>
 
-### Or use the tray app
-
-A portable executable that puts YASS in the notification area: a QR code with the
-address to hand guests, settings behind native file pickers, and the server running
-underneath it.
-
-```bash
-npm run dist            # -> dist/YASS.exe      on Windows (~82 MB)
-                        # -> dist/YASS.AppImage on Linux
-```
-
-The files the [releases page](https://github.com/DevPrice/YASS/releases) hands out
-carry the version — `YASS-1.0.0.exe`, `YASS-1.0.0-x86_64.AppImage` — so a download
-can be told apart from the next one. A local build keeps the plain name and
-overwrites itself, which is what you want when you are building it repeatedly.
-
-Nothing to install either way, and it builds for the platform you run it on. The
-Windows build is unsigned, so SmartScreen warns on first run.
-
-On Linux, `chmod +x` the AppImage and run it. Two things differ from Windows:
-
-- AppImages mount themselves with FUSE, which Ubuntu 24.04 and up no longer ship.
-  Either install `libfuse2`, or run it with `--appimage-extract-and-run`.
-- ffmpeg — which album art and previews need — is not fetched for you, because the
-  build YASS pins is a Windows one. `apt install ffmpeg` (or your distro's
-  equivalent, or `YASS_FFMPEG=/path/to/ffmpeg`) and restart the server. Without it
-  the song list works and the art stays dark.
-
 ## Configuring it
 
 There's no settings screen in the web app — it's opened by a room full of guests, and
-configuration isn't theirs. Use the tray app, or edit
-`%APPDATA%/yass/settings.json` (`~/Library/Application Support/yass` on macOS,
-`$XDG_CONFIG_HOME/yass` on Linux). The path is printed at startup.
+configuration isn't theirs. Use the tray app, or edit `%APPDATA%/yass/settings.json`
+(`~/Library/Application Support/yass` on macOS, `$XDG_CONFIG_HOME/yass` on Linux). The
+path is printed at startup and the tray's *Open folder* menu leads to it.
 
 Each setting has an environment override, which applies to that run only and is never
 written to the file:
@@ -89,7 +79,36 @@ written to the file:
 | — | `YASS_FFMPEG` | Fetched on demand |
 | — | `YASS_GENRE_MAPPINGS` | Found in YARG's install |
 
+## Notes
+
+- **The library comes from `songcache.bin`**, the index YARG writes when it scans. The
+  server watches that file, so a scan reaches every phone in about half a second. Nothing
+  is filtered out, including songs above YARG's Max Song Rating.
+- **Album art and previews are read straight out of the charts** — SNG, `.yargsong` and
+  CON all work. ffmpeg does the decoding; it's downloaded once and cached. Without it
+  those features stay dark and everything else is fine.
+- **Genres are normalized the way YARG normalizes them**, using the same
+  [Genrelizer](https://github.com/YARC-Official/Genrelizer) mappings the game downloads,
+  so `Alt Rock` and `Alternative Rock` stop being separate filters.
+- **The banner can pick up YARG's stage lighting.** Turn on *Settings → Experimental →
+  Other → Enable UDP data stream* and the now-playing banner tints to match the venue.
+  Nothing flashes, and it's off under `prefers-reduced-motion`.
+
 ## Building it
+
+Needs Node 20+ to run, and Node 22+ to run the tests.
+
+```bash
+git clone --recurse-submodules https://github.com/DevPrice/YASS.git
+cd YASS
+npm install
+npm run build
+npm start                       # http://localhost:4321
+```
+
+That's the server on its own, without the tray. `npm run dist` packages the tray app for
+the platform you're on, into `dist/` — `YASS.exe` on Windows (~82 MB), `YASS.AppImage` on
+Linux.
 
 ```
 client/   Vite + React 19 + Tailwind 4
@@ -113,6 +132,9 @@ shared/   Types used by both
 turns a chart's source id into a name and an icon — `rb3dlc` into *Rock Band 3 DLC*. The
 build fails without it. `git submodule update --init` if you cloned the plain way.
 
+[`YARG-DATA-FORMATS.md`](YARG-DATA-FORMATS.md) documents the file formats behind the
+library, the art and the now-playing feed.
+
 ### The demo
 
 `npm run build:demo` swaps everything behind the network for `client/src/mock/` — 1,650
@@ -120,24 +142,6 @@ invented songs, generated cover art, and a simulated now-playing feed. Nothing i
 real release or anyone's real library. It's what
 [GitHub Pages serves](https://devprice.github.io/YASS/), deployed by
 `.github/workflows/pages.yml` on every push that touches the client.
-
-## Notes
-
-- **The library comes from `songcache.bin`**, the index YARG writes when it scans. The
-  server watches that file, so a scan reaches every phone in about half a second. Nothing
-  is filtered out, including songs above YARG's Max Song Rating.
-- **Album art and previews are read straight out of the charts** — SNG, `.yargsong` and
-  CON all work. ffmpeg does the decoding; it's downloaded once and cached. Without it
-  those features stay dark and everything else is fine.
-- **Genres are normalized the way YARG normalizes them**, using the same
-  [Genrelizer](https://github.com/YARC-Official/Genrelizer) mappings the game downloads,
-  so `Alt Rock` and `Alternative Rock` stop being separate filters.
-- **The banner can pick up YARG's stage lighting.** Turn on *Settings → Experimental →
-  Other → Enable UDP data stream* and the now-playing banner tints to match the venue.
-  Nothing flashes, and it's off under `prefers-reduced-motion`.
-
-[`YARG-DATA-FORMATS.md`](YARG-DATA-FORMATS.md) documents the file formats behind all of
-that.
 
 ## Licence
 
