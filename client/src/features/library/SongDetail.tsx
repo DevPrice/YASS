@@ -109,11 +109,11 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
 
   return (
     /*
-     * 25px is the resting interval; the one 35px break is bought with a margin
-     * on the section that follows it. That break is the seam of the whole
-     * surface — above it is which song this is, below it is whether the room
-     * can play it — and at a flat 25px everywhere the two halves read as one
-     * undifferentiated column, which is most of what "spreadsheet" meant.
+     * 25px is the resting interval, flat, above and below the parts group.
+     * It used to open with an extra margin — a deliberately larger "seam"
+     * between which song this is and whether the room can play it — but that
+     * read as too much air over the rings themselves and nowhere else. The
+     * boundary is still there: it is a `<section>`, not a run of `<p>`s.
      */
     <div
       className={cx(
@@ -268,7 +268,7 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * instruments in rings are self-evident, and `PartsGrid` names itself for
        * a screen reader.
        */}
-      <section className="mt-[10px] flex flex-col gap-[15px] short:mt-0 short:gap-[10px]">
+      <section className="flex flex-col gap-[15px] short:gap-[10px]">
         <PartsGrid song={song} />
 
         {/*
