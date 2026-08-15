@@ -5,6 +5,7 @@ import faviconUrl from '@opensource/base/icons/yarg.png'
 
 import { App } from './App'
 import { installMock } from './mock'
+import './lib/viewportHeight'
 import './index.css'
 
 /*

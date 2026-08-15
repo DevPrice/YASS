@@ -198,7 +198,10 @@ export function SongDetailSheet({
         'hidden flex-col overflow-hidden bg-surface-card p-0 text-content open:flex',
         'm-0 backdrop:bg-[rgba(1,4,10,0.72)]',
         // The bottom sheet: full width against the bottom edge, stopping at 80%.
-        'tall:mt-auto tall:max-h-[80svh] tall:w-full tall:max-w-none',
+        // `--app-vh` rather than a bare `80svh`: see `lib/viewportHeight.ts` for
+        // the iOS 16 bug that makes `svh` alone unsafe here, and `100svh` is
+        // this rule's own fallback for the one frame before that script runs.
+        'tall:mt-auto tall:max-h-[calc(var(--app-vh,100svh)*0.8)] tall:w-full tall:max-w-none',
         // Below two panes is not only phones: a 1000px window upright lands
         // here too, and a sheet spanning the whole of one is a banner, not a
         // sheet. It stops growing and centres instead.
