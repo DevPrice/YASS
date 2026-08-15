@@ -127,6 +127,16 @@ reimplementing them.
   through the tokens, never through literal values.
 - **`client/src/ui/` holds ports of upstream components to Tailwind.** A port is a fork; the
   recipes it follows are listed at the top of `ui/index.tsx`.
+- **Layout asks about height, not just width.** A phone held sideways is 844×390:
+  every width-only rule called it a desktop and left one song row on screen. The
+  `short` / `bar-stack` / `bar-top` / `roomy` / `cramped` / `has-table` variants at
+  the top of `client/src/index.css` are the vocabulary for that, named after the
+  layout mode rather than the device, and the block comment there is the reasoning.
+  Two things follow: the paired variants are exact complements so no utility ever
+  has to win a cascade fight with its opposite, and an `or` must be written in the
+  block form with two `@slot`s — `@custom-variant x (@media A, B)` parses and then
+  matches nothing. `SHORT_QUERY` in `lib/useMediaQuery.ts` is the same 500px for the
+  three decisions JavaScript has to make before paint.
 - **`client/src/mock/` is the demo build only.** `vite.config.ts` defines
   `import.meta.env.VITE_MOCK` as a literal `false` outside mock mode, so Rollup removes it
   and every module it was the only reference to. Verify with `npm run build` then grep

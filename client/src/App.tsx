@@ -13,6 +13,17 @@
  * charter, the source, the full untruncated title — and it does it without
  * inventing a second interaction, because selecting a song is the same gesture
  * on a phone, where the same component arrives as a sheet.
+ *
+ * **The other axis is height, and it is not a smaller version of this one.** A
+ * phone held sideways is 844×390: wider than `md`, wider than the song table's
+ * own threshold, and with a quarter of the height the same width implies. Every
+ * rule that asked only how wide the window was therefore served it the desktop
+ * answer — the toolbar, the nine-column table, the keyboard hints — and left
+ * one song row underneath. The `short` family of variants in `index.css` is
+ * where that is answered, and the shell's own share of it is three things: the
+ * banner collapsing to one line, `<main>` clearing the display cutout for
+ * everything inside it, and the helper bar going away on the one device that
+ * has neither the height for it nor the keys it names.
  */
 
 import {
@@ -31,7 +42,7 @@ import { EmptyState, HelperBar, cx } from './ui'
 import type { DifficultyLens } from './lib/difficulty'
 import { formatTitleCredit } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
-import { useMediaQuery } from './lib/useMediaQuery'
+import { SHORT_QUERY, useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
 import { setPreviewNavigating, setPreviewSong, usePreviewSound } from './lib/usePreview'
 import { decodeAppState, syncUrl } from './lib/urlState'
@@ -65,6 +76,19 @@ import { PreviewSoundButton, PreviewVolume } from './features/preview/PreviewSou
  * taking a third of the window.
  */
 const TWO_PANE_QUERY = '(min-width: 64rem)'
+
+/**
+ * A screen with no height to spend *and* no keyboard to spend it on.
+ *
+ * The helper bar is the only thing in the shell that has to ask both halves.
+ * `SHORT_QUERY` alone would take it off a desktop window somebody dragged
+ * short, where the shortcuts it advertises still work and where it is also the
+ * housing for the sound control; `pointer: coarse` alone would take it off a
+ * tablet with all the height in the world. Together they name the one device
+ * where 52px of keyboard hints is a quarter of the songs on screen and none of
+ * the keys exist: a phone held sideways.
+ */
+const COMPACT_CHROME_QUERY = `${SHORT_QUERY} and (pointer: coarse)`
 
 export function App() {
   const { library, loading, error } = useLibrary()
@@ -147,6 +171,7 @@ export function App() {
   )
 
   const twoPane = useMediaQuery(TWO_PANE_QUERY)
+  const compactChrome = useMediaQuery(COMPACT_CHROME_QUERY)
 
   const songs = library?.songs ?? []
 
@@ -574,7 +599,27 @@ export function App() {
         onSelect={showPlaying}
       />
 
-      <main className="flex min-h-0 flex-1">
+      {/*
+       * The display cutout, cleared once for everything underneath.
+       *
+       * A phone rotated into landscape puts its notch on one of the long edges,
+       * and `env(safe-area-inset-left/right)` is ~47px of it. Paying that here
+       * rather than in each of the six places that touch a horizontal edge —
+       * the toolbar, the sort header, every song row, every category header,
+       * the jump rail, the detail pane — means one rule instead of six, and
+       * means none of them can be forgotten. The inset shows the app surface
+       * behind the rows' card fill, which reads as the letterboxing it is.
+       *
+       * The banner is a sibling above this and pads itself; see the note there
+       * for why it has to be padding and not a margin. The sheet is in the top
+       * layer and out of this flow entirely, so it carries its own.
+       */}
+      <main
+        className={cx(
+          'flex min-h-0 flex-1',
+          'pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
+        )}
+      >
         {/*
          * The list column names itself as a container, and everything inside
          * it — the table's columns, the sort header, the compact sort chips —
@@ -657,32 +702,42 @@ export function App() {
        * and the play state is already the subject of the now-playing banner at
        * the top of the screen.
        *
+       * **A phone held sideways is past `md` and is still that phone**, which
+       * is the whole of why this is a render condition and not one more class.
+       * 844px of width bought the bar back onto a 390px screen, where its 52px
+       * is a fifth of the list and every key it names is a key the device does
+       * not have. `COMPACT_CHROME_QUERY` is that case and only that case; a
+       * short *desktop* window keeps the bar, because there the shortcuts are
+       * real and this is where the sound control lives.
+       *
        * The two right-hand items are one cluster and are spaced as one, closer
        * to each other than the bar's own 25px: they are both answers to "what
        * is making noise", and the shortcut hints on the left are not.
        */}
-      <HelperBar className="hidden md:flex">
-        <HelperHint keyLabel="/" action="search" />
-        {selection !== null ? <HelperHint keyLabel="↑↓" action="next song" /> : null}
-        {escapeAction ? <HelperHint keyLabel="esc" action={escapeAction} /> : null}
-        <div className="ml-auto flex items-center gap-[20px]">
-          <span className="text-[12px] text-content-faint">
-            {nowPlaying.playing ? 'yarg is playing' : 'yarg is idle'}
-          </span>
-          {/*
-           * The sheet's breakpoint, not the bar's own.
-           *
-           * The bar appears at `md` and the detail is still a modal sheet until
-           * `lg`, so between the two — a phone held sideways, a half-width
-           * window — a control drawn here would spend the whole time a song is
-           * open sitting behind the sheet's backdrop: visible, dimmed, and
-           * inert. Below two panes the chip in the sheet header is the one that
-           * can actually be reached, and exactly one of the two exists at any
-           * width.
-           */}
-          {twoPane && showSound ? <PreviewVolume /> : null}
-        </div>
-      </HelperBar>
+      {compactChrome ? null : (
+        <HelperBar className="hidden md:flex">
+          <HelperHint keyLabel="/" action="search" />
+          {selection !== null ? <HelperHint keyLabel="↑↓" action="next song" /> : null}
+          {escapeAction ? <HelperHint keyLabel="esc" action={escapeAction} /> : null}
+          <div className="ml-auto flex items-center gap-[20px]">
+            <span className="text-[12px] text-content-faint">
+              {nowPlaying.playing ? 'yarg is playing' : 'yarg is idle'}
+            </span>
+            {/*
+             * The sheet's breakpoint, not the bar's own.
+             *
+             * The bar appears at `md` and the detail is still a modal sheet until
+             * `lg`, so between the two — a phone held sideways, a half-width
+             * window — a control drawn here would spend the whole time a song is
+             * open sitting behind the sheet's backdrop: visible, dimmed, and
+             * inert. Below two panes the chip in the sheet header is the one that
+             * can actually be reached, and exactly one of the two exists at any
+             * width.
+             */}
+            {twoPane && showSound ? <PreviewVolume /> : null}
+          </div>
+        </HelperBar>
+      )}
 
       {/*
        * Below `lg` the same detail arrives as a modal sheet. Rendered instead of
@@ -703,8 +758,10 @@ export function App() {
             artHash={detailArtHash}
             // Less of the sheet spent on the plate than the pane spends, so a
             // phone shows the title, the album and the whole parts grid without
-            // anyone scrolling for them.
-            className="px-[25px] pt-[5px] [--plate-cap:30svh]"
+            // anyone scrolling for them. `--plate-cap` is the bottom sheet's
+            // knob only: the side sheet has no column to cap and turns the
+            // cover through ninety degrees instead — see `SongDetail`.
+            className="px-[25px] pt-[5px] [--plate-cap:30svh] short:px-[15px] short:pt-0"
           />
         </SongDetailSheet>
       ) : null}

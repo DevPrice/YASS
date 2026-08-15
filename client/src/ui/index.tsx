@@ -254,6 +254,11 @@ export function Badge({
       title={title}
       className={cx(
         'yarg-label inline-flex items-center px-[8px] py-[3px] text-[10px]',
+        // A badge is one token and never two lines of one. As a flex child it
+        // would otherwise shrink and break: `Now playing` set itself over two
+        // rows inside the 48px short-screen banner, which is a badge twice as
+        // tall as the type it is a badge on.
+        'shrink-0 whitespace-nowrap',
         tone === 'accent' ? 'text-white' : 'text-count-muted',
       )}
       style={{

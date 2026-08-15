@@ -38,6 +38,92 @@
 @import './design/tokens/base.css';
 @import 'tailwindcss';
 
+/*
+ * Landscape: the one orientation where width lies.
+ *
+ * Every adaptive decision in this app used to ask how wide the window was, and
+ * on a phone held sideways that question returns the wrong answer twice over. A
+ * 844×390 iPhone is wider than `md` and wider than the song table's own 672px
+ * threshold, so it was served the desktop toolbar, the nine-column table with
+ * its sort header, and a bar of keyboard hints for a device with no keyboard —
+ * 290 of its 390 pixels spent on chrome, and one song row left underneath. At
+ * 740×360 the arithmetic ran out entirely: the list was 62px tall and showed a
+ * category header and nothing else.
+ *
+ * So the layout asks about height as well, and the variants below are the
+ * vocabulary for it. They are named after the *layout mode* rather than after a
+ * device, because each of them is also right for a desktop window dragged
+ * short — which is the honest test of whether a rule is about the screen or
+ * about the phone.
+ *
+ *   `short`      nothing has height to spend. 500px is where a landscape phone
+ *                tops out — 430px on an iPhone Pro Max, 440 on the largest
+ *                Android — and well under any tablet's 768.
+ *   `tall`       its complement, for the handful of places that have to state
+ *                the ordinary case rather than override it: the detail sheet's
+ *                bottom-edge geometry has to go away entirely on a short
+ *                screen, not be layered over.
+ *   `bar-stack`  the controls sit at the bottom edge: narrow *and* tall, which
+ *                is a phone held upright, where the top of the screen is out of
+ *                a thumb's reach.
+ *   `bar-top`    the controls are one toolbar row. A desktop — or anything too
+ *                short to stack, where the reachable edges are the left and the
+ *                right rather than the bottom, and where the landscape software
+ *                keyboard covers the bottom of the screen anyway.
+ *   `roomy`      wide *and* tall: room to spread out, which is the only state
+ *                that can afford a panel in the flow or a row of tokens wrapped
+ *                over four lines.
+ *   `cramped`    short of one or the other, and the complement of `roomy`.
+ *   `has-table`  wherever the song list draws a table header. The compact sort
+ *                chips hide behind this and nothing else: the table needs both
+ *                width *and* height, so a rule keyed on width alone hid the
+ *                chips at exactly the size where they became the only sort
+ *                control on screen. `SongList.tsx` computes the same condition
+ *                from the same two facts.
+ *
+ * **The pairs are exact complements** — `bar-stack`/`bar-top`, `roomy`/`cramped`
+ * — so nothing is ever in both or in neither, and no utility has to win a
+ * cascade-ordering fight against its own opposite. That is a real hazard here
+ * rather than a theoretical one: Tailwind sorts by variant, not by the order
+ * the classes are written in, so two overlapping conditions setting the same
+ * property resolve by declaration order in this file and would flip the day
+ * somebody reorders it. Complements cannot.
+ */
+@custom-variant short (@media (height <= 500px));
+@custom-variant tall (@media (height > 500px));
+@custom-variant bar-stack (@media (width < 48rem) and (height > 500px));
+@custom-variant roomy (@media (width >= 48rem) and (height > 500px));
+/*
+ * The two `or` variants are spelled as blocks, not as a comma-separated media
+ * list in the shorthand form. The shorthand parses `(@media A, B)` without
+ * complaint and then matches neither — `bar-top:order-1` silently did nothing
+ * and a landscape phone kept the stacked bar. Emitting the utility once under
+ * each arm is what an `or` actually compiles to, and it cannot be misread.
+ */
+@custom-variant bar-top {
+  @media (width >= 48rem) {
+    @slot;
+  }
+  @media (height <= 500px) {
+    @slot;
+  }
+}
+@custom-variant cramped {
+  @media (width < 48rem) {
+    @slot;
+  }
+  @media (height <= 500px) {
+    @slot;
+  }
+}
+@custom-variant has-table {
+  @media (height > 500px) {
+    @container list (width >= 42rem) {
+      @slot;
+    }
+  }
+}
+
 @theme {
   /*
    * Surfaces — the game's measured in-product values.

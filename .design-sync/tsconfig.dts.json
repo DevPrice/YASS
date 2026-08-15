@@ -1,0 +1,41 @@
+/*
+ * Emits a declaration tree for the design system, purely so the converter has
+ * real prop types to read.
+ *
+ * The converter extracts each component's API with the TypeScript checker, but
+ * it only ever loads `.d.ts` files — it never looks at `.tsx` source. YASS is
+ * an app: `client/package.json` declares no `types`, nothing emits
+ * declarations, and the only `.d.ts` in the workspace is `vite-env.d.ts`. The
+ * result is a `<Name>Props` of `[key: string]: unknown` for all 19 components,
+ * which is precisely the contract the design agent codes against — so it would
+ * have shipped an API of "anything goes".
+ *
+ * Output lands in `client/ds-types/`, and both halves of that path matter. It
+ * has to be inside `client/`, because the converter globs
+ * `<pkgDir>/**\/*.d.ts` and nothing outside the package is visible to it. And
+ * the directory name must not start with a dot: that glob runs through
+ * fast-glob, which skips dot-directories unless asked not to, so an emit into
+ * `client/.ds-lib/types/` is found by nothing and fails exactly as silently as
+ * having no declarations at all.
+ *
+ * `noEmit` and `allowImportingTsExtensions` are inherited as `true` from the
+ * app's config and both forbid emit, so each is switched back off here. The
+ * unused-symbol checks are relaxed for the same reason a build is not a lint:
+ * an unused parameter must not stop the declarations being written.
+ */
+{
+  "extends": "../client/tsconfig.json",
+
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": false,
+    "outDir": "../client/ds-types",
+    "skipLibCheck": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+
+  "include": ["../client/src/ui/**/*", "../client/src/vite-env.d.ts"]
+}

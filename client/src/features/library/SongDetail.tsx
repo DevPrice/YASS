@@ -115,83 +115,141 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
      * can play it — and at a flat 25px everywhere the two halves read as one
      * undifferentiated column, which is most of what "spreadsheet" meant.
      */
-    <div className={cx('flex flex-col gap-[25px]', className)}>
-      <ArtPlate key={song.id} song={song} artHash={artHash} />
-
-      <div className="flex flex-col gap-[10px]">
-        {/*
-         * What YARG is doing with this song, and nothing else.
-         *
-         * The preview control used to stand here too, as a filled accent pill
-         * under the artwork — the loudest object on a surface whose subject is
-         * a cover and a title, answering a question about the room from inside
-         * a card about one record. It is chrome now, in the helper bar and in
-         * the sheet's own header; see `features/preview/PreviewSound.tsx`.
-         *
-         * The badge renders only when it is true, so a song nobody is playing
-         * does not leave a 10px gap above its title.
-         */}
-        {/* Wrapped, because a bare badge is a flex child here and would stretch
-            to the width of the pane rather than to its own two words. */}
-        {isPlaying ? (
-          <div>
-            <Badge tone="accent">Now playing</Badge>
-          </div>
-        ) : null}
-
-        {/*
-         * No truncation anywhere below this line. The row has to truncate — it
-         * is 80px tall and there are four thousand of them — and that left long
-         * titles permanently unreadable, because there was nowhere else to
-         * read them. This is that somewhere: titles wrap, values wrap, and
-         * "Through the Fire and Flames" arrives whole.
-         */}
-        {/*
-         * The one surface that gives the title's asides a line of their own.
-         * Every other housing is a single line that truncates, so the credit
-         * and the version note trail the title there and take width off it;
-         * here nothing truncates and the line is free. See `SongTitle`.
-         */}
-        <h2 dir="auto" className="text-[30px] leading-[1.05] font-semibold break-words text-white">
-          <SongTitle song={song} notes="block" />
-        </h2>
-        {/*
-         * 20px, not 19: `--text-artist-sm` is a real rung on the type scale and
-         * 19 was a number somebody typed. The whole surface now sets at 30 / 20
-         * / 15 / 12, every one of them a token, which is four steps where there
-         * used to be eight sizes inside a 1.8:1 range.
-         */}
-        <p
-          dir="auto"
-          className="text-[20px] leading-tight font-medium break-words text-content-secondary italic"
-        >
-          <ArtistName song={song} />
-        </p>
-        {song.album ? (
-          <p dir="auto" className="text-[15px] leading-tight break-words text-content-muted">
-            {song.album}
-          </p>
-        ) : null}
-        {/*
-         * The source, promoted out of the fact list.
-         *
-         * It sat in row six as `source: Rock Band 3 DLC` — an icon and a name,
-         * right-aligned, needing its own centred-baseline special case to stop
-         * the name riding low against its label. But it is not a measurement of
-         * the song like `length` is; it is part of what this record *is*, the
-         * same way a label imprint is. Put against the album line it needs no
-         * label at all: an icon and a game's name is self-evident, and that is
-         * one fewer row, one fewer rule, and one less alignment exception.
-         *
-         * Muted rather than white, because its neighbours here are the album
-         * and the artist rather than a column of answers. Identity reads in
-         * three weights — white title, cyan artist, muted context.
-         */}
-        <SourceBadge
-          source={song.source}
-          size={22}
-          nameClassName="text-[15px] leading-tight text-content-muted"
+    <div
+      className={cx(
+        'flex flex-col gap-[25px] short:gap-[15px]',
+        /*
+         * On the short side sheet only: it is the one housing forced to a
+         * fixed height regardless of content — the panel has to match the
+         * list beside it, not shrink to whatever a given song happens to
+         * need. Left at `justify-start`, three groups of type in a
+         * 390px-tall panel stacked at the top and the rest of the panel sat
+         * empty below the fact grid — height the surface owns and spends on
+         * nothing. `min-h-full` gives the column the panel's full height to
+         * work with and `justify-between` spends whatever is left as extra
+         * air between the three groups instead of as dead space after the
+         * last one. A song whose content already fills or overflows the
+         * panel is unaffected: there is no free space for `justify-between`
+         * to distribute, so it degrades to the plain `gap` rhythm above.
+         */
+        'short:min-h-full short:justify-between',
+        className,
+      )}
+    >
+      {/*
+       * The cover over the identity, or beside it.
+       *
+       * A cover above a title is the shape of a record sleeve and it is the
+       * right one wherever there is a column to put it in. On a short screen
+       * there is no column: the whole surface is 390px tall, and a stacked
+       * cover and title used the first 300 of them to say what the row you just
+       * tapped already said, pushing the parts grid — the reason anybody opened
+       * this — off the bottom of every song.
+       *
+       * Turning the pair through ninety degrees is the whole fix, and it costs
+       * nothing but a wrapper: the cover keeps its square, the title keeps its
+       * hierarchy, and the answer arrives on the first screen. Sideways is also
+       * where the width to do it comes from.
+       */}
+      <div className="flex flex-col gap-[25px] short:flex-row short:items-start short:gap-[15px]">
+        <ArtPlate
+          key={song.id}
+          song={song}
+          artHash={artHash}
+          // Beside the type it is a thumbnail rather than a plate: big enough
+          // to recognise a sleeve you already know, and no bigger.
+          className="short:mx-0 short:w-[104px] short:shrink-0"
         />
+
+        <div className="flex min-w-0 flex-col gap-[10px] short:gap-[5px]">
+          {/*
+           * What YARG is doing with this song, and nothing else.
+           *
+           * The preview control used to stand here too, as a filled accent pill
+           * under the artwork — the loudest object on a surface whose subject is
+           * a cover and a title, answering a question about the room from inside
+           * a card about one record. It is chrome now, in the helper bar and in
+           * the sheet's own header; see `features/preview/PreviewSound.tsx`.
+           *
+           * The badge renders only when it is true, so a song nobody is playing
+           * does not leave a 10px gap above its title.
+           */}
+          {/* Wrapped, because a bare badge is a flex child here and would stretch
+              to the width of the pane rather than to its own two words. */}
+          {isPlaying ? (
+            <div>
+              <Badge tone="accent">Now playing</Badge>
+            </div>
+          ) : null}
+
+          {/*
+           * No truncation anywhere below this line. The row has to truncate — it
+           * is 80px tall and there are four thousand of them — and that left long
+           * titles permanently unreadable, because there was nowhere else to
+           * read them. This is that somewhere: titles wrap, values wrap, and
+           * "Through the Fire and Flames" arrives whole.
+           */}
+          {/*
+           * The one surface that gives the title's asides a line of their own.
+           * Every other housing is a single line that truncates, so the credit
+           * and the version note trail the title there and take width off it;
+           * here nothing truncates and the line is free. See `SongTitle`.
+           */}
+          {/*
+           * One step down the scale on a short screen, not four.
+           *
+           * 30 / 20 / 15 / 12 becomes 22 / 16 / 13 / 12: the same four rungs at
+           * the same intervals, moved down by one, so the hierarchy the surface
+           * is built on survives the loss of ~40px. The bottom rung holds at 12px
+           * because it is a label and there is nowhere under it to go.
+           */}
+          <h2
+            dir="auto"
+            className="text-[30px] leading-[1.05] font-semibold break-words text-white short:text-[22px]"
+          >
+            <SongTitle song={song} notes="block" />
+          </h2>
+          {/*
+           * 20px, not 19: `--text-artist-sm` is a real rung on the type scale and
+           * 19 was a number somebody typed. The whole surface now sets at 30 / 20
+           * / 15 / 12, every one of them a token, which is four steps where there
+           * used to be eight sizes inside a 1.8:1 range.
+           */}
+          <p
+            dir="auto"
+            className="text-[20px] leading-tight font-medium break-words text-content-secondary italic short:text-[16px]"
+          >
+            <ArtistName song={song} />
+          </p>
+          {song.album ? (
+            <p
+              dir="auto"
+              className="text-[15px] leading-tight break-words text-content-muted short:text-[13px]"
+            >
+              {song.album}
+            </p>
+          ) : null}
+          {/*
+           * The source, promoted out of the fact list.
+           *
+           * It sat in row six as `source: Rock Band 3 DLC` — an icon and a name,
+           * right-aligned, needing its own centred-baseline special case to stop
+           * the name riding low against its label. But it is not a measurement of
+           * the song like `length` is; it is part of what this record *is*, the
+           * same way a label imprint is. Put against the album line it needs no
+           * label at all: an icon and a game's name is self-evident, and that is
+           * one fewer row, one fewer rule, and one less alignment exception.
+           *
+           * Muted rather than white, because its neighbours here are the album
+           * and the artist rather than a column of answers. Identity reads in
+           * three weights — white title, cyan artist, muted context.
+           */}
+          <SourceBadge
+            source={song.source}
+            size={22}
+            nameClassName="text-[15px] leading-tight text-content-muted short:text-[13px]"
+          />
+        </div>
       </div>
 
       {/*
@@ -210,7 +268,7 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * instruments in rings are self-evident, and `PartsGrid` names itself for
        * a screen reader.
        */}
-      <section className="mt-[10px] flex flex-col gap-[15px]">
+      <section className="mt-[10px] flex flex-col gap-[15px] short:mt-0 short:gap-[10px]">
         <PartsGrid song={song} />
 
         {/*
@@ -275,7 +333,16 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * 178 title-and-artist pairs in a real library have more than one — so it
        * stays, but it is a fact like the others and no longer a category.
        */}
-      <dl className="grid grid-cols-2 gap-x-[25px] gap-y-[15px]">
+      {/*
+       * Two columns, or three where the height is worth more than the measure.
+       *
+       * Five facts in two columns is three rows; in three it is two, which is
+       * ~42px back on a screen that has 390. The values are `2006`, `7:22`,
+       * `Rock`, `Harmonix` — short enough that a 113px column holds almost all
+       * of them on one line, and `break-words` is already the answer for the
+       * ones it doesn't.
+       */}
+      <dl className="grid grid-cols-2 gap-x-[25px] gap-y-[15px] short:grid-cols-3 short:gap-x-[15px] short:gap-y-[10px]">
         <Fact label="year" value={song.year || formatYear(song.yearNumber)} />
         <Fact label="length" value={formatDuration(song.lengthSeconds)} />
         <Fact label="genre" value={genre || '—'} />
@@ -365,7 +432,16 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
  * chart moved or the network share the library lives on dropped between the
  * scan and the request.
  */
-function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
+function ArtPlate({
+  song,
+  artHash,
+  className,
+}: {
+  song: Song
+  artHash: string | null
+  /** How the housing wants the square sized. See the note on `--plate-cap`. */
+  className?: string
+}) {
   const [failed, setFailed] = useState(false)
   // The credited title rather than the raw field, so a single whose name
   // carries `(feat. …)` sets the plate with the song and not the credit.
@@ -409,11 +485,17 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
          * one. 34svh is a 306px cover at 900 and a 261px cover at 768, and the
          * grid clears the fold at both with the fact strip starting behind it.
          *
-         * The 180px floor stops a landscape phone from shrinking the plate to
-         * the point where the title has to set at its minimum size and wrap
-         * five times.
+         * The 180px floor stops the plate shrinking to the point where the
+         * title has to set at its minimum size and wrap five times. It used to
+         * be described as the landscape-phone guard, and it was the opposite:
+         * 180px of a 390px screen is a plate that had stopped shrinking exactly
+         * where it most needed to, and the parts grid paid for it. A short
+         * screen turns the pair through ninety degrees instead and passes a
+         * flat width in `className` — a thumbnail beside the type rather than a
+         * plate above it, which is a different object and wants no floor.
          */
         'mx-auto w-full max-w-[min(100%,max(180px,var(--plate-cap,34svh)))]',
+        className,
       )}
       style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)' }}
     >
@@ -431,7 +513,19 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
           // announcing them twice would be the only thing this adds to a
           // screen reader.
           aria-hidden
-          className="yarg-plate absolute inset-0 flex flex-col justify-end gap-[10px] p-[25px]"
+          /*
+           * The inset and the interval scale with the square, like the type
+           * inside them.
+           *
+           * They were flat 25px and 10px, chosen against a plate that never got
+           * smaller than 260px — and a 104px thumbnail with 25px of padding is
+           * 54px of usable width, which is not a measure, it is a column of
+           * single letters. Stated in `cqw` they hold at their old values in
+           * both panes (6% of 410px is 24.6) and give the small square almost
+           * all of itself back. The floors are what stop a hypothetical smaller
+           * one from having no inset at all.
+           */
+          className="yarg-plate absolute inset-0 flex flex-col justify-end gap-[max(4px,3cqw)] p-[max(8px,6cqw)]"
         >
           <p
             dir="auto"
@@ -459,13 +553,23 @@ function ArtPlate({ song, artHash }: { song: Song; artHash: string | null }) {
              * which set the type at 41.5px and served BOHEMIA / N / RHAPSOD / Y.
              * Ordinary eight-letter words now fit the line they are on.
              */
-            className="yarg-label line-clamp-4 pt-[0.2em] -mt-[0.2em] text-[clamp(24px,13cqw,72px)] leading-[0.95] break-words text-white"
+            /*
+             * The 24px floor came down to 11. A floor only binds under 185px of
+             * plate, which nothing reached until the short-screen thumbnail —
+             * and there it was setting a fourteen-letter album at 24px in 54px
+             * of width, one letter to a line. Neither pane is touched: at 277px
+             * and at 410px the middle term wins by a factor of three.
+             */
+            className="yarg-label line-clamp-4 pt-[0.2em] -mt-[0.2em] text-[clamp(11px,13cqw,72px)] leading-[0.95] break-words text-white"
           >
             {record}
           </p>
           <p
             dir="auto"
-            className="truncate-tight text-[15px] leading-none font-medium text-content-secondary italic"
+            // Capped at the 15px it has always been in both panes, and allowed
+            // to come down with the square below them. Same rule as the album
+            // above it, one rung quieter.
+            className="truncate-tight text-[clamp(9px,4.4cqw,15px)] leading-none font-medium text-content-secondary italic"
           >
             <ArtistName song={song} />
           </p>

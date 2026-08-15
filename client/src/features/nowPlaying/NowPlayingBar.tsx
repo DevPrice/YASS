@@ -9,6 +9,15 @@
  * people are mid-scroll, and a banner that grows or shrinks on each transition
  * shoves the list under their finger. The idle state fills the same box rather
  * than collapsing.
+ *
+ * **On a short screen it is one line instead of three.** 92px is a quarter of a
+ * phone held sideways, spent on the one song nobody is choosing — the whole
+ * point of the surface behind it is the four thousand you might. So `short`
+ * collapses the stack into a row: a 32px cover, the badges, the title and the
+ * artist on one baseline, the length at the far end. It still says what is
+ * playing and still opens its details; it costs 48px to do it. The venue wash
+ * survives at full strength, because that is the thing tying the phone in
+ * somebody's hand to the screen across the room.
  */
 
 import { useState } from 'react'
@@ -23,8 +32,14 @@ import { useVenue } from '../../lib/useVenue'
 import { useVenueWash } from './venueWash'
 import type { VenueWash } from './venueWash'
 
-/** Tall enough for the badge, title and artist stack without clipping. */
-const BANNER_HEIGHT = 92
+/**
+ * Tall enough for the badge, title and artist stack without clipping — and, on
+ * a short screen, for the single row that replaces it.
+ *
+ * A class rather than the inline height it used to be, so the `short` variant
+ * can reach it. See the note at the top of this file.
+ */
+const BANNER_HEIGHT = 'h-[92px] short:h-[48px]'
 
 /** The design's double scrim, laid over album art. */
 const SCRIM =
@@ -97,7 +112,18 @@ export function NowPlayingBar({
             // would otherwise have this sentence say her name twice.
             label={`Show details for ${formatTitleCredit(song)} ${formatArtistCredit(song)}`}
           >
-            <div className="mb-[5px] flex items-center gap-[10px]">
+            {/*
+             * `short:contents` dissolves this row into the one above it.
+             *
+             * The badges, the title and the artist are three stacked blocks at
+             * full height and one baseline-aligned row when there is none, and
+             * the difference is entirely which box they belong to. Dropping the
+             * wrapper out of the layout — rather than rendering a second copy of
+             * its three children under a media query — is what keeps that one
+             * arrangement of one set of elements, which is the same trade every
+             * other dual-layout surface in this app makes.
+             */}
+            <div className="mb-[5px] flex items-center gap-[10px] short:contents">
               <Badge tone="accent">Now playing</Badge>
               {/* Where the chart came from, as a mark rather than a word. */}
               <SourceBadge source={song.source} size={16} showName={false} />
@@ -110,24 +136,48 @@ export function NowPlayingBar({
                   // this 900px away from the title it opens and parked it next
                   // to the length/band/vocals stats, where it read as their
                   // heading.
-                  className="yarg-label flex shrink-0 items-center gap-[5px] text-[10px] text-content-muted transition-colors duration-160 group-hover:text-white"
+                  //
+                  // On one line it goes to the end of the row instead, where the
+                  // chevron alone says the block opens — `details` sitting in
+                  // front of the title would read as a label on it. The word is
+                  // in the button's accessible name either way.
+                  className={cx(
+                    'yarg-label flex shrink-0 items-center gap-[5px] text-[10px] text-content-muted',
+                    'transition-colors duration-160 group-hover:text-white',
+                    'short:order-last',
+                  )}
                 >
-                  details
+                  <span className="short:hidden">details</span>
                   <ChevronRight />
                 </span>
               ) : null}
             </div>
 
-            <p dir="auto" className="truncate-tight text-[22px] leading-none font-semibold text-white">
+            <p
+              dir="auto"
+              className={cx(
+                'truncate-tight text-[22px] leading-none font-semibold text-white',
+                // Shrinks ahead of the artist beside it, and only down to a
+                // floor: a title clipped to two words is still the thing the
+                // row is about, and the artist can afford to go first.
+                'short:min-w-[8ch] short:shrink short:text-[15px]',
+              )}
+            >
               <SongTitle song={song} />
             </p>
             <p
               dir="auto"
-              className="mt-[5px] truncate-tight text-[17px] leading-none font-medium text-content-secondary italic"
+              className={cx(
+                'mt-[5px] truncate-tight text-[17px] leading-none font-medium text-content-secondary italic',
+                'short:mt-0 short:min-w-0 short:shrink-[3] short:text-[13px]',
+              )}
             >
               <ArtistName song={song} />
+              {/* The album is the first thing to go: it is the least of the
+                  three and the only one repeated on the row you are about to
+                  open. */}
               {song.album ? (
-                <span className="text-content-muted not-italic"> — {song.album}</span>
+                <span className="text-content-muted not-italic short:hidden"> — {song.album}</span>
               ) : null}
             </p>
           </Content>
@@ -154,7 +204,13 @@ export function NowPlayingBar({
       ) : (
         <>
           <PlaceholderArt />
-          <div className="min-w-0 flex-1">
+          {/*
+           * The idle state collapses the same way the playing one does — two
+           * stacked lines become one row — so a banner that is holding still
+           * mid-scroll holds the same height whichever it is showing. That is
+           * the fixed-height rule at the top of this file, restated at 48px.
+           */}
+          <div className="min-w-0 flex-1 short:flex short:items-baseline short:gap-[10px]">
             {/*
              * Three states, not two. Before `settled` we have simply not heard
              * back yet — saying "Reconnecting" there told every guest the app
@@ -162,10 +218,10 @@ export function NowPlayingBar({
              * connection flag starts false and nothing distinguished "never
              * tried" from "lost it".
              */}
-            <p className="yarg-label text-[15px] text-content-muted">
+            <p className="yarg-label shrink-0 text-[15px] text-content-muted short:text-[13px]">
               {settled ? 'Nothing playing' : 'Connecting'}
             </p>
-            <p className="mt-[5px] truncate text-[14px] text-content-faint">
+            <p className="mt-[5px] min-w-0 truncate text-[14px] text-content-faint short:mt-0 short:text-[13px]">
               {!settled
                 ? 'Checking what YARG is up to'
                 : connected
@@ -189,7 +245,17 @@ function Content({
   label: string
   children: ReactNode
 }) {
-  if (onSelect === null) return <div className="min-w-0 flex-1">{children}</div>
+  /*
+   * The stack, or the row — the same three children either way.
+   *
+   * `short:flex` is what the badge row's `short:contents` resolves into: with
+   * that wrapper out of the layout its children land here, and this is the box
+   * that lines all five of them up. Centred rather than on a baseline, because
+   * two of the five are pictures.
+   */
+  const layout = 'min-w-0 flex-1 short:flex short:items-center short:gap-[10px]'
+
+  if (onSelect === null) return <div className={layout}>{children}</div>
 
   return (
     <button
@@ -197,7 +263,8 @@ function Content({
       onClick={onSelect}
       aria-label={label}
       className={cx(
-        'yarg-focusable min-w-0 flex-1 cursor-pointer text-left',
+        layout,
+        'yarg-focusable cursor-pointer text-left',
         // Nothing moves and nothing scales — the banner's whole job is holding
         // still while someone is mid-scroll. The cue is the "details" chevron
         // above brightening, which costs no layout at all.
@@ -225,10 +292,7 @@ function Shell({
      * under it, and without a stacking context here that reaches past the
      * banner and lifts the song list too.
      */
-    <div
-      className="relative isolate shrink-0 overflow-hidden bg-surface-card"
-      style={{ height: BANNER_HEIGHT }}
-    >
+    <div className={cx('relative isolate shrink-0 overflow-hidden bg-surface-card', BANNER_HEIGHT)}>
       {backdrop}
       <div
         aria-hidden
@@ -253,7 +317,25 @@ function Shell({
           style={{ backgroundColor: wash.color ?? 'transparent' }}
         />
       </div>
-      <div className="relative flex h-full items-center gap-[15px] px-[25px]">{children}</div>
+      {/*
+       * The one edge inset the app shell cannot hand down.
+       *
+       * `<main>` pads itself out of the display cutout, which covers the list,
+       * the toolbar and the jump rail in one place — but the banner is a
+       * sibling above it and has to clear the notch itself. It is padding
+       * rather than a margin so the album backdrop and the venue wash still
+       * run out to the physical edge of the glass behind it; the type and the
+       * cover are what have to stay inside.
+       */}
+      <div
+        className={cx(
+          'relative flex h-full items-center gap-[15px] short:gap-[10px]',
+          'pl-[max(25px,env(safe-area-inset-left))] pr-[max(25px,env(safe-area-inset-right))]',
+          'short:pl-[max(15px,env(safe-area-inset-left))] short:pr-[max(15px,env(safe-area-inset-right))]',
+        )}
+      >
+        {children}
+      </div>
     </div>
   )
 }
@@ -268,9 +350,13 @@ function Shell({
  */
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    // Label over value at full height, label beside value on one line — the
+    // same pair either way, and the only shape that fits a 48px bar.
+    <div className="short:flex short:items-baseline short:gap-[6px]">
       <dt className="yarg-label text-[10px] text-count-muted">{label}</dt>
-      <dd className="font-numeric mt-[5px] text-[15px] text-count">{value}</dd>
+      <dd className="font-numeric mt-[5px] text-[15px] text-count short:mt-0 short:text-[13px]">
+        {value}
+      </dd>
     </div>
   )
 }
@@ -278,11 +364,14 @@ function Detail({ label, value }: { label: string; value: string }) {
 function PlaceholderArt() {
   return (
     <div
-      className="flex size-[56px] shrink-0 items-center justify-center bg-surface-sunken text-content-faint"
+      className={cx(
+        'flex size-[56px] shrink-0 items-center justify-center bg-surface-sunken text-content-faint',
+        'short:size-[32px]',
+      )}
       style={{ borderRadius: 'var(--radius-md)' }}
       aria-hidden
     >
-      <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="none" className="short:size-[16px]">
         <circle cx="10" cy="10" r="7.25" stroke="currentColor" strokeWidth="1.5" />
         <circle cx="10" cy="10" r="1.75" fill="currentColor" />
       </svg>
@@ -308,7 +397,7 @@ function AlbumArt({ hash, hasArt }: { hash: string | null; hasArt: boolean }) {
       src={currentArtUrl(hash)}
       alt=""
       onError={() => setFailed(true)}
-      className="size-[56px] shrink-0 bg-surface-sunken object-cover"
+      className="size-[56px] shrink-0 bg-surface-sunken object-cover short:size-[32px]"
       style={{
         borderRadius: 'var(--radius-md)',
         boxShadow: 'inset 0 0 0 2px var(--yarg-border-card)',

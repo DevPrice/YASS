@@ -19,3 +19,14 @@ Thumbs.db
 # Tooling scratch. The Impeccable config and critiques are tracked; this is a
 # per-machine record of which files the detector hook has already seen.
 .impeccable/hook.cache.json
+
+# design-sync: staged converter scripts, generated bundle, machine-local state.
+# Everything else under .design-sync/ is a committed sync input.
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+client/.ds-lib/
+client/ds-types/
+client/index.d.ts

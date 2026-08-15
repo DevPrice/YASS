@@ -124,9 +124,15 @@ export interface Column {
  *
  * Tailwind's `@2xl` — 42rem — kept as a number because JavaScript decides this
  * one: the virtualizer needs a row's height before anything is laid out, and a
- * container query has no answer to give it. `Filters.tsx` still switches its
- * compact sort chips on the `@2xl/list:` class of the same width, which is what
- * keeps exactly one sort control on screen at any width.
+ * container query has no answer to give it.
+ *
+ * **It is necessary and no longer sufficient.** `SongList` also takes the table
+ * away on any screen too short to spend 80px a row and 68px on a header, which
+ * is a landscape phone at 844px of list — see the note there. So the mirror on
+ * the other side is the `has-table` variant in `index.css` rather than a bare
+ * `@2xl/list:` class: it carries both halves of the same test, which is what
+ * keeps exactly one sort control on screen at any size. Change the number here
+ * and the 42rem in that variant has to move with it.
  */
 export const WIDE_AT = 672
 

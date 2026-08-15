@@ -21,6 +21,17 @@
  * viewport width where the column has nowhere to go. The container is declared
  * in `App`; this file measures it.
  *
+ * **The one thing width cannot answer is whether the table is worth having.**
+ * A phone held sideways is 844px wide and 390px tall, and the width alone said
+ * "table": 80px rows behind a 68px header, which on that screen is one song and
+ * a bit. The same list as the narrow row is nearly five. So the wide layout
+ * needs the height as well as the width, and `SHORT_QUERY` is the second half
+ * of the test. It has to be a media query rather than a measurement for the
+ * same reason the row height is a number rather than a class — the virtualizer
+ * needs to know before there is a layout to measure — and `index.css` carries
+ * the matching `has-table` variant so the compact sort chips appear on exactly
+ * the screens this takes the header away from.
+ *
  * That measurement decides three things, all in JavaScript rather than in CSS.
  * How tall a row is, which it has to — the virtualizer needs a number before
  * anything is laid out. Which of the two rows to build, because building both
@@ -43,6 +54,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { Song } from '@shared/types'
 import { EmptyState, SortArrow, cx } from '../../ui'
+import { SHORT_QUERY, useMediaQuery } from '../../lib/useMediaQuery'
 import {
   AlbumThumb,
   ArtistName,
@@ -245,7 +257,17 @@ export function SongList({
    * the layout effect corrects it before anything is painted.
    */
   const [listWidth, setListWidth] = useState(WIDE_AT)
-  const isNarrow = listWidth < WIDE_AT
+
+  /**
+   * The table is a claim on height as much as on width, and only one of the two
+   * is measurable from this box.
+   *
+   * See the file header. `||`, not `&&`: a short screen is narrow-rowed however
+   * wide it is, because the 20px a wide row spends per song and the 68px its
+   * header spends once are both paid out of the same 288px the list has left.
+   */
+  const short = useMediaQuery(SHORT_QUERY)
+  const isNarrow = short || listWidth < WIDE_AT
 
   const hasRows = songs.length > 0
 
@@ -480,8 +502,10 @@ export function SongList({
   return (
     <div ref={columnRef} className="flex min-h-0 flex-1 flex-col">
       {/* No table, no header — and no header means the compact sort chips in
-          the filter bar are the sort control instead. The two switch at the
-          same 672px, which is what keeps exactly one of them on screen. */}
+          the filter bar are the sort control instead. The two switch on the
+          same pair of facts, 672px of list and 500px of window, which is what
+          keeps exactly one of them on screen. `has-table` in `index.css` is
+          that condition written for the chips. */}
       {isNarrow ? null : (
         <SortHeader
           columns={visibleColumns}

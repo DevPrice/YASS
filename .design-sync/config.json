@@ -1,0 +1,56 @@
+{
+  "projectId": "71a639d9-093a-4dfd-b886-40bbd3b86e28",
+  "shape": "package",
+  "pkg": "@yass/client",
+  "globalName": "YASS",
+  "buildCmd": "node .design-sync/prep.mjs",
+  "srcDir": "src",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": "dist/ds-styles.css",
+  "tokensPkg": "@yass/client",
+  "tokensGlob": "src/design/tokens/*.css",
+  "docsDir": "../.design-sync/docs",
+  "dtsPropsFor": {
+    "ChevronRight": "  /** No props. A fixed 6x9 chevron that inherits `currentColor` and shrink-0s. */",
+    "RandomIcon": "  /** No props. A fixed 18px shuffle glyph that inherits `currentColor`. */"
+  },
+  "componentSrcMap": {
+    "Badge": "src/ui/index.tsx",
+    "Button": "src/ui/index.tsx",
+    "ChevronRight": "src/ui/index.tsx",
+    "EmptyState": "src/ui/index.tsx",
+    "HelperBar": "src/ui/index.tsx",
+    "Panel": "src/ui/index.tsx",
+    "RandomIcon": "src/ui/index.tsx",
+    "Select": "src/ui/index.tsx",
+    "SortArrow": "src/ui/index.tsx",
+    "TextField": "src/ui/index.tsx",
+    "ToggleChip": "src/ui/index.tsx",
+    "AlbumThumb": "src/ui/library.tsx",
+    "ArtistName": "src/ui/library.tsx",
+    "DifficultyRing": "src/ui/library.tsx",
+    "InstrumentStrip": "src/ui/library.tsx",
+    "LensDifficulty": "src/ui/library.tsx",
+    "PartsGrid": "src/ui/library.tsx",
+    "SongTitle": "src/ui/library.tsx",
+    "SourceBadge": "src/ui/library.tsx"
+  },
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "EmptyState": {
+      "cardMode": "column"
+    },
+    "HelperBar": {
+      "cardMode": "column"
+    },
+    "Panel": {
+      "cardMode": "column"
+    },
+    "SortArrow": {
+      "cardMode": "column"
+    },
+    "DifficultyRing": {
+      "cardMode": "column"
+    }
+  }
+}

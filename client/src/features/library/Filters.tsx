@@ -2,12 +2,23 @@
  * Search, sort and filter controls.
  *
  * One component, two placements. On a desktop this is a toolbar under the
- * header, which is where a mouse expects it. Below `md` the whole cluster moves
- * to the bottom of the screen with `order-last`, because the top 200px of a
- * phone held one-handed is the part a thumb can't reach — and this app is read
- * by guests standing up, on their own phones, mid-party.
+ * header, which is where a mouse expects it. In the `bar-stack` mode — narrow
+ * *and* tall, which is a phone held upright — the whole cluster moves to the
+ * bottom of the screen with `order-last`, because the top 200px of a phone held
+ * one-handed is the part a thumb can't reach, and this app is read by guests
+ * standing up, on their own phones, mid-party.
  *
- * Two consequences of that move, both deliberate:
+ * **`and tall` is the load-bearing half of that.** The thumb argument is an
+ * argument about a phone held *upright*: sideways it is a two-handed device
+ * whose reachable edges are the left and the right, and the bottom of the
+ * screen is where the landscape software keyboard lands — so a search field
+ * parked there disappears under the keyboard the moment it is focused. A
+ * landscape phone therefore takes the toolbar row, which is also the shape that
+ * fits: 844px of width holds the search, the shuffle, both sheet buttons and
+ * the count on one line at 54px, where stacking them costs 130. See the
+ * variants in `index.css`.
+ *
+ * Two consequences of the bottom placement, both deliberate:
  *
  *   - **The DOM order doesn't change.** Controls still precede results, which
  *     is the sequence a screen reader and a keyboard want. Only the visual
@@ -230,23 +241,33 @@ export function FiltersPanel({
       className={cx(
         'flex shrink-0 flex-wrap items-center gap-x-[10px] gap-y-[15px]',
         'bg-surface-app px-[25px] py-[15px]',
-        // Below md: the bottom bar. `relative` anchors the overlay panels and
-        // `order-last` moves it under the list without touching DOM order.
-        'max-md:relative max-md:z-20 max-md:order-last max-md:px-[15px]',
-        'max-md:shadow-[var(--shadow-bar)]',
-        // Home-indicator clearance, never less than the normal padding.
-        'max-md:pb-[max(15px,env(safe-area-inset-bottom))]',
+        // `relative` anchors the overlay panels wherever they overlay, which is
+        // anywhere without the room to displace the list — see `Disclosure`.
+        'cramped:relative cramped:z-20',
+        // The bottom bar. `order-last` moves it under the list without touching
+        // DOM order; the shadow says it sits in front of the rows it covers.
+        'bar-stack:order-last bar-stack:px-[15px] bar-stack:shadow-[var(--shadow-bar)]',
+        // Home-indicator clearance, never less than the normal padding. Only
+        // where the bar is actually against that edge.
+        'bar-stack:pb-[max(15px,env(safe-area-inset-bottom))]',
+        // One row, and 10px off the top and bottom of it: on a screen with
+        // 390px to spend, 5px of padding is most of a song row's worth of
+        // difference and none of it is legibility.
+        'short:gap-y-[10px] short:px-[15px] short:py-[10px] short:shadow-[var(--shadow-bar)]',
       )}
     >
       {/*
-       * One wrapping row, reordered per breakpoint rather than duplicated.
+       * One wrapping row, reordered per layout mode rather than duplicated.
        *
-       *   desktop   [ search ····· random  filters  count clear ]
+       *   bar-top   [ search ····· random  filters  count clear ]
        *             [ tokens ······························· ]
        *
-       *   phone     [ count ················ clear  sort  filters ]
+       *   bar-stack [ count ················ clear  sort  filters ]
        *             [ tokens ································· ]
        *             [ search ···························· random  ]
+       *
+       * A landscape phone takes the first of those, which is the whole reason
+       * the modes are named after the arrangement rather than after `md`.
        *
        * Search gets the full width on a phone because typing is the common
        * case and sharing the row left it 144px wide — the placeholder cut off
@@ -263,7 +284,8 @@ export function FiltersPanel({
       <div
         role="search"
         className={cx(
-          'order-5 flex basis-full items-center gap-[10px] md:order-1 md:min-w-0 md:flex-1 md:basis-0',
+          'order-5 flex basis-full items-center gap-[10px]',
+          'bar-top:order-1 bar-top:min-w-0 bar-top:flex-1 bar-top:basis-0',
           // Past 1024px of list, the field stops growing and the controls go to
           // the far edge instead. A search input is a target, not a canvas —
           // stretched to 1,100px on a wide monitor it was the single clearest
@@ -316,9 +338,16 @@ export function FiltersPanel({
         </Button>
       </div>
 
-      {/* Sorting is the table header's job wherever the table exists. */}
+      {/*
+       * Sorting is the table header's job wherever the table exists — and
+       * `has-table` is that condition exactly, width *and* height, because the
+       * table needs both. Keyed on the container's width alone this hid the
+       * chips on a landscape phone, which is precisely where the table header
+       * had also gone and they were the only sort control left. `SongList`
+       * decides the same thing from the same two facts.
+       */}
       <Button
-        className="order-2 shrink-0 max-md:px-[14px] md:order-2 @2xl/list:hidden"
+        className="order-2 shrink-0 bar-stack:px-[14px] bar-top:order-2 has-table:hidden"
         tone={open === 'sort' ? 'accent' : 'neutral'}
         onClick={() => togglePanel('sort')}
         aria-expanded={open === 'sort'}
@@ -333,7 +362,7 @@ export function FiltersPanel({
       </Button>
 
       <Button
-        className="order-3 shrink-0 max-md:px-[14px] md:order-2 @5xl/list:ml-auto"
+        className="order-3 shrink-0 bar-stack:px-[14px] bar-top:order-2 @5xl/list:ml-auto"
         tone={open === 'filters' ? 'accent' : 'neutral'}
         onClick={() => togglePanel('filters')}
         aria-expanded={open === 'filters'}
@@ -359,7 +388,12 @@ export function FiltersPanel({
        * a second — the count sat alone on a line of its own, which cost 77px of
        * height on every screen, which is a whole song row.
        */}
-      <div className="order-1 flex min-w-0 flex-1 items-center gap-[15px] md:order-3 md:flex-none md:basis-auto md:justify-end">
+      <div
+        className={cx(
+          'order-1 flex min-w-0 flex-1 items-center gap-[15px]',
+          'bar-top:order-3 bar-top:flex-none bar-top:basis-auto bar-top:justify-end',
+        )}
+      >
         {/*
          * The visible count is not the live region.
          *
@@ -409,7 +443,8 @@ export function FiltersPanel({
         />
       ) : null}
 
-      <Disclosure id="sort-panel" open={open === 'sort'} className="@2xl/list:hidden">
+      {/* Same gate as the button that opens it. See the note on that button. */}
+      <Disclosure id="sort-panel" open={open === 'sort'} className="has-table:hidden">
         {/*
          * Two sections in the sheet the phone sorts from, and the second one is
          * not a sort.
@@ -780,10 +815,11 @@ export function FiltersPanel({
 /**
  * What is narrowing the list, with the panel shut.
  *
- * Horizontally scrollable below `md` rather than wrapping: on a phone this sits
- * between the count and the search field, and a row that grew to four lines
- * would push the field a person is mid-word in down the screen. On a desktop
- * there is width to wrap into and no thumb to displace.
+ * Horizontally scrollable unless the screen is `roomy` rather than wrapping: on
+ * a phone held upright this sits between the count and the search field, and a
+ * row that grew to four lines would push the field a person is mid-word in down
+ * the screen. Held sideways there is width to wrap into and no height to wrap
+ * in — four lines of tokens is four songs. Only a desktop has both.
  */
 function TokenRow({
   tokens,
@@ -809,7 +845,7 @@ function TokenRow({
        */
       role="group"
       aria-label="Active filters"
-      className="order-4 flex min-w-0 basis-full items-center gap-[12px] md:order-4"
+      className="order-4 flex min-w-0 basis-full items-center gap-[12px] bar-top:order-4"
     >
       {/*
        * The tokens scroll; `clear all` does not.
@@ -821,9 +857,12 @@ function TokenRow({
        */}
       <div
         className={cx(
-          'flex min-w-0 flex-1 items-center gap-[8px]',
-          'max-md:scrollbar-slim max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-[2px]',
-          'md:flex-wrap',
+          'scrollbar-slim flex min-w-0 flex-1 flex-nowrap items-center gap-[8px]',
+          'overflow-x-auto pb-[2px]',
+          // Wrapping is what a screen with height to spare does. Everywhere
+          // else — a phone upright, a phone sideways — eight tokens over four
+          // lines is four song rows gone, so the row scrolls instead.
+          'roomy:flex-wrap roomy:overflow-x-visible roomy:pb-0',
         )}
       >
         {tokens.map((token) => (
@@ -987,18 +1026,41 @@ function ChipSet({ children }: { children: ReactNode }) {
 // --- Shared bits --------------------------------------------------------------
 
 /**
- * A collapsible region that behaves differently at each width.
+ * A collapsible region that behaves differently in each layout mode.
  *
- * On a desktop it's an ordinary block in the toolbar's flow. Below `md` it's
- * lifted out of flow and floated above the bar, so opening it costs the song
- * list nothing — the list keeps its full height and scroll position, and the
- * rows above the sheet stay live while you narrow.
+ * Where the screen is `roomy` it's an ordinary block in the toolbar's flow.
+ * Anywhere `cramped` it's lifted out of flow and floated against the bar, so
+ * opening it costs the song list nothing — the list keeps its full height and
+ * scroll position, and the rows behind the sheet stay live while you narrow.
  *
- * It scrolls at every width now, not only on a phone. The panel holds nine
- * dimensions rather than five, and on a desktop it is a flex sibling of the
+ * **It opens away from the bar, whichever edge the bar is on.** Upward from a
+ * bottom bar, downward from a top one. That is one rule and two anchors rather
+ * than two behaviours: a sheet always grows into the screen and never off it,
+ * and the button that opened it stays put and stays visible with its accent on.
+ *
+ * The cap is the same idea measured differently at each edge, and the two are
+ * not the same expression because the panel is anchored differently. 55vh above
+ * a bottom bar leaves the now-playing banner and a few rows showing, and a
+ * fraction is the right shape for that: it is a fraction of the screen the
+ * panel is *allowed* to cover.
+ *
+ * Below a top bar the panel is anchored under the chrome and has to stop at the
+ * bottom of the screen, so what it can take is a subtraction rather than a
+ * fraction — everything left after the 48px banner and the ~69px toolbar. A
+ * fraction cannot state that at both ends: 70svh fits inside a 430px Pro Max
+ * and hangs 4px off a 375px SE, because the constant above scales with neither.
+ * 130px is those two bars plus a little air, and being generous with the air
+ * costs nothing on a box that scrolls.
+ *
+ * `svh` rather than `vh` throughout, because the two differ by the height of a
+ * mobile browser's retracting chrome and that is a large fraction of a
+ * landscape screen.
+ *
+ * It scrolls in every mode, not only when cramped. The panel holds nine
+ * dimensions rather than five, and in the flow it is a flex sibling of the
  * list — left uncapped, a fully expanded panel would push the rows off the
- * bottom of a laptop screen, which is the same failure the phone overlay was
- * built to avoid.
+ * bottom of a laptop screen, which is the same failure the overlay was built
+ * to avoid.
  */
 function Disclosure({
   id,
@@ -1038,19 +1100,24 @@ function Disclosure({
          * which is why the bars only ever showed on a desktop.
          */
         'overflow-x-hidden',
-        'md:order-6 md:basis-full md:max-h-[52vh] md:overflow-y-auto md:pb-[20px]',
-        'max-md:absolute max-md:inset-x-0 max-md:bottom-full max-md:z-20',
-        'max-md:max-h-[55vh] max-md:overflow-y-auto',
+        'roomy:order-6 roomy:basis-full roomy:max-h-[52vh] roomy:overflow-y-auto roomy:pb-[20px]',
+        'cramped:absolute cramped:inset-x-0 cramped:z-20 cramped:overflow-y-auto',
         // Sunken is the darkest surface in the palette, so the sheet reads as
         // sitting in front of the rows rather than among them.
-        'max-md:bg-surface-sunken max-md:p-[15px]',
-        'max-md:shadow-[var(--shadow-bar)]',
+        'cramped:bg-surface-sunken cramped:p-[15px]',
+        'cramped:shadow-[var(--shadow-bar)]',
+        // Above a bottom bar, below a top one — see the note above. The two
+        // conditions are disjoint, so neither is ever asked to beat the other.
+        'bar-stack:bottom-full bar-stack:max-h-[55vh]',
+        'short:top-full short:max-h-[calc(100svh-130px)]',
         // The sheet floats over the list, and every surface in this palette is
         // within 1.15:1 of every other — a card stroke would leave no visible
-        // edge at all. The lit top rule is the same accent-at-half the text
-        // field uses when focused, so an open sheet reads as active, matching
-        // the accent state of the button that opened it.
-        'max-md:border-t-2 max-md:border-t-[var(--accent-edge)]',
+        // edge at all. The lit rule is the same accent-at-half the text field
+        // uses when focused, so an open sheet reads as active, matching the
+        // accent state of the button that opened it. It goes on the edge facing
+        // the bar, which is the seam the sheet actually has to be told from.
+        'bar-stack:border-t-2 bar-stack:border-t-[var(--accent-edge)]',
+        'short:border-b-2 short:border-b-[var(--accent-edge)]',
         className,
       )}
     >
