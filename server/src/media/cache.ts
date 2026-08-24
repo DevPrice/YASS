@@ -66,6 +66,26 @@ import { isAbsolute, join, normalize, resolve } from 'node:path'
 import type { ChartRef } from './types.js'
 
 /**
+ * What a given cache version does to the run this reader reads.
+ *
+ * There is one flag here today, and the honest description of this type is "the
+ * differences that were not free". Everything else YARG has added since this
+ * parser was written landed in the tail an entry's own length prefix skips, and
+ * cost nothing; `yargGuid` is the first field that did not.
+ */
+export interface CacheEntryLayout {
+  /**
+   * `YargGuid`, a LEB128-prefixed string written between the `Source` index and
+   * `IsMaster`. Added in `26_08_21_00`.
+   *
+   * The one field ever to land *inside* the region `readMetadata` reads, and so
+   * the reason that function takes a layout at all. Nothing downstream wants
+   * the value — it is read only to know where `IsMaster` starts.
+   */
+  yargGuid: boolean
+}
+
+/**
  * The layouts this file has actually been checked against.
  *
  * An allowlist rather than a single constant, and the difference matters: the
@@ -75,27 +95,29 @@ import type { ChartRef } from './types.js'
  * the scanner on every YARG update, including the ones that moved nothing we
  * look at.
  *
- * So a version earns its place here by inspection, not by being recent. Both of
- * these were verified by diffing every file under `Song/Cache/` and
- * `Song/Entries/` between the two commits: the head of every entry — relative
+ * So a version earns its place here by inspection, not by being recent. Each
+ * was verified by diffing every file under `Song/Cache/` and `Song/Entries/`
+ * between its commit and the one before it, and accounting for every
+ * serialization change at or before `SongRating` — which is where
+ * `readMetadata` stops. Across all four, the head of every entry — relative
  * path, format byte, timestamps, then the hash — is byte-identical, as are the
- * group order, the string-table count, and the CON group's `int32` type tag.
+ * group order, `AvailableParts`, the string-table count, and the CON group's
+ * `int32` type tag.
  *
- * The read region has since grown past the hash to take in the metadata this
- * app's song list is built from, so that diff was re-checked over the larger
- * span and still holds: every serialization difference between the two versions
- * lands at `VenueHint` or later — `26_07_23_00` inserted `VenueHint`,
- * `VocalCharacterHint` and `VocalGender` after `Video.End`, and
- * `CreditBackground` among the credits — while `readMetadata` stops at
- * `SongRating`, four fields earlier. **That boundary is the invariant to check
- * when adding a version, and it is a tighter one than before:** a change
- * anywhere between the hash and `SongRating` now needs a reader per version,
- * where once it would have gone unnoticed.
+ * | Version       | YARG commit                                             | In the read region                |
+ * |---------------|---------------------------------------------------------|-----------------------------------|
+ * | `26_04_28_00` | `108f6c16` "Add support for charter_audio metadata …"    | —                                 |
+ * | `26_07_23_00` | `1a970e88` "Fix vocal gender parsing for ini and con"    | — `VenueHint` and after           |
+ * | `26_08_12_00` | `6e08bad1` "Add vocals censorship chart feature (#405)"  | — `CleanVocals`, one field after  |
+ * | `26_08_21_00` | `180dc09f` "Add support for yarg_guid ini tag"           | **`YargGuid`, before `IsMaster`** |
  *
- * | Version      | YARG commit                                            |
- * |--------------|--------------------------------------------------------|
- * | `26_04_28_00`| `108f6c16` "Add support for charter_audio metadata …"   |
- * | `26_07_23_00`| `1a970e88` "Fix vocal gender parsing for ini and con"   |
+ * Those last two are worth reading together, because they are the two outcomes
+ * this table exists to tell apart. `26_08_12_00` added a `bool` immediately
+ * *after* `SongRating` and needed no code at all. `26_08_21_00` added a
+ * variable-length string *before* `IsMaster` and moved every scalar after it —
+ * a reader that ignored the difference would have kept parsing, silently, and
+ * returned a library of wrong track numbers and wrong durations. One field's
+ * distance separates the two.
  *
  * **Do not add a version without doing that diff.** The format really does
  * change shape between stamps — the CON group header's type tag used to be a
@@ -103,7 +125,12 @@ import type { ChartRef } from './types.js'
  * change left behind. Guessing here produces confident, wrong hashes; refusing
  * produces a slow first scan. `scan.ts` is what makes refusing cheap.
  */
-export const SUPPORTED_CACHE_VERSIONS: readonly number[] = [26_04_28_00, 26_07_23_00]
+export const SUPPORTED_CACHE_VERSIONS: ReadonlyMap<number, CacheEntryLayout> = new Map([
+  [26_04_28_00, { yargGuid: false }],
+  [26_07_23_00, { yargGuid: false }],
+  [26_08_12_00, { yargGuid: false }],
+  [26_08_21_00, { yargGuid: true }],
+])
 
 /** 20 bytes of SHA-1, written raw by `HashWrapper.Serialize`. */
 const HASH_BYTES = 20
@@ -421,23 +448,28 @@ function pick(table: readonly string[], index: number, what: string): string {
  *
  * ## Why this is safe to read, when the ~90 fields after it are not
  *
- * The layout from the hash up to `SongRating` is fixed-size and has not moved
- * between any cache version in `SUPPORTED_CACHE_VERSIONS`: a `sizeof`'d
- * `AvailableParts`, nine string-table indices, two bools, four `int32`s, two
- * `int64`s and a `uint32`. There is not a single variable-length field in it,
- * so nothing here depends on correctly interpreting anything before it.
+ * The layout from the hash up to `SongRating` is almost all fixed-size: a
+ * `sizeof`'d `AvailableParts`, nine string-table indices, two bools, four
+ * `int32`s, two `int64`s and a `uint32`. Nothing in it is parsed conditionally,
+ * so nothing here depends on having correctly interpreted anything before it.
  *
- * The first string is `VenueHint`, immediately after `Video.End` — and that is
- * exactly where the two supported versions diverge, since `26_07_23_00` added
- * `VenueHint`, `VocalCharacterHint` and `VocalGender` there and a
- * `CreditBackground` further on. So this stops at `SongRating`, four fields
- * short of the difference, and the entry's own length prefix skips the rest.
+ * The one exception is `YargGuid`, a string `26_08_21_00` inserted after the
+ * `Source` index, which is why `layout` exists — see `CacheEntryLayout`. Note
+ * what that costs: the guid's own length prefix keeps *this* function honest,
+ * but only because the version told us to expect it. A version whose layout was
+ * guessed would read a length byte out of `IsMaster` and wander.
  *
- * Reading further would mean a reader per cache version. Stopping here means
- * one reader for both, and for every future version whose changes land in the
- * tail — which, going by history, is most of them.
+ * This still stops at `SongRating` rather than going further, and the entry's
+ * own length prefix skips the rest. Everything past that point — the previews,
+ * `CleanVocals`, the venue hints, the links, the credits — has changed
+ * repeatedly across the supported versions and never once cost us a line of
+ * code. That is the whole reason the read region is drawn where it is.
  */
-function readMetadata(entry: Cursor, strings: StringTables): CacheSongMeta {
+function readMetadata(
+  entry: Cursor,
+  strings: StringTables,
+  layout: CacheEntryLayout,
+): CacheSongMeta {
   const parts = {} as Record<PartName, PartValue>
   for (const part of PART_NAMES) {
     // Order matters twice over: across the array, and within the pair.
@@ -455,6 +487,10 @@ function readMetadata(entry: Cursor, strings: StringTables): CacheSongMeta {
   const charter = pick(strings[6]!, entry.i32(), 'charter')
   const playlist = pick(strings[7]!, entry.i32(), 'playlist')
   const source = pick(strings[8]!, entry.i32(), 'source')
+
+  // Read and dropped: the app has no use for a chart's GUID, but the bytes are
+  // between us and `IsMaster`.
+  if (layout.yargGuid) entry.string()
 
   const isMaster = entry.bool()
   entry.skip(1) // VideoLoop
@@ -492,7 +528,12 @@ function readMetadata(entry: Cursor, strings: StringTables): CacheSongMeta {
  * the directory is read first and why a group is the unit the fallback scanner
  * also works in.
  */
-function readIniGroup(group: Cursor, strings: StringTables, into: CacheSong[]): void {
+function readIniGroup(
+  group: Cursor,
+  strings: StringTables,
+  layout: CacheEntryLayout,
+  into: CacheSong[],
+): void {
   const directory = normalize(group.string())
 
   // Unpacked: string relativePath, byte chartFormat, int64 chartLastWrite,
@@ -506,7 +547,7 @@ function readIniGroup(group: Cursor, strings: StringTables, into: CacheSong[]): 
     if (path === null) continue
 
     const hash = entry.hash()
-    into.push({ ref: { hash, format: 'Ini', path }, meta: readMetadata(entry, strings) })
+    into.push({ ref: { hash, format: 'Ini', path }, meta: readMetadata(entry, strings, layout) })
   }
 
   // Packed: string relativePath, int64 lastWrite, uint32 sngVersion,
@@ -519,7 +560,7 @@ function readIniGroup(group: Cursor, strings: StringTables, into: CacheSong[]): 
     if (path === null) continue
 
     const hash = entry.hash()
-    into.push({ ref: { hash, format: 'Sng', path }, meta: readMetadata(entry, strings) })
+    into.push({ ref: { hash, format: 'Sng', path }, meta: readMetadata(entry, strings, layout) })
   }
 }
 
@@ -531,7 +572,12 @@ function readIniGroup(group: Cursor, strings: StringTables, into: CacheSong[]): 
  * package file; the two unpacked variants are directories laid out the same way
  * a package is internally, which YARG calls `ExCON`.
  */
-function readConGroup(group: Cursor, strings: StringTables, into: CacheSong[]): void {
+function readConGroup(
+  group: Cursor,
+  strings: StringTables,
+  layout: CacheEntryLayout,
+  into: CacheSong[],
+): void {
   const root = normalize(group.string())
   group.skip(8) // AbridgedFileInfo.LastWriteTime
 
@@ -557,7 +603,7 @@ function readConGroup(group: Cursor, strings: StringTables, into: CacheSong[]): 
     const hash = entry.hash()
     into.push({
       ref: { hash, format, path: root, subName, dtaName },
-      meta: readMetadata(entry, strings),
+      meta: readMetadata(entry, strings, layout),
     })
   }
 }
@@ -578,10 +624,11 @@ export function parseSongCache(data: Buffer): CacheParseResult {
   const stream = new Cursor(data)
 
   const version = stream.i32()
-  if (!SUPPORTED_CACHE_VERSIONS.includes(version)) {
+  const layout = SUPPORTED_CACHE_VERSIONS.get(version)
+  if (layout === undefined) {
     throw new CacheFormatError(
       `songcache.bin is version ${version}; this reader has only been verified against ` +
-        SUPPORTED_CACHE_VERSIONS.join(', '),
+        [...SUPPORTED_CACHE_VERSIONS.keys()].join(', '),
     )
   }
 
@@ -599,8 +646,8 @@ export function parseSongCache(data: Buffer): CacheParseResult {
   stream.skipLoop()
 
   const songs: CacheSong[] = []
-  for (const group of stream.loop()) readIniGroup(group, strings, songs)
-  for (const group of stream.loop()) readConGroup(group, strings, songs)
+  for (const group of stream.loop()) readIniGroup(group, strings, layout, songs)
+  for (const group of stream.loop()) readConGroup(group, strings, layout, songs)
 
   return { songs, version }
 }

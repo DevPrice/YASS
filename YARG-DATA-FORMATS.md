@@ -619,9 +619,11 @@ them from `YARG.Core` if you need the ints.
 8. Normalize hashes to uppercase hex; compare case-insensitively (§3.4).
 9. Read **`songcache.bin`** for the library (§9) — it needs no user action, and it is
    the only source with chart paths and track numbers. Pin an allowlist of verified
-   `CACHE_VERSION` stamps, read only the fixed-size run from the hash to `SongRating`,
-   and have something to fall back on. Use the **CSV export** (§4.2) if you would
-   rather have a stable format than an automatic one.
+   `CACHE_VERSION` stamps, read no further than `SongRating` and let the entry's
+   length prefix skip the rest, and have something to fall back on. Note that the
+   run up to `SongRating` is *nearly* fixed-size but not entirely: `26_08_21_00`
+   put a `YargGuid` string in the middle of it. Use the **CSV export** (§4.2) if you
+   would rather have a stable format than an automatic one.
 10. Guard `YearAsNumber == 2147483647` and difficulty `-1` sentinels. From the cache,
     also guard `AlbumTrack == 2147483647`, and read *both* bytes of a `PartValues` —
     `subTracks == 0` is an absent instrument, which is not the same fact as an
@@ -684,9 +686,21 @@ layout genuinely changes shape between values — the CON group header's type fi
 still carries the 1-byte read that change left behind, so **follow the writer and
 `QuickReadCONGroup`, not `ReadCONGroup`**. Verify a new version by diffing
 `Song/Cache/` and `Song/Entries/` between the two commits; if every change lands after
-the hash, the head layout is unaffected.
+the last field you read, your layout is unaffected.
 
-Two traps worth naming:
+That last clause is the whole of it, and two consecutive versions show both answers.
+`26_08_12_00` (`6e08bad1`, vocal censorship) added a `CleanVocals` bool **one field
+after `SongRating`** — free, no code. `26_08_21_00` (`180dc09f`, `yarg_guid`) added a
+`YargGuid` string **between the `Source` index and `IsMaster`**, shifting every scalar
+after it. A reader that took the second for the first would not throw; it would report
+wrong durations, wrong track numbers and wrong ratings for an entire library. Draw the
+read region as early as you can bear, and diff against it rather than against the hash.
+
+Three traps worth naming:
+
+- Bumping `CACHE_VERSION` is a manual step in YARG, so **a commit can change
+  serialization without touching the stamp**. Diff to the head of `master`, not just
+  to the commit that moved the constant, before deciding a stamp means one layout.
 
 - The DTA node name and the `subName` are **different strings** and both are stored. Most
   packages use the same value for both; at least one in a 4,000-song library does not,

@@ -21,6 +21,7 @@ import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
 import { parseSongCache, readLeb128, CacheFormatError, SUPPORTED_CACHE_VERSIONS } from './cache.js'
+import type { CacheEntryLayout } from './cache.js'
 import { calculateBlockLocation } from './stfs.js'
 import { decodeDxt, expectedPayloadBytes, readDxtHeader } from './dxt.js'
 import { parseDta, findSongNode, readSongAudio, getNumbers } from './dta.js'
@@ -148,18 +149,34 @@ interface MetadataOptions {
 }
 
 /**
- * The fixed-size metadata run every entry carries after its hash.
+ * A `YargGuid` value for the versions that write one.
+ *
+ * Deliberately long. An empty guid is a single zero byte, and a reader that
+ * skipped it would be off by one — which is a real bug but an easy one to land
+ * on plausible-looking values by luck. Twelve bytes of shift is not survivable
+ * by accident, so the assertions in `reads the scalar metadata …` become a real
+ * statement about the layout rather than a coincidence.
+ */
+const YARG_GUID = 'fixture-guid'
+
+/**
+ * The metadata run every entry carries after its hash.
  *
  * Written in `SongEntry.Serialize`'s order, and deliberately followed by a tail
  * of junk: the parser stops at `SongRating`, and the bytes after it stand in
- * for the ~70 fields — venue hints, links, credits — it must never read.
+ * for the ~70 fields — venue hints, `CleanVocals`, links, credits — it must
+ * never read.
+ *
+ * Takes a layout because the run is not the same shape in every supported
+ * version: `26_08_21_00` put `YargGuid` in the middle of it.
  */
-function metadata(options: MetadataOptions = {}): Buffer {
+function metadata(layout: CacheEntryLayout, options: MetadataOptions = {}): Buffer {
   const indices = options.indices ?? [0, 0, 0, 0, 0, 0, 0, 0, 0]
 
   return Buffer.concat([
     availableParts(options.parts),
     ...indices.map(int32),
+    ...(layout.yargGuid ? [dotnetString(YARG_GUID)] : []),
     Buffer.from([options.isMaster === false ? 0 : 1]),
     Buffer.from([0]), // VideoLoop
     int32(options.albumTrack ?? INT_MAX),
@@ -203,12 +220,28 @@ const PACK_DIR = WINDOWS ? 'C:\\packs\\pack_con' : '/packs/pack_con'
 const ESCAPING_PATH = WINDOWS ? '..\\..\\Windows\\System32' : '../../etc/shadow'
 
 /**
+ * Every version the reader accepts, oldest first.
+ *
+ * `BASE_VERSION` is what the tests that are not about the layout build with —
+ * the oldest is the simplest, and any of them would do. `GUID_VERSION` is
+ * named separately because it is the one whose shape differs.
+ */
+const CACHE_VERSIONS = [...SUPPORTED_CACHE_VERSIONS.keys()]
+const BASE_VERSION = CACHE_VERSIONS[0]!
+const GUID_VERSION = 26_08_21_00
+
+/**
  * A minimal but structurally faithful cache file.
  *
  * Built from the *writer's* order in `CacheHandler.Serialize`, so this doubles
- * as an executable statement of the layout.
+ * as an executable statement of the layout — including the parts of it that
+ * depend on the version, which is why the layout is looked up here rather than
+ * passed in. Building a file whose bytes disagree with its own version stamp
+ * would test nothing the parser will ever see.
  */
 function buildCacheFile(version: number): Buffer {
+  const layout = SUPPORTED_CACHE_VERSIONS.get(version) ?? { yargGuid: false }
+
   const stringTables = Buffer.concat(
     STRING_TABLES.map((table) =>
       lengthPrefixed(Buffer.concat([int32(table.length), ...table.map(dotnetString)])),
@@ -221,7 +254,7 @@ function buildCacheFile(version: number): Buffer {
     int64(0n), // chart last write
     Buffer.from([0]), // no song.ini timestamp
     Buffer.from(HASH_A, 'hex'),
-    metadata({
+    metadata(layout, {
       indices: [0, 0, 0, 0, 0, 0, 0, 0, 0],
       albumTrack: 3,
       lengthMs: 197_500n,
@@ -241,7 +274,7 @@ function buildCacheFile(version: number): Buffer {
     int32(1), // sng version
     Buffer.from([0]), // chart format
     Buffer.from(HASH_B, 'hex'),
-    metadata({
+    metadata(layout, {
       indices: [1, 0, 0, 0, 0, 0, 0, 0, 0],
       isMaster: false,
       // Never charted a track number, and a part that exists but is untiered.
@@ -260,7 +293,7 @@ function buildCacheFile(version: number): Buffer {
     Buffer.from([0]), // index byte
     dotnetString('shortname'),
     Buffer.from(HASH_A, 'hex'),
-    metadata({ indices: [2, 0, 0, 0, 0, 0, 0, 0, 0] }),
+    metadata(layout, { indices: [2, 0, 0, 0, 0, 0, 0, 0, 0] }),
   ])
 
   const conGroup = Buffer.concat([
@@ -284,7 +317,7 @@ function buildCacheFile(version: number): Buffer {
 
 describe('songcache.bin', () => {
   it('reads ini, sng and CON entries out of a well-formed file', () => {
-    const { songs } = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!))
+    const { songs } = parseSongCache(buildCacheFile(BASE_VERSION))
 
     assert.equal(songs.length, 3)
 
@@ -311,7 +344,7 @@ describe('songcache.bin', () => {
   })
 
   it('resolves each entry against the shared string tables', () => {
-    const { songs } = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!))
+    const { songs } = parseSongCache(buildCacheFile(BASE_VERSION))
 
     // Three entries, three different titles, one artist string between them —
     // which is the whole reason the tables exist.
@@ -328,7 +361,7 @@ describe('songcache.bin', () => {
   })
 
   it('reads the scalar metadata after the string indices', () => {
-    const [ini, sng] = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!)).songs
+    const [ini, sng] = parseSongCache(buildCacheFile(BASE_VERSION)).songs
 
     assert.equal(ini?.meta.albumTrack, 3)
     assert.equal(ini?.meta.lengthMs, 197_500)
@@ -342,7 +375,7 @@ describe('songcache.bin', () => {
   })
 
   it('reads both bytes of every part, absent and untiered being different', () => {
-    const [ini, sng] = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!)).songs
+    const [ini, sng] = parseSongCache(buildCacheFile(BASE_VERSION)).songs
 
     assert.deepEqual(ini?.meta.parts.fiveFretGuitar, { subTracks: 31, intensity: 2 })
     assert.deepEqual(ini?.meta.parts.bandDifficulty, { subTracks: 1, intensity: 4 })
@@ -357,7 +390,7 @@ describe('songcache.bin', () => {
     // Every entry above carries trailing junk after `SongRating`. The whole
     // premise of the parser is that the length prefix makes that safe, and the
     // entry after it still lands in the right place.
-    const { songs } = parseSongCache(buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!))
+    const { songs } = parseSongCache(buildCacheFile(BASE_VERSION))
     assert.equal(songs[0]?.ref.hash, HASH_A)
     assert.equal(songs[1]?.ref.hash, HASH_B)
   })
@@ -367,11 +400,34 @@ describe('songcache.bin', () => {
   })
 
   it('accepts every version on the verified list', () => {
-    for (const version of SUPPORTED_CACHE_VERSIONS) {
+    for (const version of CACHE_VERSIONS) {
       const { songs, version: reported } = parseSongCache(buildCacheFile(version))
       assert.equal(reported, version)
       assert.equal(songs.length, 3)
     }
+  })
+
+  it('reads the same metadata either side of the field 26_08_21_00 inserted', () => {
+    // The regression this file exists for. `YargGuid` sits between the `Source`
+    // index and `IsMaster`, so every scalar after it moves — and none of them is
+    // a value a reader could sanity-check. Wrong here means a library of wrong
+    // durations and wrong track numbers, presented with total confidence.
+    const before = parseSongCache(buildCacheFile(BASE_VERSION)).songs
+    const after = parseSongCache(buildCacheFile(GUID_VERSION)).songs
+
+    assert.deepEqual(after, before)
+  })
+
+  it('reads past a YargGuid rather than off the end of it', () => {
+    // The same file read as the version before the guid existed: the reader
+    // takes the guid's first byte as `IsMaster`, its length as `AlbumTrack`,
+    // and so on down. Nothing here throws — which is exactly why the version
+    // stamp has to be the thing that decides, and not a heuristic.
+    const guided = buildCacheFile(GUID_VERSION)
+    guided.writeInt32LE(BASE_VERSION, 0)
+
+    const [misread] = parseSongCache(guided).songs
+    assert.notEqual(misread?.meta.lengthMs, 197_500)
   })
 
   it('refuses a relative path that escapes its group directory', () => {
@@ -390,7 +446,7 @@ describe('songcache.bin', () => {
     ])
 
     const file = Buffer.concat([
-      int32(SUPPORTED_CACHE_VERSIONS[0]!),
+      int32(BASE_VERSION),
       Buffer.from([0]),
       Buffer.concat(Array.from({ length: 9 }, () => lengthPrefixed(int32(0)))),
       loopable([]),
@@ -404,7 +460,7 @@ describe('songcache.bin', () => {
   })
 
   it('fails loudly rather than reading past the end of a truncated entry', () => {
-    const truncated = buildCacheFile(SUPPORTED_CACHE_VERSIONS[0]!).subarray(0, 120)
+    const truncated = buildCacheFile(BASE_VERSION).subarray(0, 120)
     assert.throws(() => parseSongCache(truncated), CacheFormatError)
   })
 })
