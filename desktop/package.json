@@ -1,6 +1,6 @@
 {
   "name": "@yass/desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Tray application: owns configuration behind native pickers and runs the YASS server as a child process",
   "//": "CommonJS on purpose, and only here. Electron preload scripts cannot be ESM under `sandbox: true`, and CJS sidesteps the app.whenReady()-vs-async-ESM ordering traps in main. The rest of the repo — including the server bundle this spawns — stays ESM.",
