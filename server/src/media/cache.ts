@@ -99,7 +99,7 @@ export interface CacheEntryLayout {
  * was verified by diffing every file under `Song/Cache/` and `Song/Entries/`
  * between its commit and the one before it, and accounting for every
  * serialization change at or before `SongRating` — which is where
- * `readMetadata` stops. Across all four, the head of every entry — relative
+ * `readMetadata` stops. Across all five, the head of every entry — relative
  * path, format byte, timestamps, then the hash — is byte-identical, as are the
  * group order, `AvailableParts`, the string-table count, and the CON group's
  * `int32` type tag.
@@ -110,26 +110,34 @@ export interface CacheEntryLayout {
  * | `26_07_23_00` | `1a970e88` "Fix vocal gender parsing for ini and con"    | — `VenueHint` and after           |
  * | `26_08_12_00` | `6e08bad1` "Add vocals censorship chart feature (#405)"  | — `CleanVocals`, one field after  |
  * | `26_08_21_00` | `180dc09f` "Add support for yarg_guid ini tag"           | **`YargGuid`, before `IsMaster`** |
+ * | `26_09_04_00` | `b9be7bb1` "Parse 6f credit tags from ini and save …"    | — `Charter*` strings, in the tail |
  *
- * Those last two are worth reading together, because they are the two outcomes
- * this table exists to tell apart. `26_08_12_00` added a `bool` immediately
- * *after* `SongRating` and needed no code at all. `26_08_21_00` added a
- * variable-length string *before* `IsMaster` and moved every scalar after it —
- * a reader that ignored the difference would have kept parsing, silently, and
- * returned a library of wrong track numbers and wrong durations. One field's
- * distance separates the two.
+ * `26_08_12_00` and `26_08_21_00` are worth reading together, because they are
+ * the two outcomes this table exists to tell apart. `26_08_12_00` added a
+ * `bool` immediately *after* `SongRating` and needed no code at all.
+ * `26_08_21_00` added a variable-length string *before* `IsMaster` and moved
+ * every scalar after it — a reader that ignored the difference would have kept
+ * parsing, silently, and returned a library of wrong track numbers and wrong
+ * durations. One field's distance separates the two.
  *
  * **Do not add a version without doing that diff.** The format really does
  * change shape between stamps — the CON group header's type tag used to be a
  * `bool`, and YARG's own full-scan reader still carries the one-byte read that
  * change left behind. Guessing here produces confident, wrong hashes; refusing
  * produces a slow first scan. `scan.ts` is what makes refusing cheap.
+ *
+ * Diff the whole range, not just the commit that moved the constant: bumping
+ * `CACHE_VERSION` is a manual step, so a stamp covers every commit up to the
+ * next bump. `5fb1ed22` landed under `26_08_21_00` and touched five entry
+ * files; it happened to change only background selection, but nothing in
+ * YARG's process guarantees that.
  */
 export const SUPPORTED_CACHE_VERSIONS: ReadonlyMap<number, CacheEntryLayout> = new Map([
   [26_04_28_00, { yargGuid: false }],
   [26_07_23_00, { yargGuid: false }],
   [26_08_12_00, { yargGuid: false }],
   [26_08_21_00, { yargGuid: true }],
+  [26_09_04_00, { yargGuid: true }],
 ])
 
 /** 20 bytes of SHA-1, written raw by `HashWrapper.Serialize`. */
