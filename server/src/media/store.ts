@@ -3,7 +3,7 @@
  *
  * ```
  *   %LOCALAPPDATA%\yass\cache\
- *     charts.json          the chart index (see index.ts)
+ *     charts-<digest>.json the chart index, one per YARG data dir (see index.ts)
  *     art\<hash>.sm.webp   256px thumbnails, precomputed for the whole library
  *     art\<hash>.lg.webp   640px covers, generated when a song is opened
  *     preview\<hash>.opus  ~30s previews, generated when one is played

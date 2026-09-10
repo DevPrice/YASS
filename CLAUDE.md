@@ -99,10 +99,12 @@ proxy, and losing access on the host is recoverable where exposing configuration
 ### `media/` hangs off the chart index
 
 `media/index.ts` maps hash → `ChartRef` (where the chart lives), built from `songcache.bin`
-or a disk walk, persisted with a format version and a fingerprint so a stale index is
-detected rather than trusted. Everything downstream — SNG / `.yargsong` / CON readers, art
-extraction, previews, the disk cache — is a function of a `ChartRef`. **The index never
-leaves the server: it holds absolute paths.**
+or a disk walk, persisted with a format version, the data directory it was built from and a
+fingerprint, so a stale index is detected rather than trusted. One file per data directory
+(`charts-<digest>.json`), which is what makes switching build channels cheap and what stops
+one install's absolute paths being handed to another. Everything downstream — SNG /
+`.yargsong` / CON readers, art extraction, previews, the disk cache — is a function of a
+`ChartRef`. **The index never leaves the server: it holds absolute paths.**
 
 ffmpeg does the decoding and is fetched on demand. The pinned build is a Windows one, so on
 Linux the fetch refuses rather than leaving a PE executable named `ffmpeg` in the app's
@@ -118,6 +120,13 @@ no UI left to kill it with. The server entry ships as `.mjs` because `server/pac
 (which is what makes the bundle ESM) does not travel into the packaged layout. The tray
 reuses the server's own settings and path modules through `@server/*` rather than
 reimplementing them.
+
+The popover is also the only place the app's own settings can be seen or changed — the web
+client deliberately has none. That is where the **release / nightly switch** lives: the
+server reports the YARG data directories it found (`SettingsView.installs`), and choosing
+one writes `yargDataDir`. The channel is never stored separately; it is read back by
+comparing the configured folder against what was found, so `-persistent-data-path` and a
+hand-picked folder stay possible and simply show as "Custom".
 
 ### Client
 

@@ -16,6 +16,8 @@ import {
   appConfigDir,
   currentSongJsonPath,
   defaultYargDataDir,
+  findInstalls,
+  installRoots,
   settingsFilePath,
   songCachePath,
 } from './paths.js'
@@ -173,12 +175,17 @@ export function envOverriddenFields(): Array<keyof Settings> {
  * `settings` is the effective (env-resolved) view — what's actually in force —
  * and `envOverrides` names the fields where editing the file won't change
  * anything until the variable is removed.
+ *
+ * `installs` is the same kind of fact as `status`: something true of the disk
+ * right now, looked up on every call rather than cached, so the settings UI can
+ * offer the other YARG build the moment one appears.
  */
 export function describeSettings(settings: Settings): SettingsView {
   return {
     settings,
     envOverrides: envOverriddenFields(),
     defaultYargDataDir: defaultYargDataDir('release'),
+    installs: findInstalls(installRoots(settings.yargDataDir), settings.yargDataDir),
     status: {
       yargDataDirExists: settings.yargDataDir !== '' && existsSync(settings.yargDataDir),
       currentSongJsonExists:

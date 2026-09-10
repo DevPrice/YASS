@@ -246,6 +246,38 @@ export interface NowPlayingSong {
   hasArt: boolean
 }
 
+/**
+ * YARG's build channels, which are also the folder names its data directories
+ * sit in — `…/YARC/YARG/<channel>`.
+ *
+ * Here rather than in the server's `core/paths.ts` because an install found on
+ * disk crosses the wire to the settings UI, and the channel is the only part of
+ * it that is safe to name in a label.
+ */
+export type BuildChannel = 'release' | 'nightly' | 'dev'
+
+/**
+ * A YARG data directory found next to the configured one.
+ *
+ * The channel is not a setting — `yargDataDir` is, and this is what the server
+ * found by looking. Somebody who runs both the release and the nightly build
+ * has two of these, and switching between them is writing the other one's
+ * `path` into `yargDataDir`.
+ *
+ * `path` is an absolute filesystem path, which is why `SettingsView` is
+ * host-only and why nothing here reaches the web client.
+ */
+export interface YargInstall {
+  channel: BuildChannel
+  path: string
+  /** True when this is the directory `yargDataDir` currently names. */
+  active: boolean
+  /** Without `songcache.bin` this build has never scanned: switching to it shows an empty list. */
+  hasSongCache: boolean
+  /** `currentSong.json`'s mtime — the closest thing to "which build did you last play". */
+  playedAt: number | null
+}
+
 /** User-editable settings. */
 export interface Settings {
   /**
@@ -340,6 +372,14 @@ export interface SettingsView {
   envOverrides: Array<keyof Settings>
   /** Platform default for `yargDataDir`, shown as a hint. */
   defaultYargDataDir: string
+  /**
+   * Every YARG data directory found on disk, release first.
+   *
+   * Two or more means both builds are installed and the settings UI can offer a
+   * switch instead of a path to type. Exactly one — the usual case — means
+   * there is nothing to choose between and no control to draw.
+   */
+  installs: YargInstall[]
   /** Per-path existence checks so the UI can flag a bad configuration. */
   status: {
     yargDataDirExists: boolean

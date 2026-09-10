@@ -14,7 +14,7 @@
 import { StrictMode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { ENV_VARS, type Settings } from '@shared/types.js'
+import { ENV_VARS, type BuildChannel, type Settings, type YargInstall } from '@shared/types.js'
 // Type-only, and it has to stay that way: `src/` is main-process code, and the
 // renderer has no way to run any of it. The import is erased at build time.
 import type { DesktopApi, DesktopState } from '../src/ipc.js'
@@ -541,16 +541,55 @@ function MediaLine({ state, busy }: { state: DesktopState; busy: boolean }) {
   )
 }
 
+/** What a channel is called out loud. YARG's own words for its three builds. */
+const CHANNEL_LABELS: Record<BuildChannel, string> = {
+  release: 'Release',
+  nightly: 'Nightly',
+  dev: 'Dev',
+}
+
+/** The install whose `currentSong.json` is newest, or null if none has ever played. */
+function lastPlayed(installs: readonly YargInstall[]): YargInstall | null {
+  return installs.reduce<YargInstall | null>((best, install) => {
+    if (install.playedAt === null) return best
+    return best === null || install.playedAt > (best.playedAt ?? 0) ? install : best
+  }, null)
+}
+
+/**
+ * The build somebody is playing while YASS reads a different one.
+ *
+ * The whole symptom of being on the wrong channel is that nothing happens: the
+ * now-playing banner stays empty and the song list is somebody else's. This is
+ * the one signal that says so, and it costs a `stat` the settings poll already
+ * makes.
+ *
+ * A prompt rather than an automatic switch. Guests are browsing this library on
+ * their phones, and repointing it under them because the host alt-tabbed into
+ * the other build is a worse outcome than a button they can ignore.
+ */
+function playingElsewhere(installs: readonly YargInstall[]): YargInstall | null {
+  const newest = lastPlayed(installs)
+  if (newest === null || newest.active) return null
+
+  // Never push a host towards an empty library. A build that has never scanned
+  // has no song list to switch to; the settings control still offers it, with
+  // the warning attached.
+  return newest.hasSongCache ? newest : null
+}
+
 function StatusBlock({
   state,
   busy,
   onRestart,
   onTryPort,
+  onSwitch,
 }: {
   state: DesktopState
   busy: boolean
   onRestart: () => void
   onTryPort: (port: number) => void
+  onSwitch: (install: YargInstall) => void
 }) {
   const songs = state.songs
   const kind = health(state)
@@ -564,6 +603,13 @@ function StatusBlock({
    */
   const portTaken = kind === 'failed' && (state.server.message?.includes('already in use') ?? false)
   const nextPort = Math.min(65535, state.view.settings.port + 1)
+
+  // Not offered when the environment is holding the folder: the button would
+  // save a value that nothing reads until the variable is unset.
+  const elsewhere = state.view.envOverrides.includes('yargDataDir')
+    ? null
+    : playingElsewhere(state.view.installs)
+  const reading = state.view.installs.find((install) => install.active)
 
   const hidden = songs ? songs.warnings.length - WARNINGS_SHOWN : 0
 
@@ -602,6 +648,26 @@ function StatusBlock({
           <Button tone="accent" disabled={busy} onClick={() => onTryPort(nextPort)}>
             try port {nextPort}
           </Button>
+        </div>
+      ) : null}
+
+      {/*
+       * Above the empty-library remedy, because it is the likelier cause of
+       * one: a host who installed the nightly build and played it is looking at
+       * the release build's songs, and rescanning in YARG would fix nothing.
+       */}
+      {elsewhere ? (
+        <div className="mt-2.5">
+          <p className="text-body text-content-muted">
+            <span className="text-content">{CHANNEL_LABELS[elsewhere.channel]}</span> is the build
+            that played last
+            {reading ? `, and YASS is reading ${CHANNEL_LABELS[reading.channel]}.` : '.'}
+          </p>
+          <div className="mt-2.5">
+            <Button tone="accent" disabled={busy} onClick={() => onSwitch(elsewhere)}>
+              switch to {CHANNEL_LABELS[elsewhere.channel].toLowerCase()}
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -669,6 +735,118 @@ const HOSTS = [
 
 function hostLabel(value: string): string {
   return HOSTS.find((option) => option.value === value)?.label ?? value
+}
+
+/**
+ * Which YARG build the app reads, when the host has more than one installed.
+ *
+ * Not a setting of its own — it writes `yargDataDir`, the same field the folder
+ * box below it holds. A channel stored separately would be a second answer to
+ * the same question, and the folder is the one YARG can be launched to override.
+ *
+ * It applies on click rather than joining the draft the save button commits.
+ * The rest of this form is a form; this is a switch, and a switch that needs
+ * confirming reads as broken. `tryPort` above already saves this way.
+ */
+function ChannelSwitch({
+  installs,
+  env,
+  busy,
+  onSwitch,
+}: {
+  installs: readonly YargInstall[]
+  /** The environment variable forcing `yargDataDir`, if one is. */
+  env?: string
+  busy: boolean
+  onSwitch: (install: YargInstall) => void
+}) {
+  const labelId = useId()
+  const recent = lastPlayed(installs)
+  const unscanned = installs.filter((install) => !install.hasSongCache)
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span id={labelId} className="yarg-label text-label text-content-muted">
+          YARG build
+        </span>
+        {env ? (
+          <code className="selectable font-numeric text-label text-warning">set by {env}</code>
+        ) : null}
+      </div>
+
+      <div
+        role="radiogroup"
+        aria-labelledby={labelId}
+        className="flex gap-1 rounded-[7px] border border-border-strong bg-surface-sunken p-1"
+      >
+        {installs.map((install) => (
+          <label
+            key={install.path}
+            className={cx(
+              'yarg-label yarg-focus-within relative flex min-h-6 flex-1 cursor-default',
+              'items-center justify-center gap-1.5 rounded-[5px] px-2 py-1.5 text-label',
+              install.active ? '' : 'text-content-muted hover:text-content',
+            )}
+            /* The accent pill from `Button`, because a selected segment and a
+               primary action are the same statement about emphasis — and its
+               dark text is the pair that clears contrast on this fill. */
+            style={
+              install.active
+                ? {
+                    background: 'color-mix(in srgb, var(--yarg-vivid-sky-blue) 75%, transparent)',
+                    color: 'var(--yarg-night)',
+                  }
+                : undefined
+            }
+          >
+            <input
+              type="radio"
+              name="yarg-build"
+              className="sr-only"
+              checked={install.active}
+              disabled={busy || env !== undefined}
+              onChange={() => onSwitch(install)}
+            />
+            {CHANNEL_LABELS[install.channel]}
+            {/* Said in words underneath as well; this is only where to look. */}
+            {recent?.path === install.path ? (
+              <span aria-hidden className="size-1.5 rounded-full bg-current" />
+            ) : null}
+          </label>
+        ))}
+
+        {/*
+         * A folder that is none of them — `-persistent-data-path`, or a path
+         * somebody browsed to. Shown rather than silently unselected, and inert
+         * because the way back to it is the folder box, not this control.
+         */}
+        {installs.every((install) => !install.active) ? (
+          <span
+            aria-current="true"
+            className="yarg-label flex min-h-6 flex-1 items-center justify-center rounded-[5px] px-2 py-1.5 text-label text-content-muted"
+            /* Filled, because it is the one in force and an unfilled row of
+               four reads as nothing selected. The neutral fill rather than the
+               accent one: this is a state, not something to click. */
+            style={{ background: 'color-mix(in srgb, var(--yarg-dark-6) 75%, transparent)' }}
+          >
+            Custom
+          </span>
+        ) : null}
+      </div>
+
+      <span className="flex flex-col gap-0.5 text-note text-content-faint">
+        {recent ? <span>{CHANNEL_LABELS[recent.channel]} played most recently.</span> : null}
+        {unscanned.length > 0 ? (
+          <span className="text-warning">
+            {unscanned.map((install) => CHANNEL_LABELS[install.channel]).join(' and ')}{' '}
+            {unscanned.length > 1 ? 'have' : 'has'} never scanned — switching there shows an empty
+            list.
+          </span>
+        ) : null}
+      </span>
+    </div>
+  )
 }
 
 /**
@@ -815,6 +993,31 @@ function App() {
       return outcome.state
     })
 
+  /**
+   * Point the app at another YARG install, immediately.
+   *
+   * The folder draft is dropped rather than merged: a path half-typed into the
+   * box below would otherwise be saved along with the switch, or shadow it in
+   * the display afterwards. Choosing a build is a decision about that field, so
+   * it replaces whatever was being written there.
+   */
+  const switchInstall = (install: YargInstall) =>
+    run(async () => {
+      setDraft((current) => {
+        const next = { ...current }
+        delete next.yargDataDir
+        return next
+      })
+
+      const outcome = await window.yass.saveSettings({ yargDataDir: install.path })
+      setSaved(
+        outcome.applied
+          ? `now reading ${CHANNEL_LABELS[install.channel].toLowerCase()}`
+          : 'saved to the settings file',
+      )
+      return outcome.state
+    })
+
   /** The remedy for a taken port: move one along, then go there. */
   const tryPort = (port: number) =>
     run(async () => {
@@ -843,6 +1046,7 @@ function App() {
           busy={busy}
           onRestart={() => void run(() => window.yass.restartServer())}
           onTryPort={(port) => void tryPort(port)}
+          onSwitch={(install) => void switchInstall(install)}
         />
 
         {failure ? (
@@ -875,6 +1079,17 @@ function App() {
               Bound to one specific address, so changes are written to the settings file and
               applied on the next restart rather than live.
             </p>
+          ) : null}
+
+          {/* Only when there is a choice to make. One install is the usual
+              case, and a control offering it its own folder is furniture. */}
+          {state.view.installs.length > 1 ? (
+            <ChannelSwitch
+              installs={state.view.installs}
+              env={envVar('yargDataDir')}
+              busy={busy}
+              onSwitch={(install) => void switchInstall(install)}
+            />
           ) : null}
 
           <Field

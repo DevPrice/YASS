@@ -345,7 +345,10 @@ export class AppState {
       // own the way a path-reading poll could.
       await this.#cacheWatcher.start()
       await this.#watcher.rearm()
-      void this.rebuildChartIndex(true)
+      // Not forced: the persisted index is keyed to the directory it was built
+      // from, so this cannot pick up the old install's paths, and flipping back
+      // to a build already indexed costs a file read rather than a rescan.
+      void this.rebuildChartIndex()
     }
 
     return this.settingsView

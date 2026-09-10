@@ -14,9 +14,10 @@
  * Parsing `songcache.bin` takes ~15 ms, so the JSON cache is not about the fast
  * path. It is about the slow one: if the cache format has moved and the scanner
  * ran, that cost minutes, and paying it again on every restart would be
- * unreasonable. The persisted file records which strategy produced it and the
- * fingerprint it was built against, so a stale index is detected rather than
- * trusted.
+ * unreasonable. The persisted file records which strategy produced it, which
+ * YARG data directory it describes, and the fingerprint it was built against,
+ * so a stale index is detected rather than trusted — and there is one file per
+ * directory, so a host with both build channels installed keeps both indexes.
  *
  * ## Freshness
  *
@@ -27,16 +28,22 @@
  * and a watcher must never throw into the event loop.
  */
 
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { mediaCacheDir, songCachePath } from '../core/paths.js'
+import { mediaCacheDir, pathKey, songCachePath } from '../core/paths.js'
 import { readSongCache } from './cache.js'
 import { scanSongFolders } from './scan.js'
 import type { ChartRef } from './types.js'
 
-/** Bump when `ChartRef`'s shape changes, so an old file is discarded not misread. */
-const INDEX_FORMAT_VERSION = 1
+/**
+ * Bump when `ChartRef`'s shape changes, so an old file is discarded not misread.
+ *
+ * 2 added `yargDataDir` and moved the file to a per-directory name — see
+ * `chartIndexPath`.
+ */
+const INDEX_FORMAT_VERSION = 2
 
 export type IndexSource = 'cache' | 'scan' | 'none'
 
@@ -52,14 +59,36 @@ export interface ChartIndexMeta {
 
 interface PersistedIndex {
   version: number
+  /**
+   * The YARG data directory this was built from.
+   *
+   * Load-bearing, not documentation. Every ref in the file is an absolute path
+   * inside *that* install, and a host with both the release and the nightly
+   * build switches between two of them.
+   */
+  yargDataDir: string
   meta: ChartIndexMeta
   /** The fingerprint of `songcache.bin` this was built against, if any. */
   fingerprint: { size: number; mtimeMs: number } | null
   refs: ChartRef[]
 }
 
-export function chartIndexPath(): string {
-  return join(mediaCacheDir(), 'charts.json')
+/**
+ * One index file per YARG data directory.
+ *
+ * Named by a digest of the directory rather than by the directory, because the
+ * path is long, absolute and full of characters a filename cannot hold. Eight
+ * hex digits is plenty to keep two or three installs apart; a collision would
+ * be caught by the `yargDataDir` check on load anyway, and cost a rebuild.
+ *
+ * The point of the split is that switching build channels stays cheap. One
+ * shared file meant every switch discarded the other install's index, and the
+ * expensive case — no readable `songcache.bin`, so a walk of the whole library
+ * — would be paid again on the way back.
+ */
+export function chartIndexPath(yargDataDir: string): string {
+  const digest = createHash('sha1').update(pathKey(yargDataDir)).digest('hex').slice(0, 8)
+  return join(mediaCacheDir(), `charts-${digest}.json`)
 }
 
 const EMPTY_META: ChartIndexMeta = {
@@ -141,14 +170,18 @@ const sameFingerprint = (
   b: { size: number; mtimeMs: number } | null,
 ): boolean => (a === null || b === null ? a === b : a.size === b.size && a.mtimeMs === b.mtimeMs)
 
-async function readPersisted(): Promise<PersistedIndex | null> {
+async function readPersisted(yargDataDir: string): Promise<PersistedIndex | null> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(chartIndexPath(), 'utf8'))
+    const parsed: unknown = JSON.parse(await readFile(chartIndexPath(yargDataDir), 'utf8'))
     if (!parsed || typeof parsed !== 'object') return null
 
     const persisted = parsed as PersistedIndex
     if (persisted.version !== INDEX_FORMAT_VERSION) return null
     if (!Array.isArray(persisted.refs)) return null
+    // The filename already says which directory this is for, so a mismatch is
+    // a digest collision or a file somebody moved. Either way these refs point
+    // into an install we were not asked about.
+    if (pathKey(persisted.yargDataDir ?? '') !== pathKey(yargDataDir)) return null
 
     return persisted
   } catch {
@@ -158,12 +191,17 @@ async function readPersisted(): Promise<PersistedIndex | null> {
 
 /** Write via temp-and-rename, so a kill mid-write can't leave a torn index. */
 async function writePersisted(persisted: PersistedIndex): Promise<void> {
-  const path = chartIndexPath()
+  const path = chartIndexPath(persisted.yargDataDir)
   await mkdir(dirname(path), { recursive: true })
 
   const temp = join(dirname(path), `charts.${process.pid}.tmp`)
   await writeFile(temp, JSON.stringify(persisted), 'utf8')
   await rename(temp, path)
+
+  // The single shared index this replaced, which nothing reads any more and
+  // which is a megabyte of stale absolute paths. Named exactly, and only ever
+  // written by an older YASS.
+  await rm(join(dirname(path), 'charts.json'), { force: true })
 }
 
 export interface BuildOptions {
@@ -190,7 +228,7 @@ export async function buildChartIndex(
   const current = await fingerprint(cachePath)
 
   if (options.force !== true) {
-    const persisted = await readPersisted()
+    const persisted = await readPersisted(options.yargDataDir)
     // Only trust a persisted index built from a `songcache.bin` that has not
     // moved since. A scan-derived index has no fingerprint to check, so it is
     // reused only while the cache file is still unreadable — the moment one
@@ -208,7 +246,7 @@ export async function buildChartIndex(
   try {
     const { songs, version } = await readSongCache(cachePath)
     // The metadata rides along in the same parse — `core/library.ts` is what
-    // wants it. Here it is thrown away rather than persisted: `charts.json`
+    // wants it. Here it is thrown away rather than persisted: the index file
     // exists to answer "where is this hash", and it stays that size.
     refs = songs.map((song) => song.ref)
     source = 'cache'
@@ -244,6 +282,7 @@ export async function buildChartIndex(
   try {
     await writePersisted({
       version: INDEX_FORMAT_VERSION,
+      yargDataDir: options.yargDataDir,
       meta: index.meta,
       // A scan is not tied to the cache file's identity; recording the
       // fingerprint anyway would claim it was built from a file it never read.

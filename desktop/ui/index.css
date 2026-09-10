@@ -125,4 +125,17 @@
     outline: var(--stroke) solid var(--yarg-vivid-sky-blue);
     outline-offset: 2px;
   }
+
+  /*
+   * The same ring, drawn around a label whose control is visually hidden.
+   *
+   * The build switcher is real radio inputs — arrow keys, roving tab stop and
+   * the accessibility tree all come free with them — and `sr-only` puts each
+   * one in a 1px clip rect. A ring on the input would be drawn around that,
+   * which is to say nowhere the eye can find it.
+   */
+  .yarg-focus-within:has(:focus-visible) {
+    outline: var(--stroke) solid var(--yarg-vivid-sky-blue);
+    outline-offset: 2px;
+  }
 }
