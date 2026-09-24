@@ -150,8 +150,13 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * nothing but a wrapper: the cover keeps its square, the title keeps its
        * hierarchy, and the answer arrives on the first screen. Sideways is also
        * where the width to do it comes from.
+       *
+       * 15px between them either way, under the 25px that separates the
+       * surface's groups. A sleeve and its caption are one object; spaced like
+       * two, the cover sat exactly as far from its own title as the title did
+       * from the parts rings, and nothing said which pair belonged together.
        */}
-      <div className="flex flex-col gap-[25px] short:flex-row short:items-start short:gap-[15px]">
+      <div className="flex flex-col gap-[15px] short:flex-row short:items-start">
         <ArtPlate
           key={song.id}
           song={song}
