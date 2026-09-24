@@ -110,34 +110,24 @@ const INSTRUMENT_LABELS: Record<InstrumentGroup, string> = {
 }
 
 /**
- * The orderings a room actually asks for, and nothing else.
+ * Every ordering the phone offers, in one group.
  *
- * The table sorts on eight columns because the columns are right there and cost
- * nothing. Reproducing all eight as chips would be porting a desktop metaphor
- * onto a device that never asked for it — these five answer "who's this by",
- * "what's it called", "is it old", "can we play it", and "how long till the next
- * one", which is the whole conversation. Album, genre, charter and source are
- * the four that rarely come up as an *ordering*; they come up as a filter, which
- * the panel below already does, and as a fact about one song, which the detail
- * view now shows.
+ * The five a room asks for most come first — "who's this by", "what's it
+ * called", "is it old", "can we play it", "how long till the next one" — so
+ * they are still the first thing a thumb meets. The rest are every other
+ * ordering YARG's own song list has, since somebody who has used it will look
+ * for them here.
+ *
+ * They were a second row under a `more` label for a while. The chips are
+ * short enough that the whole set wraps to a few lines anyway, and the
+ * division drew attention without saving any.
  */
-const COMPACT_SORTS: ReadonlyArray<{ key: SortKey; label: string }> = [
+const SORTS: ReadonlyArray<{ key: SortKey; label: string; spoken?: string }> = [
   { key: 'artist', label: 'Artist' },
   { key: 'name', label: 'Title' },
   { key: 'year', label: 'Year' },
   { key: 'difficulty', label: 'Difficulty' },
   { key: 'length', label: 'Length' },
-]
-
-/**
- * Every other ordering YARG offers, on a quieter row under the five.
- *
- * "Rarely" is not "never", and the game sorts by all of these, so somebody who
- * has used its song list will look for them here. They get a second row rather
- * than a place among the five so the everyday answers are still the first
- * thing a thumb meets.
- */
-const MORE_SORTS: ReadonlyArray<{ key: SortKey; label: string; spoken?: string }> = [
   { key: 'album', label: 'Album' },
   { key: 'genre', label: 'Genre' },
   { key: 'subgenre', label: 'Subgenre' },
@@ -146,8 +136,6 @@ const MORE_SORTS: ReadonlyArray<{ key: SortKey; label: string; spoken?: string }
   { key: 'charter', label: 'Charter' },
   { key: 'added', label: 'Added', spoken: 'Date added' },
 ]
-
-const ALL_SORTS = [...COMPACT_SORTS, ...MORE_SORTS]
 
 /**
  * What the difficulty ordering is called right now.
@@ -159,14 +147,14 @@ const ALL_SORTS = [...COMPACT_SORTS, ...MORE_SORTS]
  * number it means. The accessible name below still spells it out in full.
  */
 function sortLabelFor(key: SortKey, lens: DifficultyLens): string {
-  const base = ALL_SORTS.find((sort) => sort.key === key)?.label ?? 'Sort'
+  const base = SORTS.find((sort) => sort.key === key)?.label ?? 'Sort'
   return key === 'difficulty' && lens !== 'band' ? LENS_LABELS[lens] : base
 }
 
 function spokenSortName(key: SortKey, lens: DifficultyLens): string {
   if (key === 'difficulty' && lens !== 'band') return `${LENS_LABELS[lens]} difficulty`
 
-  const sort = MORE_SORTS.find((candidate) => candidate.key === key)
+  const sort = SORTS.find((candidate) => candidate.key === key)
   return sort?.spoken ?? sortLabelFor(key, lens)
 }
 
@@ -512,32 +500,7 @@ export function FiltersPanel({
          */}
         <FilterSection label="sort by">
           <div className="flex flex-wrap gap-[10px]">
-            {COMPACT_SORTS.map(({ key }) => (
-              <SortChip
-                key={key}
-                sortKey={key}
-                active={key === sortKey}
-                direction={sortDirection}
-                lens={lens}
-                onSort={onSort}
-              />
-            ))}
-          </div>
-
-          {/*
-           * Set off by a hairline and a word rather than by a heading of its
-           * own. They are still sorts, one choice with the five above, and a
-           * second `FilterSection` would have read as a second setting.
-           */}
-          <div
-            role="group"
-            aria-label="More sort orders"
-            className="flex flex-wrap items-center gap-[10px] border-t border-border-row pt-[10px]"
-          >
-            <span aria-hidden className="yarg-label text-[10px] text-content-faint">
-              more
-            </span>
-            {MORE_SORTS.map(({ key }) => (
+            {SORTS.map(({ key }) => (
               <SortChip
                 key={key}
                 sortKey={key}
