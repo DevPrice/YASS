@@ -16,6 +16,9 @@ desktop/build/
 Thumbs.db
 .DS_Store
 
+# Editor
+.idea/
+
 # Tooling scratch. The Impeccable config and critiques are tracked; this is a
 # per-machine record of which files the detector hook has already seen.
 .impeccable/hook.cache.json
