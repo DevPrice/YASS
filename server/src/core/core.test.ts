@@ -83,6 +83,7 @@ function entry(hash: string, meta: Partial<CacheSongMeta> = {}): CacheSong {
       parts: noParts(),
       ...meta,
     },
+    lastWrite: null,
   }
 }
 
@@ -213,6 +214,16 @@ describe('library from cache entries', () => {
     assert.equal(song?.lengthSeconds, 247)
     assert.equal(song?.ageRating, 'Mature')
     assert.equal(song?.isMaster, false)
+  })
+
+  it("carries the chart's last write across as the date it was added", () => {
+    const { songs } = buildLibrarySongs([
+      { ...entry('C'.repeat(40), { name: 'Dated' }), lastWrite: Date.UTC(2026, 8, 12) },
+      entry('D'.repeat(40), { name: 'Undated' }),
+    ])
+
+    assert.equal(songs[0]?.addedAt, Date.UTC(2026, 8, 12))
+    assert.equal(songs[1]?.addedAt, null)
   })
 
   it('spells the ratings the way the CSV export did', () => {

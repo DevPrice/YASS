@@ -239,6 +239,7 @@ export function songFromCache(entry: CacheSong, id: string, genres: Genrelizer |
     // A non-positive length is a chart that never said, not a zero-length song.
     lengthSeconds: meta.lengthMs > 0 ? Math.trunc(meta.lengthMs / 1000) : null,
     albumTrack: trackNumber(meta.albumTrack),
+    addedAt: entry.lastWrite,
 
     isMaster: meta.isMaster,
     // Kept identical to `SongExport.cs` so the strings the UI filters on can't

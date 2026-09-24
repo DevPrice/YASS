@@ -76,6 +76,7 @@ const song = {
   genre: 'Rock', subgenre: 'Alternative', charter: 'yarg-charts', playlist: '',
   source: 'yarg',                          // a real OpenSource id; SourceBadge resolves it
   year: '2019', yearNumber: 2019, lengthSeconds: 243, albumTrack: 4,
+  addedAt: Date.UTC(2026, 7, 12),          // epoch ms, or null when unknown
   isMaster: true, ageRating: 'No Rating',
   vocalParts: 1,                           // 0 instrumental, 1 solo, 2-3 harmonies
   bandDifficulty: 4,                       // 0-6, or null when unrated

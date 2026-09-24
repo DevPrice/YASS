@@ -122,6 +122,15 @@ export interface Song {
    */
   albumTrack: number | null
 
+  /**
+   * Epoch ms of when the chart landed in the library, or null when unknown.
+   *
+   * YARG's own "date added", which is really the chart file's last write — so
+   * re-saving a chart moves it, and every song in one CON package shares a
+   * time. Carried for the sort and its headers.
+   */
+  addedAt: number | null
+
   isMaster: boolean
   /** One of `AGE_RATINGS` — a display string, never the raw ordinal. */
   ageRating: string

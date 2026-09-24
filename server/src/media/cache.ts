@@ -35,7 +35,7 @@
  *   bool    fullDirectoryPlaylists
  *   9 ×     string table          ← read (int32 byteLength, int32 count, strings)
  *   array   update directories    ─┐
- *   array   unpacked upgrades      ├─ skipped wholesale by their length prefixes
+ *   array   unpacked upgrades      ├─ read for their timestamps alone
  *   array   packed upgrades       ─┘
  *   array   ini groups            ← read
  *   array   CON groups            ← read
@@ -101,8 +101,8 @@ export interface CacheEntryLayout {
  * serialization change at or before `SongRating` — which is where
  * `readMetadata` stops. Across all five, the head of every entry — relative
  * path, format byte, timestamps, then the hash — is byte-identical, as are the
- * group order, `AvailableParts`, the string-table count, and the CON group's
- * `int32` type tag.
+ * group order, `AvailableParts`, the string-table count, the CON group's
+ * `int32` type tag, and the three RBCON patch sections `readConMods` reads.
  *
  * | Version       | YARG commit                                             | In the read region                |
  * |---------------|---------------------------------------------------------|-----------------------------------|
@@ -147,6 +147,10 @@ const HASH_BYTES = 20
 const CON_TYPE_PACKED = 0
 const CON_TYPE_UNPACKED_CON = 1
 const CON_TYPE_UNPACKED_PKG = 2
+
+const TICKS_MASK = 0x3fff_ffff_ffff_ffffn
+const TICKS_AT_UNIX_EPOCH = 621_355_968_000_000_000n
+const TICKS_PER_MS = 10_000n
 
 /** `CacheReadStrings.NUM_CATEGORIES` — title, artist, album, …, source. */
 const STRING_TABLE_COUNT = 9
@@ -234,6 +238,16 @@ export interface CacheSongMeta {
 export interface CacheSong {
   ref: ChartRef
   meta: CacheSongMeta
+  /**
+   * Epoch ms of YARG's `SongEntry.GetLastWriteTime()`, which is what its Date
+   * Added sort reads. Null when the cache recorded no time at all.
+   *
+   * Per entry type: the chart file for a loose chart, the `.sng` for a `.sng`,
+   * and for a CON the latest of its MIDI (the package file itself when packed),
+   * a `songs_updates` MIDI and a pro upgrade — see `readConMods`. Every song in
+   * one packed CON therefore shares a time, which is also true in the game.
+   */
+  lastWrite: number | null
 }
 
 export class CacheFormatError extends Error {}
@@ -305,6 +319,22 @@ class Cursor {
     return Number(this.#buf.readBigInt64LE(this.#need(8)))
   }
 
+  /**
+   * A `DateTime.ToBinary()`, as epoch ms, or null for `DateTime.MinValue`.
+   *
+   * The top two bits are the `Kind` and the low 62 are ticks. For `Local` —
+   * which is what `FileInfo.LastWriteTime` returns and so what YARG writes —
+   * .NET converts to UTC before storing, so masking off the kind leaves UTC
+   * ticks for both of the kinds that occur. Read as a bigint because the kind
+   * bits put the raw value far past 2^53.
+   */
+  dateTime(): number | null {
+    const ticks = this.#buf.readBigUInt64LE(this.#need(8)) & TICKS_MASK
+    if (ticks === 0n) return null
+
+    return Number((ticks - TICKS_AT_UNIX_EPOCH) / TICKS_PER_MS)
+  }
+
   skip(count: number): void {
     this.#need(count)
   }
@@ -363,13 +393,6 @@ class Cursor {
 
     for (let i = 0; i < count; i++) {
       yield this.slice(this.i32())
-    }
-  }
-
-  /** Consume a `CacheLoopable` without looking inside any of its slices. */
-  skipLoop(): void {
-    for (const _slice of this.loop()) {
-      // Intentionally empty: the length prefixes have already done the work.
     }
   }
 }
@@ -548,27 +571,38 @@ function readIniGroup(
   // bool hasIniLastWrite [+ int64], then the metadata block opening with the hash.
   for (const entry of group.loop()) {
     const relative = entry.string()
-    entry.skip(1 + 8)
+    entry.skip(1)
+    // The chart's time and not the ini's, as in `IniBase.GetLastWriteTime`.
+    const lastWrite = entry.dateTime()
     if (entry.bool()) entry.skip(8)
 
     const path = resolveRelative(directory, relative)
     if (path === null) continue
 
     const hash = entry.hash()
-    into.push({ ref: { hash, format: 'Ini', path }, meta: readMetadata(entry, strings, layout) })
+    into.push({
+      ref: { hash, format: 'Ini', path },
+      meta: readMetadata(entry, strings, layout),
+      lastWrite,
+    })
   }
 
   // Packed: string relativePath, int64 lastWrite, uint32 sngVersion,
   // byte chartFormat, then the hash.
   for (const entry of group.loop()) {
     const relative = entry.string()
-    entry.skip(8 + 4 + 1)
+    const lastWrite = entry.dateTime()
+    entry.skip(4 + 1)
 
     const path = resolveRelative(directory, relative)
     if (path === null) continue
 
     const hash = entry.hash()
-    into.push({ ref: { hash, format: 'Sng', path }, meta: readMetadata(entry, strings, layout) })
+    into.push({
+      ref: { hash, format: 'Sng', path },
+      meta: readMetadata(entry, strings, layout),
+      lastWrite,
+    })
   }
 }
 
@@ -584,10 +618,11 @@ function readConGroup(
   group: Cursor,
   strings: StringTables,
   layout: CacheEntryLayout,
+  mods: ConMods,
   into: CacheSong[],
 ): void {
   const root = normalize(group.string())
-  group.skip(8) // AbridgedFileInfo.LastWriteTime
+  const rootLastWrite = group.dateTime()
 
   const type = group.i32()
   if (type !== CON_TYPE_PACKED && type !== CON_TYPE_UNPACKED_CON && type !== CON_TYPE_UNPACKED_PKG) {
@@ -605,15 +640,108 @@ function readConGroup(
     entry.skip(1)
 
     const subName = entry.string()
-    // The unpacked variants carry the loose `.mid`'s timestamp; packed does not.
-    if (!packed) entry.skip(8)
+    // The unpacked variants carry the loose `.mid`'s timestamp; a packed MIDI
+    // is inside the package, and the package's own time stands in for it.
+    const midiLastWrite = packed ? rootLastWrite : entry.dateTime()
 
     const hash = entry.hash()
     into.push({
       ref: { hash, format, path: root, subName, dtaName },
       meta: readMetadata(entry, strings, layout),
+      lastWrite: latest(midiLastWrite, mods.updates.get(dtaName)?.midi, mods.upgrades.get(dtaName)),
     })
   }
+}
+
+/**
+ * The patches a CON song can pick up, by DTA name, for `GetLastWriteTime`.
+ *
+ * YARG resolves these the way `Deserialize_Quick` does: the update from the
+ * directory whose `songs_updates.dta` is newest — and that update's MIDI,
+ * which may not exist — and the upgrade whose MIDI is newest. Nothing else in
+ * these sections matters to this reader, which is why they were skipped until
+ * the date-added sort needed them.
+ */
+interface ConMods {
+  updates: Map<string, { dta: number; midi: number | null }>
+  upgrades: Map<string, number>
+}
+
+function latest(...times: readonly (number | null | undefined)[]): number | null {
+  let best: number | null = null
+  for (const time of times) {
+    if (time != null && (best === null || time > best)) best = time
+  }
+  return best
+}
+
+/**
+ * Read the three patch sections that precede the song groups.
+ *
+ * Per slice, a structural surprise costs that slice rather than the library:
+ * these only feed one sort, and the length prefix already says where the next
+ * slice begins. The song groups themselves stay strict.
+ *
+ * Layouts, from `CONUpdateGroup` and `CONUpgradeGroup.SerializeGroups`:
+ *
+ * ```
+ *   update directory   string dir, int64 dtaLastWrite, int32 count,
+ *                      count × (string name, bool hasMidi [+ int64 midiLastWrite])
+ *   unpacked upgrades  string dir, int64 dtaLastWrite, int32 count,
+ *                      count × (string name, int64 midiLastWrite)
+ *   packed upgrades    string con, int64 conLastWrite,  int32 count,
+ *                      count × (string name)            ← the CON's time is each one's
+ * ```
+ */
+function readConMods(stream: Cursor): ConMods {
+  const mods: ConMods = { updates: new Map(), upgrades: new Map() }
+
+  const upgrade = (name: string, time: number | null) => {
+    if (time === null) return
+    const current = mods.upgrades.get(name)
+    if (current === undefined || time > current) mods.upgrades.set(name, time)
+  }
+
+  const tolerant = (read: (slice: Cursor) => void) => {
+    for (const slice of stream.loop()) {
+      try {
+        read(slice)
+      } catch (error) {
+        if (!(error instanceof CacheFormatError)) throw error
+      }
+    }
+  }
+
+  tolerant((slice) => {
+    slice.string()
+    const dta = slice.dateTime() ?? 0
+    const count = slice.i32()
+    for (let i = 0; i < count; i++) {
+      const name = slice.string()
+      const midi = slice.bool() ? slice.dateTime() : null
+      const current = mods.updates.get(name)
+      if (current === undefined || dta > current.dta) mods.updates.set(name, { dta, midi })
+    }
+  })
+
+  tolerant((slice) => {
+    slice.string()
+    slice.skip(8)
+    const count = slice.i32()
+    for (let i = 0; i < count; i++) {
+      const name = slice.string()
+      upgrade(name, slice.dateTime())
+    }
+  })
+
+  tolerant((slice) => {
+    slice.string()
+    const con = slice.dateTime()
+    const count = slice.i32()
+    for (let i = 0; i < count; i++) upgrade(slice.string(), con)
+  })
+
+  return mods
 }
 
 export interface CacheParseResult {
@@ -648,14 +776,13 @@ export function parseSongCache(data: Buffer): CacheParseResult {
   const strings = readStringTables(stream)
 
   // Update directories, unpacked upgrades, packed upgrades. All three describe
-  // RBCON patches, none of which changes where a chart lives.
-  stream.skipLoop()
-  stream.skipLoop()
-  stream.skipLoop()
+  // RBCON patches, none of which changes where a chart lives — only when it
+  // last changed.
+  const mods = readConMods(stream)
 
   const songs: CacheSong[] = []
   for (const group of stream.loop()) readIniGroup(group, strings, layout, songs)
-  for (const group of stream.loop()) readConGroup(group, strings, layout, songs)
+  for (const group of stream.loop()) readConGroup(group, strings, layout, mods, songs)
 
   return { songs, version }
 }

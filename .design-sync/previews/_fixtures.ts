@@ -58,6 +58,7 @@ const BASE: Song = {
   yearNumber: 2019,
   lengthSeconds: 243,
   albumTrack: 4,
+  addedAt: Date.UTC(2026, 7, 12),
   isMaster: true,
   ageRating: 'No Rating',
   vocalParts: 1,

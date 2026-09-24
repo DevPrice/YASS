@@ -108,6 +108,27 @@ const uint32 = (value: number): Buffer => {
   return buffer
 }
 
+/**
+ * `DateTime.ToBinary()` for a UTC instant, in either of the kinds YARG writes.
+ *
+ * `Local` is what `FileInfo.LastWriteTime` produces, and .NET stores it as UTC
+ * ticks with the top bit set — so the same instant in both kinds differs only
+ * in the kind bits, which is exactly what the reader has to see past.
+ */
+function dotnetDate(ms: number, kind: 'local' | 'utc'): Buffer {
+  const ticks = BigInt(ms) * 10_000n + 621_355_968_000_000_000n
+  const flag = kind === 'local' ? 1n << 63n : 1n << 62n
+  return int64(BigInt.asIntN(64, ticks | flag))
+}
+
+const INI_WRITTEN = Date.UTC(2026, 8, 12, 18, 30)
+const SNG_WRITTEN = Date.UTC(2025, 1, 3, 9, 15)
+const CON_WRITTEN = Date.UTC(2024, 5, 1)
+/** Newer than the package, so the CON song's date is the update's. */
+const UPDATE_MIDI_WRITTEN = Date.UTC(2024, 6, 1)
+/** Older than the update, so it loses — but it is parsed on the way. */
+const UPGRADE_WRITTEN = Date.UTC(2024, 5, 15)
+
 const HASH_A = 'A1B2C3D4E5F60718293A4B5C6D7E8F9012345678'
 const HASH_B = '00112233445566778899AABBCCDDEEFF00112233'
 
@@ -239,7 +260,7 @@ const GUID_VERSION = 26_08_21_00
  * passed in. Building a file whose bytes disagree with its own version stamp
  * would test nothing the parser will ever see.
  */
-function buildCacheFile(version: number): Buffer {
+function buildCacheFile(version: number, patches: { corruptUpdate?: boolean } = {}): Buffer {
   const layout = SUPPORTED_CACHE_VERSIONS.get(version) ?? { yargGuid: false }
 
   const stringTables = Buffer.concat(
@@ -251,7 +272,7 @@ function buildCacheFile(version: number): Buffer {
   const iniEntry = Buffer.concat([
     dotnetString('Some Artist - Some Song'),
     Buffer.from([0]), // chart format
-    int64(0n), // chart last write
+    dotnetDate(INI_WRITTEN, 'local'), // chart last write
     Buffer.from([0]), // no song.ini timestamp
     Buffer.from(HASH_A, 'hex'),
     metadata(layout, {
@@ -270,7 +291,7 @@ function buildCacheFile(version: number): Buffer {
 
   const sngEntry = Buffer.concat([
     dotnetString('Packed.sng'),
-    int64(0n),
+    dotnetDate(SNG_WRITTEN, 'utc'),
     int32(1), // sng version
     Buffer.from([0]), // chart format
     Buffer.from(HASH_B, 'hex'),
@@ -298,17 +319,37 @@ function buildCacheFile(version: number): Buffer {
 
   const conGroup = Buffer.concat([
     dotnetString(PACK_DIR),
-    int64(0n), // root last write
+    dotnetDate(CON_WRITTEN, 'local'), // root last write
     int32(0), // PackedCONEntry
     loopable([conEntry]),
+  ])
+
+  const updateDirectory = patches.corruptUpdate
+    ? // A count promising more than the slice holds.
+      Buffer.concat([dotnetString('updates'), int64(0n), int32(5)])
+    : Buffer.concat([
+        dotnetString('updates'),
+        dotnetDate(CON_WRITTEN, 'local'), // songs_updates.dta
+        int32(1),
+        dotnetString('dtanode'),
+        Buffer.from([1]),
+        dotnetDate(UPDATE_MIDI_WRITTEN, 'local'),
+      ])
+
+  const unpackedUpgrades = Buffer.concat([
+    dotnetString('upgrades'),
+    dotnetDate(CON_WRITTEN, 'local'), // upgrades.dta
+    int32(1),
+    dotnetString('dtanode'),
+    dotnetDate(UPGRADE_WRITTEN, 'local'),
   ])
 
   return Buffer.concat([
     int32(version),
     Buffer.from([0]), // fullDirectoryPlaylists
     stringTables,
-    loopable([]), // update directories
-    loopable([]), // unpacked upgrades
+    loopable([updateDirectory]),
+    loopable([unpackedUpgrades]),
     loopable([]), // packed upgrades
     loopable([iniGroup]),
     loopable([conGroup]),
@@ -393,6 +434,24 @@ describe('songcache.bin', () => {
     const { songs } = parseSongCache(buildCacheFile(BASE_VERSION))
     assert.equal(songs[0]?.ref.hash, HASH_A)
     assert.equal(songs[1]?.ref.hash, HASH_B)
+  })
+
+  it("reads each entry's last write the way GetLastWriteTime does", () => {
+    const [ini, sng, con] = parseSongCache(buildCacheFile(BASE_VERSION)).songs
+
+    // Local and UTC kinds of the same file time land on the same instant.
+    assert.equal(ini?.lastWrite, INI_WRITTEN)
+    assert.equal(sng?.lastWrite, SNG_WRITTEN)
+    // The latest of the package, its update's MIDI and its pro upgrade.
+    assert.equal(con?.lastWrite, UPDATE_MIDI_WRITTEN)
+  })
+
+  it('loses only the date when a patch section is malformed', () => {
+    const { songs } = parseSongCache(buildCacheFile(BASE_VERSION, { corruptUpdate: true }))
+
+    assert.equal(songs.length, 3)
+    // The upgrade section after the broken slice is still read.
+    assert.equal(songs[2]?.lastWrite, UPGRADE_WRITTEN)
   })
 
   it('refuses a version it has not been checked against', () => {

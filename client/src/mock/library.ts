@@ -728,6 +728,33 @@ function buildFacets(songs: readonly Song[]): SongFacets {
 }
 
 /**
+ * When the demo's library was last scanned. Fixed rather than "now": the value
+ * is rendered, and a demo whose library was scanned three milliseconds ago
+ * reads as a bug.
+ */
+const SCANNED_AT = Date.UTC(2026, 7, 12, 19, 4)
+
+/** Days before the scan that somebody copied a batch of charts in. */
+const IMPORT_DAYS = [0, 2, 9, 23, 51, 88, 140, 205, 311, 402, 530, 760]
+
+/**
+ * When an album's charts were added, which is one moment per album.
+ *
+ * Off the album's own hash rather than the seeded generator: one more draw
+ * from `rng` would shift every value after it and change the whole library,
+ * and the demo's links have to keep pointing at the same songs. Real libraries
+ * grow in a few big imports, so this picks one of a dozen days rather than
+ * spreading albums evenly over the years.
+ */
+function importedAt(artist: string, album: string): number {
+  const bits = Number.parseInt(fakeHash(`${artist} ${album} added`).slice(0, 8), 16)
+  const day = IMPORT_DAYS[bits % IMPORT_DAYS.length] ?? 0
+  const minutes = (bits >>> 8) % 600
+
+  return SCANNED_AT - day * 86_400_000 - minutes * 60_000
+}
+
+/**
  * Build the whole demo library.
  *
  * Songs are generated album by album under an artist, which is what makes the
@@ -790,6 +817,7 @@ export function buildMockLibrary(): SongLibrary {
       // is the same container. A library with `.sng` and CON tracks alternating
       // inside one album would be a shape no real one has.
       const format = pickFormat(rng)
+      const addedAt = importedAt(artist, album)
 
       for (let track = 1; track <= tracks && songs.length < TARGET_SONGS; track += 1) {
         const name = songTitle(rng)
@@ -845,6 +873,7 @@ export function buildMockLibrary(): SongLibrary {
               ? rng.int(600, 1_500)
               : Math.round(112 + 400 * rng.next() ** 1.7),
           albumTrack: rng.chance(0.04) ? null : track,
+          addedAt,
           // A cover, credited to the band that recorded it — the other half of
           // what the title/artist credit formatting is for.
           isMaster: !rng.chance(0.09),
@@ -874,9 +903,7 @@ export function buildMockLibrary(): SongLibrary {
     facets: buildFacets(songs),
     meta: {
       source: 'cache',
-      // Fixed rather than "now": the value is rendered, and a demo whose
-      // library was scanned three milliseconds ago reads as a bug.
-      generatedAt: Date.UTC(2026, 7, 12, 19, 4),
+      generatedAt: SCANNED_AT,
       count: songs.length,
       warnings: [],
     },
