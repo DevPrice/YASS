@@ -128,6 +128,16 @@ one writes `yargDataDir`. The channel is never stored separately; it is read bac
 comparing the configured folder against what was found, so `-persistent-data-path` and a
 hand-picked folder stay possible and simply show as "Custom".
 
+**The update check does not update anything.** `desktop/src/update.ts` asks GitHub's
+`/releases/latest` whether anything newer than `app.getVersion()` is published, and the
+button on the version row opens the releases page. `electron-updater` cannot update a
+Windows `portable` target at all, and its AppImage path would need a `publish` provider
+and a `latest-linux.yml` in the release that `release.yml` does not produce — so replacing
+one file where you put it stays the whole story, and nothing rewrites itself under a room
+full of guests. It runs only when pressed: no timer, no check at startup, which keeps this
+app's outbound requests to the two a person asked for and stays clear of GitHub's
+60-an-hour unauthenticated limit.
+
 ### Client
 
 - **`client/src/design/` is a vendored copy of the YARG design system.** It is not the
@@ -208,6 +218,10 @@ Things that follow from how this is wired:
   against a bug report. Bumping the manifests locally does not change what a local build is
   called — only tagging does.
 - **A failed build produces no release**, because the `draft` job needs `build`.
+- **Nobody's tray offers a release until the draft is published.** The update check reads
+  `/releases/latest`, which skips drafts and prereleases — so the manual publish step is
+  also the moment every installed copy starts pointing at it. The same rule is why
+  `v0.2.0`, a tag with no release, is invisible to it.
 - **Re-pushing the same tag updates the draft in place** rather than erroring (`gh release
   view` first, then `upload --clobber`).
 - **A non-semver tag fails fast**, before the client, server and tray are built.

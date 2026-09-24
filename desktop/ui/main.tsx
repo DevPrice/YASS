@@ -541,6 +541,64 @@ function MediaLine({ state, busy }: { state: DesktopState; busy: boolean }) {
   )
 }
 
+/**
+ * The version, and the one question anybody ever has about it.
+ *
+ * Inside the settings fold rather than up on the card: the check is manual, so
+ * the only person who reads this row is one who came looking for it, and a
+ * banner about a new version above a server that is not running would be the
+ * wrong thing shouting. A found release turns the row into the button that
+ * opens the releases page — YASS does not update itself, and `src/update.ts`
+ * says why.
+ */
+function UpdateRow({
+  state,
+  busy,
+  onCheck,
+}: {
+  state: DesktopState
+  busy: boolean
+  onCheck: () => void
+}) {
+  const update = state.update
+
+  const outcome: { text: string; tone: string } | null =
+    update.status === 'current'
+      ? { text: 'Up to date.', tone: 'text-content-faint' }
+      : update.status === 'failed'
+        ? { text: update.message, tone: 'text-warning' }
+        : null
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex min-h-6 items-center gap-2.5">
+        <p className="flex-1 font-numeric text-note text-content-faint">YASS v{state.version}</p>
+        {update.status === 'available' ? (
+          <Button tone="accent" onClick={() => window.yass.openReleasePage()}>
+            get v{update.version}
+          </Button>
+        ) : (
+          <QuietButton disabled={busy || update.status === 'checking'} onClick={onCheck}>
+            {update.status === 'checking' ? 'checking…' : 'check for updates'}
+          </QuietButton>
+        )}
+      </div>
+      {/* Announced, because the whole result of pressing that button is one
+          line of text appearing somewhere below it. */}
+      <p aria-live="polite" className="text-note">
+        {update.status === 'available' ? (
+          <span className="text-content-muted">
+            v{update.version} is out. The download page opens in your browser; YASS does not
+            replace itself.
+          </span>
+        ) : outcome ? (
+          <span className={outcome.tone}>{outcome.text}</span>
+        ) : null}
+      </p>
+    </div>
+  )
+}
+
 /** What a channel is called out loud. YARG's own words for its three builds. */
 const CHANNEL_LABELS: Record<BuildChannel, string> = {
   release: 'Release',
@@ -1206,7 +1264,11 @@ function App() {
             <span className="text-body text-content-muted">Start YASS when I sign in</span>
           </label>
 
-          <p className="font-numeric text-note text-content-faint">YASS v{state.version}</p>
+          <UpdateRow
+            state={state}
+            busy={busy}
+            onCheck={() => void run(() => window.yass.checkForUpdates())}
+          />
         </Disclosure>
       </main>
 

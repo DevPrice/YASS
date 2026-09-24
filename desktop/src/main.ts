@@ -33,7 +33,7 @@ import {
   sanitizePatch,
   saveSettings,
 } from './config.js'
-import { CHANNELS, type DesktopState, type SaveOutcome } from './ipc.js'
+import { CHANNELS, type DesktopState, type SaveOutcome, type UpdateState } from './ipc.js'
 import {
   createPopover,
   popoverWindow,
@@ -44,6 +44,7 @@ import {
 } from './popover.js'
 import { ServerChild, logDir } from './server.js'
 import { createTray, type DataFolder } from './tray.js'
+import { checkForUpdate } from './update.js'
 
 /*
  * Before anything touches a Chromium path.
@@ -66,6 +67,8 @@ let quitting = false
 let pollTimer: NodeJS.Timeout | null = null
 /** True while an ffmpeg download is running, so the popover can say so. */
 let fetchingFfmpeg = false
+/** What the last update check found, or that none was ever asked for. */
+let update: UpdateState = { status: 'idle' }
 
 /**
  * Where "start when I log in" should point.
@@ -121,6 +124,7 @@ async function buildState(): Promise<DesktopState> {
     liveApply: origin !== null,
     openAtLogin: openAtLogin(),
     version: app.getVersion(),
+    update,
   }
 }
 
@@ -159,6 +163,19 @@ function stopPolling(): void {
   if (!pollTimer) return
   clearInterval(pollTimer)
   pollTimer = null
+}
+
+/**
+ * A closed window ends the sentence the last check was.
+ *
+ * "Up to date" and "could not reach GitHub" were both true at a moment, and
+ * neither is worth still saying next week when the popover is opened again —
+ * they would read as a check that just ran. A found release is the exception
+ * and is kept: a published version does not stop existing, and making somebody
+ * press the button twice to see the same answer is worse than saying it early.
+ */
+function forgetStaleCheck(): void {
+  if (update.status !== 'available') update = { status: 'idle' }
 }
 
 /**
@@ -258,6 +275,32 @@ function registerIpc(): void {
     return buildState()
   })
 
+  /*
+   * Same shape as the ffmpeg download above and for the same reason: the
+   * pending state is published on the click rather than returned at the end,
+   * so the button says "checking…" while a request to a machine that may have
+   * no route to the internet spends its ten seconds finding that out.
+   */
+  ipcMain.handle(CHANNELS.checkForUpdates, async () => {
+    if (update.status === 'checking') return buildState()
+
+    update = { status: 'checking' }
+    void publish()
+
+    update = await checkForUpdate(app.getVersion())
+
+    const state = await buildState()
+    void publish()
+    return state
+  })
+
+  ipcMain.on(CHANNELS.openReleasePage, () => {
+    // Main opens the URL it fetched; nothing the renderer sent reaches
+    // `openExternal`. Silence when there is nothing to open is right — the
+    // button only exists in the state that has one.
+    if (update.status === 'available') void shell.openExternal(update.url)
+  })
+
   ipcMain.on(CHANNELS.openInBrowser, () => void openInBrowser())
 
   ipcMain.on(CHANNELS.copyText, (_event, text: unknown) => {
@@ -321,7 +364,10 @@ async function start(): Promise<void> {
 
   const window = createPopover()
   window.on('show', startPolling)
-  window.on('hide', stopPolling)
+  window.on('hide', () => {
+    stopPolling()
+    forgetStaleCheck()
+  })
 
   tray = createTray({
     toggle: () => tray && togglePopover(tray),

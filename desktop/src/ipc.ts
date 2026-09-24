@@ -28,6 +28,22 @@ export interface ServerState {
   port: number | null
 }
 
+/**
+ * Where the update check has got to.
+ *
+ * One field rather than a result beside a busy flag, because the popover draws
+ * exactly one of these at a time and two flags can disagree. `idle` is the
+ * resting state: nothing has been asked, so nothing is claimed.
+ */
+export type UpdateState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  /** Nothing newer is published. `version` is what is running. */
+  | { status: 'current'; version: string }
+  | { status: 'available'; version: string; url: string; publishedAt: number }
+  /** Why we cannot say, in words — see `update.ts`. */
+  | { status: 'failed'; message: string }
+
 export interface DesktopState {
   /** Settings plus the existence checks, from whichever source is authoritative. */
   view: SettingsView
@@ -62,6 +78,8 @@ export interface DesktopState {
   liveApply: boolean
   openAtLogin: boolean
   version: string
+  /** The answer to the last update check this sitting, if one was asked for. */
+  update: UpdateState
 }
 
 /**
@@ -86,6 +104,8 @@ export const CHANNELS = {
   fetchFfmpeg: 'yass:fetch-ffmpeg',
   rebuildMediaIndex: 'yass:rebuild-media-index',
   setOpenAtLogin: 'yass:set-open-at-login',
+  checkForUpdates: 'yass:check-for-updates',
+  openReleasePage: 'yass:open-release-page',
   openInBrowser: 'yass:open-in-browser',
   copyText: 'yass:copy-text',
   resize: 'yass:resize',
@@ -111,6 +131,16 @@ export interface DesktopApi {
   /** Re-read YARG's song cache and rebuild the map from songs to files. */
   rebuildMediaIndex(): Promise<DesktopState>
   setOpenAtLogin(enabled: boolean): Promise<DesktopState>
+  /** Ask GitHub whether a newer release exists. Never rejects; see `update.ts`. */
+  checkForUpdates(): Promise<DesktopState>
+  /**
+   * Open the release the last check found, if it found one.
+   *
+   * Takes no URL on purpose. Main opens the address it fetched itself, so a
+   * renderer — sandboxed, but still the least trusted thing in this process
+   * tree — never gets to name a target for `shell.openExternal`.
+   */
+  openReleasePage(): void
   openInBrowser(): void
   /**
    * Copy through the main process rather than `navigator.clipboard`.
