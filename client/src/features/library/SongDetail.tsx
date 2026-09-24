@@ -158,7 +158,7 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
           artHash={artHash}
           // Beside the type it is a thumbnail rather than a plate: big enough
           // to recognise a sleeve you already know, and no bigger.
-          className="short:mx-0 short:w-[104px] short:shrink-0"
+          className="short:w-[104px] short:shrink-0"
         />
 
         <div className="flex min-w-0 flex-col gap-[10px] short:gap-[5px]">
@@ -501,8 +501,15 @@ function ArtPlate({
          * screen turns the pair through ninety degrees instead and passes a
          * flat width in `className` — a thumbnail beside the type rather than a
          * plate above it, which is a different object and wants no floor.
+         *
+         * **Against the start edge, not centred.** Once the cap binds, the
+         * square is narrower than the column, and centring it gave the surface
+         * two axes: a cover floating ~50px in from both sides of the pane and a
+         * title, a row of rings and a fact grid all hard against the left edge
+         * beneath it. On the same line as the type, the cover reads as the
+         * sleeve that title belongs to rather than a card set above it.
          */
-        'mx-auto w-full max-w-[min(100%,max(180px,var(--plate-cap,34svh)))]',
+        'w-full max-w-[min(100%,max(180px,var(--plate-cap,34svh)))]',
         className,
       )}
       style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)' }}
