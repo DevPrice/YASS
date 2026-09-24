@@ -508,8 +508,17 @@ function ArtPlate({
          * is what the desktop pane takes. It was 45svh, which at 1440×900 put
          * the bottom of the parts grid 17px inside the fold and at 1366×768 —
          * the other commonest desktop size there is — put it 55px *outside*
-         * one. 34svh is a 306px cover at 900 and a 261px cover at 768, and the
-         * grid clears the fold at both with the fact strip starting behind it.
+         * one. 34svh is a 306px cover at 900 and a 261px cover at 768.
+         *
+         * **And the whole pane on the first screen where the window allows.**
+         * 34svh alone cleared the parts grid at 768 and left the second row of
+         * facts behind the fold. The second term is what the pane leaves over
+         * for a cover: 144px of banner and helper bar above and below it, and
+         * ~385px of everything under the square, measured, with ~30px of slack
+         * for a title that wraps to a second line. It binds below a window
+         * ~850px tall — a 208px cover at 768 — and above that 34svh is the
+         * smaller and nothing changed. The sum is only true of the pane; each
+         * sheet sets its own cap.
          *
          * The 180px floor stops the plate shrinking to the point where the
          * title has to set at its minimum size and wrap five times. It used to
@@ -527,7 +536,7 @@ function ArtPlate({
          * beneath it. On the same line as the type, the cover reads as the
          * sleeve that title belongs to rather than a card set above it.
          */
-        'w-full max-w-[min(100%,max(180px,var(--plate-cap,34svh)))]',
+        'w-full max-w-[min(100%,max(180px,var(--plate-cap,min(34svh,100svh_-_560px))))]',
         className,
       )}
       style={{ borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)' }}
