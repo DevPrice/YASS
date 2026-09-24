@@ -1,9 +1,10 @@
 /*
- * The YARG design system is the authority for every value below.
+ * `DESIGN.md` at the repo root is the authority for every value below.
  *
- * `design/` holds verbatim copies of the upstream token files. This file does
- * one job: expose those tokens to Tailwind so utility classes resolve to real
- * brand values. Add a mapping here rather than hardcoding a colour anywhere.
+ * `design/` holds verbatim copies of the YARG design system's token files,
+ * which is where these values started. This file exposes them to Tailwind so
+ * utility classes resolve to real values, and is the one place YASS departs
+ * from them. Add a mapping here rather than hardcoding a colour anywhere.
  */
 /*
  * The token files are imported individually rather than through the vendored

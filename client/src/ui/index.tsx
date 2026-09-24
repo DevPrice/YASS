@@ -1,13 +1,12 @@
 /**
- * Presentational primitives, following the YARG design system's recipes.
+ * Presentational primitives, specified by `DESIGN.md` at the repo root.
  *
- * Upstream components are ported to Tailwind rather than vendored verbatim, so
+ * Most began as ports of the YARG design system's components to Tailwind, so
  * the codebase keeps one styling idiom. `design/README.md` records which
- * upstream file each port came from and how to check for drift.
+ * upstream file each port came from, for comparing when upstream changes.
  *
- * Because a port is a fork, style through the vendored tokens and never through
- * literal values — that way re-vendoring tokens still picks up most upstream
- * changes without touching these files.
+ * Style through the tokens and never through literal values — that way a
+ * token change reaches every primitive without touching these files.
  *
  * Recipes followed:
  *   - Display type is UPPERCASE; label strings are authored lowercase.

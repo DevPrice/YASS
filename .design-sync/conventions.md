@@ -3,8 +3,8 @@
 YASS is a song browser for [YARG](https://yarg.in). It runs on the machine hosting the
 game and serves the player's library to phones on the LAN, so every screen is **dark, dense
 and read at arm's length** — a table of a few thousand songs, scanned rather than studied.
-These components are ports of the YARG design system to Tailwind; the game is the visual
-authority.
+These components began as ports of the YARG design system to Tailwind; `DESIGN.md` at the
+repo root is the visual authority.
 
 ## Setup
 

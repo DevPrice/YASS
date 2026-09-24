@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-24T00:00:00Z",
+  "title": "Design System: YASS",
+  "extensions": {
+    "colorMeta": {
+      "vivid-sky-blue": { "role": "primary", "displayName": "Vivid Sky Blue", "canonical": "var(--yarg-vivid-sky-blue)", "tonalRamp": ["#00303D", "#004A5E", "#006A85", "#008CAF", "#12B4DC", "#45D8FE", "#8AE7FE", "#CFF6FF"] },
+      "selected-blue": { "role": "primary", "displayName": "Selected Blue", "canonical": "var(--yarg-row-selected)", "tonalRamp": ["#001B28", "#002B3F", "#003F5B", "#005A81", "#0082BA", "#3AA3D4", "#86C8E8", "#D0EBF7"] },
+      "accent-tint": { "role": "primary", "displayName": "Accent Tint (20%)", "canonical": "color-mix(in srgb, var(--yarg-vivid-sky-blue) 20%, transparent)" },
+      "accent-edge": { "role": "primary", "displayName": "Accent Edge (50%)", "canonical": "color-mix(in srgb, var(--yarg-vivid-sky-blue) 50%, transparent)" },
+      "accent-fill": { "role": "primary", "displayName": "Accent Fill (75%)", "canonical": "color-mix(in srgb, var(--yarg-vivid-sky-blue) 75%, transparent)" },
+      "title-cyan": { "role": "secondary", "displayName": "Title Cyan", "canonical": "var(--yarg-text-cyan)" },
+      "artist-cyan": { "role": "secondary", "displayName": "Artist Cyan", "canonical": "var(--yarg-text-cyan-soft)" },
+      "night": { "role": "neutral", "displayName": "Night", "canonical": "var(--yarg-night)" },
+      "imperial-red": { "role": "tertiary", "displayName": "Imperial Red", "canonical": "var(--yarg-imperial-red)" },
+      "emerald": { "role": "tertiary", "displayName": "Emerald", "canonical": "var(--yarg-emerald)" },
+      "surface-app": { "role": "neutral", "displayName": "App Night", "canonical": "var(--yarg-surface-app)", "tonalRamp": ["#030307", "#05060B", "#070810", "#0C0F1E", "#151A30", "#1E253E", "#2F344D", "#7B7F9A"] },
+      "surface-card": { "role": "neutral", "displayName": "Card Night", "canonical": "var(--yarg-surface-card)" },
+      "surface-sunken": { "role": "neutral", "displayName": "Sunken Night", "canonical": "var(--yarg-surface-sunken)" },
+      "surface-bar": { "role": "neutral", "displayName": "Bar Night", "canonical": "var(--yarg-surface-bar)" },
+      "surface-row": { "role": "neutral", "displayName": "Row Night", "canonical": "var(--yarg-surface-row)" },
+      "surface-hover": { "role": "neutral", "displayName": "Oxford Blue", "canonical": "var(--yarg-dark-4)" },
+      "header-wash": { "role": "neutral", "displayName": "Header Wash", "canonical": "#001B33" },
+      "border-card": { "role": "neutral", "displayName": "Card Stroke", "canonical": "var(--yarg-border-card)" },
+      "border-row": { "role": "neutral", "displayName": "Row Rule (Space Cadet)", "canonical": "var(--yarg-dark-6)" },
+      "border-strong": { "role": "neutral", "displayName": "Cool Gray", "canonical": "var(--yarg-dark-7)" },
+      "text-primary": { "role": "neutral", "displayName": "White", "canonical": "var(--yarg-text-primary)" },
+      "text-muted": { "role": "neutral", "displayName": "Muted Lavender-Gray", "canonical": "color-mix(in oklab, var(--yarg-dark-7) 80%, var(--yarg-white))" },
+      "text-faint": { "role": "neutral", "displayName": "Cool Gray (text)", "canonical": "var(--yarg-dark-7)" },
+      "text-header": { "role": "neutral", "displayName": "Header Ice", "canonical": "var(--yarg-text-header)" },
+      "count": { "role": "neutral", "displayName": "Count Steel", "canonical": "var(--yarg-text-count)" },
+      "count-muted": { "role": "neutral", "displayName": "Count Slate", "canonical": "var(--yarg-text-count-muted)" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Uppercase Red Hat Display for empty-state titles and screen-level labels." },
+      "headline": { "displayName": "Headline", "purpose": "Song title in the detail pane; wraps, never truncates. 22px on short screens." },
+      "title": { "displayName": "Title", "purpose": "Song title in rows and the now-playing banner, in the chart's own casing." },
+      "artist": { "displayName": "Artist", "purpose": "Italic Artist Cyan line under every title." },
+      "body": { "displayName": "Body", "purpose": "Explanations, field text, facet lists." },
+      "label": { "displayName": "Label", "purpose": "Uppercase chrome: chips 11px, buttons 13px, badges 10px. Authored lowercase." },
+      "numeric": { "displayName": "Numeric", "purpose": "Inter with tabular figures for years, lengths, counts and tiers." }
+    },
+    "shadows": [
+      { "name": "bar-lift", "value": "0 0 150px 0 rgb(0,0,0)", "purpose": "Helper bar and phone control bar over the scrolling list. The only true shadow." },
+      { "name": "card-stroke", "value": "inset 0 0 0 2px var(--yarg-border-card)", "purpose": "Every card: a stroke, not a lift." },
+      { "name": "control-stroke", "value": "inset 0 0 0 2px var(--yarg-dark-7)", "purpose": "Resting outline of text fields, selects and chips." },
+      { "name": "control-stroke-live", "value": "inset 0 0 0 2px color-mix(in srgb, var(--yarg-vivid-sky-blue) 50%, transparent)", "purpose": "A focused field or active chip." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.2, 0, 0, 1)", "purpose": "State transitions." },
+      { "name": "duration-fast", "value": "90ms", "purpose": "Instant-feeling swaps." },
+      { "name": "duration-base", "value": "160ms", "purpose": "Default for colour, filter and stroke changes." },
+      { "name": "venue-wash", "value": "opacity cross-fade, linear, one beat long (set from tempo)", "purpose": "Stage lighting drifting in the now-playing banner; removed under reduced motion." }
+    ],
+    "breakpoints": [
+      { "name": "short", "value": "(height <= 500px)" },
+      { "name": "bar-stack", "value": "(width < 48rem) and (height > 500px)" },
+      { "name": "bar-top", "value": "(width >= 48rem), (height <= 500px)" },
+      { "name": "roomy", "value": "(width >= 48rem) and (height > 500px)" },
+      { "name": "has-table", "value": "(height > 500px) and @container list (width >= 42rem)" },
+      { "name": "lg", "value": "64rem (detail pane beside the list)" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Accent Button",
+      "kind": "button",
+      "refersTo": "button-accent",
+      "description": "Primary action pill: 75% accent fill, brighter inset ring, Night label.",
+      "html": "<button class=\"ds-btn ds-btn-accent\">play preview</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 38px; padding: 0 20px; border: none; border-radius: 78px; font-family: 'Red Hat Display', system-ui, sans-serif; font-weight: 800; font-size: 13px; line-height: 1; text-transform: uppercase; cursor: pointer; transition: filter 160ms cubic-bezier(0.2,0,0,1), background 160ms cubic-bezier(0.2,0,0,1); } .ds-btn:hover { filter: brightness(1.15); } .ds-btn:focus-visible { outline: 2px solid #45D8FE; outline-offset: 2px; } .ds-btn-accent { background: rgba(69,216,254,0.75); color: #090A0B; box-shadow: inset 0 0 0 2px #A5EFFF; }"
+    },
+    {
+      "name": "Neutral Button",
+      "kind": "button",
+      "refersTo": "button-neutral",
+      "description": "Default pill: Space Cadet fill at 75%, Cool Gray ring, white label.",
+      "html": "<button class=\"ds-btn ds-btn-neutral\">columns</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 38px; padding: 0 20px; border: none; border-radius: 78px; font-family: 'Red Hat Display', system-ui, sans-serif; font-weight: 800; font-size: 13px; line-height: 1; text-transform: uppercase; cursor: pointer; transition: filter 160ms cubic-bezier(0.2,0,0,1); } .ds-btn:hover { filter: brightness(1.15); } .ds-btn:focus-visible { outline: 2px solid #45D8FE; outline-offset: 2px; } .ds-btn-neutral { background: rgba(47,52,77,0.75); color: #FFFFFF; box-shadow: inset 0 0 0 2px #7B7F9A; }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-neutral",
+      "description": "Toolbar action: no fill or ring until hovered.",
+      "html": "<button class=\"ds-btn-quiet\">filters</button>",
+      "css": ".ds-btn-quiet { display: inline-flex; align-items: center; height: 38px; padding: 0 20px; border: none; border-radius: 78px; background: transparent; color: #FFFFFF; font-family: 'Red Hat Display', system-ui, sans-serif; font-weight: 800; font-size: 13px; line-height: 1; text-transform: uppercase; cursor: pointer; transition: filter 160ms cubic-bezier(0.2,0,0,1); } .ds-btn-quiet:hover { filter: brightness(1.15); } .ds-btn-quiet:focus-visible { outline: 2px solid #45D8FE; outline-offset: 2px; }"
+    },
+    {
+      "name": "Toggle Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Filter chip: dim pill at rest, accent tint and edge when active.",
+      "html": "<div style=\"display:flex;gap:8px\"><button class=\"ds-chip\" aria-pressed=\"true\">drums</button><button class=\"ds-chip\" aria-pressed=\"false\">keys</button></div>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 15px; border: none; border-radius: 50px; background: transparent; color: #7B7F9A; box-shadow: inset 0 0 0 2px #7B7F9A; font-family: 'Red Hat Display', system-ui, sans-serif; font-weight: 800; font-size: 11px; line-height: 1; text-transform: uppercase; cursor: pointer; transition: all 160ms cubic-bezier(0.2,0,0,1); } .ds-chip:hover { color: #FFFFFF; } .ds-chip:focus-visible { outline: 2px solid #45D8FE; outline-offset: 2px; } .ds-chip[aria-pressed='true'] { background: rgba(69,216,254,0.2); color: #FFFFFF; box-shadow: inset 0 0 0 2px rgba(69,216,254,0.5); }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "text-field",
+      "description": "Inset pill on the sunken surface; the stroke lights to the accent edge on focus.",
+      "html": "<label class=\"ds-field\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" aria-hidden=\"true\"><circle cx=\"7\" cy=\"7\" r=\"5\" stroke=\"currentColor\" stroke-width=\"1.75\"/><path d=\"M11 11l3.5 3.5\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\"/></svg><input placeholder=\"Search title, artist, charter…\"></label>",
+      "css": ".ds-field { display: flex; align-items: center; gap: 10px; padding: 0 15px; border-radius: 50px; background: #030307; color: #7B7F9A; box-shadow: inset 0 0 0 2px #7B7F9A; transition: box-shadow 160ms cubic-bezier(0.2,0,0,1); } .ds-field:focus-within { box-shadow: inset 0 0 0 2px rgba(69,216,254,0.5); outline: 2px solid #45D8FE; outline-offset: 2px; } .ds-field input { flex: 1; min-width: 0; padding: 9px 0; border: none; background: transparent; color: #FFFFFF; font-family: Barlow, system-ui, sans-serif; font-size: 15px; } .ds-field input:focus { outline: none; } .ds-field input::placeholder { color: #7B7F9A; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat card fill with a 2px inset stroke; depth without shadow.",
+      "html": "<div class=\"ds-card\"><p class=\"ds-card-label\">year</p><p class=\"ds-card-value\">2019</p></div>",
+      "css": ".ds-card { padding: 15px 25px; border-radius: 20px; background: #070810; box-shadow: inset 0 0 0 2px #12152D; } .ds-card-label { margin: 0 0 5px; font-family: 'Red Hat Display', system-ui, sans-serif; font-weight: 800; font-size: 11px; line-height: 1; text-transform: uppercase; color: #5D7EA6; } .ds-card-value { margin: 0; font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 16px; color: #B2CDED; }"
+    },
+    {
+      "name": "Song Row",
+      "kind": "custom",
+      "refersTo": "song-row",
+      "description": "80px row: Barlow title in the chart's casing, italic cyan artist; the playing row washes Selected Blue in from the edge.",
+      "html": "<div class=\"ds-row\"><span class=\"ds-row-title\">Hollow Transmission</span><span class=\"ds-row-artist\">The Paper Aviators</span></div><div class=\"ds-row ds-row-playing\"><span class=\"ds-row-title\">Vaultbreaker</span><span class=\"ds-row-artist\">Neon Vell Hymn</span></div>",
+      "css": ".ds-row { display: flex; flex-direction: column; justify-content: center; gap: 8px; height: 80px; padding: 0 25px; background: #000911; border-bottom: 1px solid #2F344D; transition: background 160ms cubic-bezier(0.2,0,0,1); } .ds-row:hover { background: #151A30; } .ds-row-title { font-family: Barlow, system-ui, sans-serif; font-weight: 600; font-size: 22px; line-height: 1; color: #FFFFFF; } .ds-row-artist { font-family: Barlow, system-ui, sans-serif; font-weight: 500; font-style: italic; font-size: 18px; line-height: 1; color: #A5EFFF; } .ds-row-playing { background: linear-gradient(90deg, rgba(7,8,16,0) -10%, #070810 100%), #0082BA; box-shadow: inset 0 0 0 2px #FFFFFF; }"
+    },
+    {
+      "name": "Helper Bar",
+      "kind": "nav",
+      "refersTo": "helper-bar",
+      "description": "The game's key-hint footer, kept as identity on desktop.",
+      "html": "<div class=\"ds-helper\"><span><kbd>/</kbd> search</span><span><kbd>esc</kbd> close details</span></div>",
+      "css": ".ds-helper { display: flex; align-items: center; gap: 25px; height: 52px; padding: 0 15px; background: #01040A; box-shadow: 0 0 150px 0 rgb(0,0,0); font-family: 'Red Hat Display', system-ui, sans-serif; font-weight: 800; font-size: 11px; text-transform: uppercase; color: #9497AE; } .ds-helper kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; margin-right: 6px; padding: 0 6px; border-radius: 5px; background: #030307; color: #FFFFFF; font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 12px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Backstage Setlist",
+    "overview": "YASS is the setlist taped to the monitor: a working document for a band between songs, scanned in a glance at arm's length and lit by whatever the stage is doing. The room is the show and the big screen is the stage; the phone in a guest's hand is the setlist, and its job is to put the next song in front of them before the conversation moves on.\n\nThat makes the system dark, dense and exact. Thousands of rows are the content, so chrome is spent sparingly and every pixel of height is argued for. Light is the only emphasis: a colour wash spilling in from one edge marks what's playing and which section you're in, and controls light up when they're live rather than rising off the page. The visual vocabulary began as YARG's own (the night-black surfaces, Vivid Sky Blue, Red Hat Display capitals, Barlow's italic cyan artist line), so it reads as part of the game, but this file is now the authority. The token files vendored in client/src/design/tokens/ are where the values started, and the overrides this system has already made to them (contrast fixes, the accent compositings) are part of the system, not deviations from it.\n\nThere is no light theme. The room is dark and the big screen is dark; a white phone would be the brightest thing in it.",
+    "keyCharacteristics": [
+      "Night-black tonal surfaces, never pure black, all leaning blue-violet.",
+      "One accent, Vivid Sky Blue, spent on what's live: playing, active, focused.",
+      "Emphasis is light washing in from an edge, not a filled shape.",
+      "Uppercase Red Hat Display for labels and chrome; Barlow for the songs themselves; Inter for numbers.",
+      "Flat: depth comes from tone and inset strokes. The one shadow separates the helper bar from the list.",
+      "Height-aware layout: a phone held sideways is a first-class layout, not an edge case."
+    ],
+    "rules": [
+      { "name": "The Live-Only Accent Rule", "body": "Vivid Sky Blue marks what is live: playing, active, focused, on. If an element isn't in a state, it isn't cyan.", "section": "colors" },
+      { "name": "The Stay-on-Axis Rule", "body": "Every neutral lives in the blue-violet band (hue ~228–233). A grey that drifts green or warm stands out as a mistake beside the others; mix new neutrals from Cool Gray rather than picking a hex.", "section": "colors" },
+      { "name": "The Three Mixes Rule", "body": "The accent is composited at 20%, 50% or 75% and nothing else. A fourth opacity is a new colour nobody chose.", "section": "colors" },
+      { "name": "The Lowercase Source Rule", "body": "Labels are written lowercase in code and uppercased by style. A capitalised string shouts twice and fights screen readers.", "section": "typography" },
+      { "name": "The Song Keeps Its Casing Rule", "body": "Titles and artists are shown exactly as the chart wrote them. Never uppercase a song.", "section": "typography" },
+      { "name": "The Lit, Not Lifted Rule", "body": "Nothing rises on hover or selection. Controls brighten (brightness(1.15)), fill with the 20% tint, or light their inset stroke. No scale, no translate, no bounce.", "section": "elevation" },
+      { "name": "The Edge Wash Rule", "body": "Colour emphasis enters from one edge and fades to card colour, angled away from the text it sits under. It never fills a shape flat.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do style through tokens and the named compositings: var(--yarg-…), --accent-tint, --accent-edge, --accent-fill. Add a new mapping in client/src/index.css rather than typing a hex into a component.",
+      "Do keep every interactive boundary at 3:1 or better and text at 4.5:1 (Cool Gray is the floor for both).",
+      "Do give every control a 44px target on coarse pointers (pointer-coarse:, or .tap-target where there's clear space).",
+      "Do use the .yarg-focusable outline for focus. Inline inset box-shadows would hide a ring utility, and forced-colors mode drops box-shadows entirely.",
+      "Do use truncate-tight for any truncating line set at leading-none, so descenders and umlauts aren't clipped.",
+      "Do test every layout at 844×390 as well as upright and desktop."
+    ],
+    "donts": [
+      "Don't add a light theme, a pure-black (#000) surface, or a neutral off the blue-violet axis.",
+      "Don't use drop shadows for depth on cards or rows; the bar lift is the only shadow.",
+      "Don't scale, translate or bounce anything on hover, press or selection.",
+      "Don't set white text on the accent or confirm fills; use Night.",
+      "Don't uppercase song titles or artists.",
+      "Don't redraw YARG's bitmap art (instrument glyphs, source badges) as vectors, or mix the 500px instrument glyph generation with the 512px one.",
+      "Don't show score data (stars, medals, stats).",
+      "Don't animate anything decorative when reduced motion is requested."
+    ]
+  }
+}

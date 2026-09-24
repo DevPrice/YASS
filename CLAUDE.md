@@ -140,10 +140,14 @@ app's outbound requests to the two a person asked for and stays clear of GitHub'
 
 ### Client
 
-- **`client/src/design/` is a vendored copy of the YARG design system.** It is not the
-  authority — fix designs upstream and re-vendor, or the next sync silently reverts them.
-  Token files are byte-for-byte copies so re-vendoring is a straight overwrite. Style
-  through the tokens, never through literal values.
+- **`DESIGN.md` at the repo root is the design authority.** It records the values the app
+  actually renders and the rules behind them; change a design there and in code together.
+- **`client/src/design/` is a vendored copy of the YARG design system** — where the values
+  started, not where they are decided. Token files stay byte-for-byte copies so an upstream
+  change still shows up as a clean diff, but re-vendoring is a choice to adopt it, checked
+  against `DESIGN.md`, not a sync that wins. YASS's own departures live in
+  `client/src/index.css`, never as edits to the copies. Style through the tokens, never
+  through literal values.
 - **`client/src/ui/` holds ports of upstream components to Tailwind.** A port is a fork; the
   recipes it follows are listed at the top of `ui/index.tsx`.
 - **Layout asks about height, not just width.** A phone held sideways is 844×390:

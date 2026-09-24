@@ -1,7 +1,7 @@
 /*
  * The popover's styles.
  *
- * Same authority as the web client: the YARG design system's own token files,
+ * Same authority as the web client, `DESIGN.md`, and the same token files,
  * imported from `client/src/design/tokens/` rather than copied, so there is one
  * set of values and re-vendoring moves both apps at once. The token files are
  * imported individually because upstream's `styles.css` uses relative

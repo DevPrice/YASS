@@ -1,8 +1,11 @@
 # Vendored YARG design system
 
-**This directory is a copy. The YARG Design System project is the authority — do not
-edit these files to change a design.** Fix it upstream and re-vendor, or the next sync
-silently reverts the change.
+**This directory is a copy of the YARG Design System, and it is where YASS's values
+started — not where they are decided.** `DESIGN.md` at the repo root is the authority. Do
+not edit these files to change a design: make the change in `client/src/index.css` and
+record it in `DESIGN.md`. The copies stay byte-identical so that re-vendoring shows
+upstream's changes as a clean diff, which is then a choice to adopt, not an overwrite that
+wins.
 
 | | |
 |---|---|

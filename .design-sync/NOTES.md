@@ -6,7 +6,7 @@ deliberately out — those are composed screens that read app state and fetch.
 
 **This is not the upstream YARG Design System.** That project
 (`ed057d66-45e9-4387-bf0d-1e2a6dc94e9a`, named in `client/src/design/README.md`)
-is hand-authored, is the authority, and holds 21 components in a *flat* layout
+is hand-authored, is where YASS's tokens came from, and holds 21 components in a *flat* layout
 plus guidelines, templates and a companion ui_kit that this repo does not
 produce. Syncing this repo into it would delete all of that — the converter owns
 the whole project root and reconciles deletes. Never point `projectId` at it.
