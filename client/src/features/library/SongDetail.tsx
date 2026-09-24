@@ -46,11 +46,10 @@
  *      `band` — because that ring is the only one whose subject isn't a picture
  *      of itself.
  *   3. **The six short facts** — year, length, genre, charter, rating, date
- *      added — as
- *      label-over-value cells in two columns. `2006` does not need 380px of
- *      ruled row to itself, and putting its label directly above it rather than
- *      380px to its left is what stopped the eye having to traverse the gap
- *      nine times.
+ *      added — as label-over-value cells in three columns. `2006` does not
+ *      need 380px of ruled row to itself, and putting its label directly above
+ *      it rather than 380px to its left is what stopped the eye having to
+ *      traverse the gap nine times.
  *
  * **There are no rules left in this component.** The last one fenced off a
  * separate provenance block, and once `playlist` and `format` were cut that
@@ -290,20 +289,28 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
       </section>
 
       {/*
-       * Six short answers in two columns, rather than six full-width rows.
+       * Six short answers in two rows of three, rather than six full-width rows.
        *
        * `2006`, `7:22`, `Rock`, `Harmonix` — none of them needs 380px of
        * ruled row, and each label sits directly above the value it names
-       * instead of across a gap from it. Row-major order puts the song's own
-       * facts first and the chart's last, which is the order they are wanted
-       * in.
+       * instead of across a gap from it.
        *
-       * Two fixed columns rather than a wrapping run, which was the first cut:
+       * **Three columns is what makes the rows mean something.** Row-major
+       * order puts the song first and the chart last, and at three across that
+       * is exactly the split: year, length, genre is the record; charter,
+       * rating, date added is this copy of it. Two across put genre and charter
+       * on one row, which was a line break in the middle of a sentence. It is
+       * also a row shorter, and that row is what kept rating and date added
+       * behind the fold of an upright phone sheet.
+       *
+       * Fixed columns rather than a wrapping run, which was the first cut:
        * cells that size to their own content leave the shape at the mercy of
        * the strings, and `1975 (2011 remaster)` is wide enough that a 460px
-       * pane fitted three of them and orphaned one onto a line of its own. Two
-       * columns is the same shape in every pane, every sheet and every song,
-       * and 192px still holds the longest value on one line.
+       * pane fitted three of them and orphaned one onto a line of its own.
+       * Fixed columns are the same shape in every housing and every song. The
+       * narrowest is ~73px, in the pane at a 1024px window, where
+       * `Family Friendly` takes two lines — `break-words` was already the
+       * answer for a value that outgrows its cell.
        *
        * ## What is deliberately not here
        *
@@ -334,16 +341,10 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * 178 title-and-artist pairs in a real library have more than one — so it
        * stays, but it is a fact like the others and no longer a category.
        */}
-      {/*
-       * Two columns, or three where the height is worth more than the measure.
-       *
-       * Six facts in two columns is three rows; in three it is two, which is
-       * ~42px back on a screen that has 390. The values are `2006`, `7:22`,
-       * `Rock`, `Harmonix` — short enough that a 113px column holds almost all
-       * of them on one line, and `break-words` is already the answer for the
-       * ones it doesn't.
-       */}
-      <dl className="grid grid-cols-2 gap-x-[25px] gap-y-[15px] short:grid-cols-3 short:gap-x-[15px] short:gap-y-[10px]">
+      {/* 15px between columns, not 25: at three across the measure is worth
+          more than the gutter, and left-aligned labels already mark where each
+          column starts. */}
+      <dl className="grid grid-cols-3 gap-x-[15px] gap-y-[15px] short:gap-y-[10px]">
         <Fact label="year" value={song.year || formatYear(song.yearNumber)} />
         <Fact label="length" value={formatDuration(song.lengthSeconds)} />
         <Fact label="genre" value={genre || '—'} />
@@ -399,14 +400,12 @@ export function SongDetailEmpty({ onShowPlaying }: { onShowPlaying: (() => void)
 /**
  * A short answer and the word for it, stacked.
  *
- * Sized to its own content and left to wrap, so four of these are a strip in
- * the pane and two lines of two in a phone sheet with no breakpoint deciding
- * it. The label sits directly above the value rather than 380px to its left,
+ * The label sits directly above the value rather than 380px to its left,
  * which is the difference between reading a fact and looking one up.
  *
- * No rule, no box. Proximity groups the pair and the 35px column gap separates
- * the pairs; anything drawn between them would be a third mark doing the job
- * two intervals already do.
+ * No rule, no box. Proximity groups the pair and the grid's gaps separate the
+ * pairs; anything drawn between them would be a third mark doing the job two
+ * intervals already do.
  */
 const ADDED_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
