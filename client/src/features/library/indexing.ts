@@ -39,6 +39,7 @@ import {
   titleCredit,
 } from '../../lib/format'
 import { resolveSource } from '../../lib/sources'
+import { addedPeriod } from './added'
 import { NUMBER, SYMBOL, initialGroup } from './grouping'
 import type { Group, ListItem } from './grouping'
 import type { SortKey } from './filtering'
@@ -188,15 +189,20 @@ function lengthMark(song: Song): Mark {
   return { id: `length:${bucket}`, glyph: numeral(found.short), label: found.label }
 }
 
+/** Months this year, years before it. See `addedPeriod`. */
+function addedMark(song: Song, now: number): Mark {
+  const { id, label, short, numeric } = addedPeriod(song.addedAt, now)
+  const glyph = short === null ? MISSING_GLYPH : numeric ? numeral(short) : display(short)
+
+  return { id, glyph, label }
+}
+
 /**
  * How each ordering divides, at rail resolution.
  *
- * Four keys coarsen to a leading letter, which is the same answer the title
- * sort's own headers give. The other four are already few enough to show whole.
- *
- * `charter` is absent, as it is from `GROUPERS` and from every sort control the
- * app draws — it is a username rather than a category. Nothing indexes it, so
- * the rail does not appear, and the list takes the width back.
+ * The keys with an open set of names coarsen to a leading letter, which is the
+ * same answer the title sort's own headers give. The rest are already few
+ * enough to show whole, or — for dates — are cut coarser by `addedMark`.
  */
 const MARKERS: Partial<Record<SortKey, (song: Song, lens: DifficultyLens) => Mark>> = {
   // The filed title, not the raw one, for the same reason the header beside it
@@ -209,6 +215,10 @@ const MARKERS: Partial<Record<SortKey, (song: Song, lens: DifficultyLens) => Mar
   // Safe to take initials from, unlike source: the genre sort compares the same
   // string the label comes from, so the letters run in the rows' own order.
   genre: (song) => letterMark(song.genre, 'No genre'),
+  // Same safety as genre: each of these sorts on the string it is lettered by.
+  subgenre: (song) => letterMark(song.subgenre, 'No subgenre'),
+  charter: (song) => letterMark(song.charter, 'No charter'),
+  playlist: (song) => letterMark(song.playlist, 'No playlist'),
   source: sourceMark,
   year: yearMark,
   difficulty: intensityMark,
@@ -216,15 +226,19 @@ const MARKERS: Partial<Record<SortKey, (song: Song, lens: DifficultyLens) => Mar
 }
 
 /** What the rail is dividing, for its accessible name. */
-const INDEX_LABELS: Partial<Record<SortKey, string>> = {
+const INDEX_LABELS: Record<SortKey, string> = {
   name: 'title',
   artist: 'artist',
   album: 'album',
   genre: 'genre',
+  subgenre: 'subgenre',
+  charter: 'charter',
+  playlist: 'playlist',
   source: 'source',
   year: 'year',
   difficulty: 'difficulty',
   length: 'length',
+  added: 'date added',
 }
 
 /**
@@ -236,7 +250,7 @@ const INDEX_LABELS: Partial<Record<SortKey, string>> = {
  * say which one it is reading.
  */
 export function indexLabel(key: SortKey, lens: DifficultyLens): string {
-  const base = INDEX_LABELS[key] ?? 'section'
+  const base = INDEX_LABELS[key]
   return key === 'difficulty' && lens !== 'band'
     ? `${LENS_LABELS[lens].toLowerCase()} ${base}`
     : base
@@ -261,8 +275,9 @@ export function buildIndex(
   items: readonly ListItem[],
   key: SortKey,
   lens: DifficultyLens,
+  now: number = Date.now(),
 ): IndexMark[] {
-  const marker = MARKERS[key]
+  const marker = key === 'added' ? (song: Song) => addedMark(song, now) : MARKERS[key]
   if (marker === undefined) return []
 
   const marks: IndexMark[] = []

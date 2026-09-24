@@ -66,7 +66,14 @@ import {
 import type { DifficultyLens } from '../../lib/difficulty'
 import { formatDuration, formatYear } from '../../lib/format'
 import type { Column, ListView, RowField } from './columns'
-import { COLUMNS, WIDE_AT, columnLabel, sameShape, showsColumn } from './columns'
+import {
+  COLUMNS,
+  WIDE_AT,
+  columnLabel,
+  headerlessSorts,
+  sameShape,
+  showsColumn,
+} from './columns'
 import { ColumnPicker } from './ColumnPicker'
 import { groupSongs } from './grouping'
 import type { ListItem } from './grouping'
@@ -427,6 +434,8 @@ export function SongList({
     [view, listWidth],
   )
 
+  const dimension = headerDimension(sortKey, isNarrow ? [] : visibleColumns)
+
   const virtualItems = virtualizer.getVirtualItems()
 
   /**
@@ -584,7 +593,9 @@ export function SongList({
                      * Presentational on purpose, twice over: a `list` owns
                      * `listitem`s and nothing else, and every value these group
                      * by is already on the row or in its detail — the artist, the
-                     * year, the letter the title starts with. Announcing each
+                     * year, the letter the title starts with, the date added.
+                     * Playlist is the one exception, left off the detail pane on
+                     * purpose — see the note there. Announcing each
                      * header would put a second copy of that in the way of
                      * someone moving through four thousand songs one at a time.
                      */
@@ -593,7 +604,7 @@ export function SongList({
                     className="absolute top-0 left-0 w-full"
                     style={placement}
                   >
-                    <CategoryHeader label={item.label} count={item.count} />
+                    <CategoryHeader label={item.label} count={item.count} dimension={dimension} />
                   </div>
                 )
               }
@@ -651,6 +662,32 @@ export function SongList({
       </div>
     </div>
   )
+}
+
+/** The orderings whose headers are a bare name: a person, a folder, a record. */
+const NAMED_SORTS: ReadonlySet<SortKey> = new Set([
+  'album',
+  'genre',
+  'subgenre',
+  'charter',
+  'playlist',
+  'source',
+])
+
+/**
+ * The word a header needs in front of it, or nothing.
+ *
+ * Sorted by a column, the arrow in its header says what the headers are
+ * naming. Sorted by something with no column on screen, `atlas_9` over
+ * seventy songs could be an artist, a charter or a folder, and nothing on
+ * screen says which. Decades, tiers, lengths, dates and initials explain
+ * themselves, so only the names are captioned.
+ */
+function headerDimension(sortKey: SortKey, visible: readonly Column[]): string | undefined {
+  if (!NAMED_SORTS.has(sortKey)) return undefined
+  if (visible.some((column) => column.key === sortKey)) return undefined
+
+  return sortKey
 }
 
 /**
@@ -715,7 +752,16 @@ export function SongList({
  * table it is dividing. The space above the label is what keeps the corner
  * from reading as crowded.
  */
-function CategoryHeader({ label, count }: { label: string; count: number }) {
+function CategoryHeader({
+  label,
+  count,
+  dimension,
+}: {
+  label: string
+  count: number
+  /** What kind of name `label` is, when nothing else on screen says. See `headerDimension`. */
+  dimension?: string
+}) {
   return (
     <div
       className={cx(
@@ -736,6 +782,14 @@ function CategoryHeader({ label, count }: { label: string; count: number }) {
       }}
     >
       <div className="flex w-full min-w-0 items-baseline gap-[14px]">
+        {dimension !== undefined ? (
+          // The count's caption style, so the phrase reads as one line with a
+          // quiet word at each end and the name loud between them.
+          <span className="yarg-label shrink-0 text-[11px] tracking-[0.06em] text-content-muted">
+            {dimension}
+          </span>
+        ) : null}
+
         {/* `dir` on the label and not on the band, or a Hebrew artist would
             carry the count over to the other side of the screen with it.
             `min-w-0`, or a flex item refuses to shrink under its own text and
@@ -821,9 +875,19 @@ function SortHeader({
        * self-evident and there is no ordering to offer: sorting by album art is
        * not a thing. That makes it the only cell in the header not spoken for
        * by a column, which is exactly where a control over all of them belongs
-       * — and it spends no width the columns were using. See `ColumnPicker`.
+       * — and it spends no width the columns were using. It also holds the
+       * sorts no column can offer. See `ColumnPicker`.
        */}
-      <ColumnPicker view={view} onChange={onViewChange} lens={lens} listWidth={listWidth} />
+      <ColumnPicker
+        view={view}
+        onChange={onViewChange}
+        lens={lens}
+        listWidth={listWidth}
+        sorts={headerlessSorts(columns, lens)}
+        sortKey={sortKey}
+        sortDirection={sortDirection}
+        onSort={onSort}
+      />
 
       {columns.map((column) => {
         const active = column.key === sortKey

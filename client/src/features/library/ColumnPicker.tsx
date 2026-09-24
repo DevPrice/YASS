@@ -19,13 +19,26 @@
  * Chips rather than a checklist, because the filter panel is already a wall of
  * chips and a column is the same kind of thing: one of a closed set of seven,
  * on or off, everything visible at once, no scrolling and no search box.
+ *
+ * ## It is also where the sorts without a column live
+ *
+ * Charter, subgenre, playlist and date added have no column, and a column that
+ * is switched off takes its header with it. Their chips go here, above the
+ * columns, because this corner is already the one control over the whole
+ * table, and anywhere else in the header would take width from a label.
+ *
+ * While one of them is the sort, no header wears an arrow, because none of them
+ * is the sort. The arrow moves here instead, beside the corner's own glyph, and
+ * the group headers down the list name the value on every run. Clicking any
+ * column header goes back to a column sort, as it always has.
  */
 
 import { useEffect, useRef, useState } from 'react'
 
-import { ToggleChip, cx } from '../../ui'
+import { SortArrow, ToggleChip, cx } from '../../ui'
 import type { DifficultyLens } from '../../lib/difficulty'
-import type { ListView } from './columns'
+import type { SortDirection, SortKey } from './filtering'
+import type { HeaderlessSort, ListView } from './columns'
 import {
   DEFAULT_VIEW,
   OPTIONAL_COLUMNS,
@@ -47,6 +60,10 @@ export function ColumnPicker({
   onChange,
   lens,
   listWidth,
+  sorts,
+  sortKey,
+  sortDirection,
+  onSort,
 }: {
   view: ListView
   onChange: (view: ListView) => void
@@ -54,6 +71,11 @@ export function ColumnPicker({
   lens: DifficultyLens
   /** The list's own width, which decides what the chosen columns can do. */
   listWidth: number
+  /** The orderings the header has no column for right now. See `headerlessSorts`. */
+  sorts: readonly HeaderlessSort[]
+  sortKey: SortKey
+  sortDirection: SortDirection
+  onSort: (key: SortKey) => void
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -82,6 +104,8 @@ export function ColumnPicker({
   }, [open])
 
   const cramped = OPTIONAL_COLUMNS.filter((column) => isCramped(view, column, listWidth))
+  const activeSort = sorts.find((sort) => sort.key === sortKey)
+  const spokenDirection = sortDirection === 'asc' ? 'ascending' : 'descending'
 
   return (
     <div
@@ -115,24 +139,35 @@ export function ColumnPicker({
         aria-expanded={open}
         aria-controls="column-picker"
         aria-haspopup="true"
-        aria-label="Choose which columns the list shows"
-        title="Columns"
+        aria-label={
+          activeSort === undefined
+            ? 'Sort and columns'
+            : `Sort and columns. Sorted by ${activeSort.spoken}, ${spokenDirection}`
+        }
+        title="Sort and columns"
         className={cx(
-          'yarg-focusable flex size-full cursor-pointer items-center justify-center',
+          'yarg-focusable flex size-full cursor-pointer items-center justify-center gap-[4px]',
           'transition-opacity duration-160',
           // The header's own idiom for a control at rest and a control that is
-          // doing something — the same pair every sort label wears.
-          open ? 'text-white opacity-100' : 'text-content-header opacity-70 hover:opacity-100',
+          // doing something — the same pair every sort label wears. Holding the
+          // sort is a third state and gets the accent: in white, the arrow
+          // beside a glyph with no word read as a dropdown chevron.
+          open
+            ? 'text-white opacity-100'
+            : activeSort !== undefined
+              ? 'text-accent opacity-100 hover:text-white'
+              : 'text-content-header opacity-70 hover:opacity-100',
         )}
       >
         <ColumnsIcon />
+        {activeSort === undefined ? null : <SortArrow direction={sortDirection} />}
       </button>
 
       {open ? (
         <div
           id="column-picker"
           role="group"
-          aria-label="Columns"
+          aria-label="Sort and columns"
           /*
            * Over the rows, not among them. The scroll container is a later
            * sibling with positioned content of its own, so without a stacking
@@ -154,7 +189,31 @@ export function ColumnPicker({
             boxShadow: 'inset 0 0 0 var(--stroke) var(--accent-edge), var(--shadow-bar)',
           }}
         >
-          <div className="flex items-center gap-[10px]">
+          <span className="yarg-label text-[11px] text-count-muted">sort by</span>
+
+          <div role="group" aria-label="Sort by" className="flex flex-wrap gap-[8px]">
+            {sorts.map((sort) => {
+              const isActive = sort.key === sortKey
+
+              return (
+                <ToggleChip
+                  key={sort.key}
+                  active={isActive}
+                  onClick={() => onSort(sort.key)}
+                  label={
+                    isActive
+                      ? `${sort.spoken}, ${spokenDirection}. Activate to reverse`
+                      : `Sort by ${sort.spoken}`
+                  }
+                >
+                  {sort.label}
+                  {isActive ? <SortArrow direction={sortDirection} /> : null}
+                </ToggleChip>
+              )
+            })}
+          </div>
+
+          <div className="mt-[5px] flex items-center gap-[10px]">
             <span className="yarg-label text-[11px] text-count-muted">columns</span>
             {isDefaultColumns(view) ? null : (
               <button

@@ -26,9 +26,13 @@
  * descending sorts get descending headers for free rather than through a second
  * rule that has to be kept in step with the first.
  *
- * Only the keys where a division means something get headers. `charter` is a
- * person rather than a category — a header per charter would be one header per
- * row for most of a library.
+ * **Every key gets headers, including the ones no column shows.** `charter` was
+ * left out once, on the guess that a header per charter would be a header per
+ * row. A real 4,231-song library has 64 charters, most of it credited to one of
+ * three. And once a list can be sorted by something the table does not draw —
+ * charter, subgenre, playlist, date added — the headers are the only place the
+ * value it was sorted by appears at all, which makes them the proof the order
+ * is what it claims.
  *
  * **Length and difficulty are continuous, and are grouped anyway, because YARG
  * has already cut them.** Both were left out on the grounds that a number line
@@ -55,6 +59,7 @@ import {
   LENGTH_BUCKETS,
 } from '../../lib/format'
 import { sourceName } from '../../lib/sources'
+import { addedDay } from './added'
 import { normalizeForSort } from './filtering'
 import type { SortKey } from './filtering'
 
@@ -208,6 +213,9 @@ const GROUPERS: Partial<Record<SortKey, (song: Song, lens: DifficultyLens) => Gr
   artist: (song) => valueGroup(artistCredit(song).name, 'Unknown artist'),
   album: (song) => valueGroup(song.album, 'No album'),
   genre: (song) => valueGroup(song.genre, 'No genre'),
+  subgenre: (song) => valueGroup(song.subgenre, 'No subgenre'),
+  charter: (song) => valueGroup(song.charter, 'No charter'),
+  playlist: (song) => valueGroup(song.playlist, 'No playlist'),
   source: sourceGroup,
   year: yearGroup,
   difficulty: intensityGroup,
@@ -229,13 +237,16 @@ export function groupSongs(
   key: SortKey,
   width: GroupWidth,
   lens: DifficultyLens,
+  now: number = Date.now(),
 ): ListItem[] {
-  // The one width-dependent division, kept here rather than in the table above
-  // so that the table stays readable as "what a header means for this key".
+  // The width- and clock-dependent divisions, kept here rather than in the
+  // table above so that the table stays readable as "what a header means".
   const grouper =
     key === 'artist' && width === 'narrow'
       ? (song: Song) => initialGroup(artistCredit(song).name, UNKNOWN_ARTIST)
-      : GROUPERS[key]
+      : key === 'added'
+        ? (song: Song) => addedDay(song.addedAt, now)
+        : GROUPERS[key]
 
   if (grouper === undefined) {
     return songs.map((song, position) => ({ kind: 'song', key: song.id, song, position }))

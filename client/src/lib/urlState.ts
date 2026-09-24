@@ -148,6 +148,9 @@ const SORT_KEYS: readonly SortKey[] = [
   'charter',
   'source',
   'genre',
+  'subgenre',
+  'playlist',
+  'added',
 ]
 
 function encodeNumbers(values: readonly number[]): string {

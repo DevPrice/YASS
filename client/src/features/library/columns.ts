@@ -214,6 +214,56 @@ export function columnLabel(column: Column, lens: DifficultyLens): string {
   return lens === 'band' ? column.label : LENS_LABELS[lens].toLowerCase()
 }
 
+/** An ordering the header has no column to click for, as the picker offers it. */
+export interface HeaderlessSort {
+  key: SortKey
+  /** The chip's word, lowercase like the header's. */
+  label: string
+  /** The accessible name, where the chip's word is too terse to say. */
+  spoken: string
+}
+
+/**
+ * The orderings no column exists for, whatever the table is showing.
+ *
+ * `added` rather than `date added` on the chip: the chips sit in a panel headed
+ * `sort by`, and beside `charter` and `playlist` the one word is enough. The
+ * accessible name has no heading beside it to lean on.
+ */
+const COLUMNLESS_SORTS: readonly HeaderlessSort[] = [
+  { key: 'charter', label: 'charter', spoken: 'charter' },
+  { key: 'subgenre', label: 'subgenre', spoken: 'subgenre' },
+  { key: 'playlist', label: 'playlist', spoken: 'playlist' },
+  { key: 'added', label: 'added', spoken: 'date added' },
+]
+
+/**
+ * Every ordering the header cannot offer right now: the ones no column exists
+ * for, and the ones whose column is switched off or waiting for width.
+ *
+ * The second half is what keeps every sort reachable at every width. Before it,
+ * switching the album column off also took away the only way to order by album,
+ * which nobody switching a column off had asked for.
+ *
+ * Hidden columns first, in table order, so the chips read like the header they
+ * stand in for; then the four that have never had a column.
+ */
+export function headerlessSorts(
+  visible: readonly Column[],
+  lens: DifficultyLens,
+): HeaderlessSort[] {
+  const shown = new Set(visible.map((column) => column.key))
+
+  const hidden = COLUMNS.flatMap((column) => {
+    if (column.key === null || shown.has(column.key)) return []
+
+    const label = columnLabel(column, lens)
+    return [{ key: column.key, label, spoken: column.id === 'length' ? 'length' : label }]
+  })
+
+  return [...hidden, ...COLUMNLESS_SORTS]
+}
+
 /**
  * What the list shows, on this device — one set per layout.
  *

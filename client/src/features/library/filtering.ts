@@ -30,8 +30,22 @@ export type SortKey =
   | 'charter'
   | 'source'
   | 'genre'
+  | 'subgenre'
+  | 'playlist'
+  | 'added'
 
 export type SortDirection = 'asc' | 'desc'
+
+/**
+ * Which way an ordering runs when it is first picked.
+ *
+ * Ascending for everything but `added`, where the question anybody asks is
+ * "what's new" and the oldest charts first would bury the answer under a
+ * library's founding import. YARG's own Date Added sort runs newest first too.
+ */
+export function initialDirection(key: SortKey): SortDirection {
+  return key === 'added' ? 'desc' : 'asc'
+}
 
 /**
  * "The CSV never said", as a member of a numeric selection.
@@ -534,6 +548,17 @@ export function sortSongs(
         break
       case 'genre':
         primary = compareStrings(a.genre, b.genre, direction)
+        break
+      case 'subgenre':
+        primary = compareStrings(a.subgenre, b.subgenre, direction)
+        break
+      case 'playlist':
+        primary = compareStrings(a.playlist, b.playlist, direction)
+        break
+      // The exact instant, not the day the header will name, so a pack copied
+      // in over a minute stays one run inside its day.
+      case 'added':
+        primary = compareNullableNumbers(a.addedAt, b.addedAt, direction)
         break
       case 'artist':
       default:

@@ -117,7 +117,7 @@ const INSTRUMENT_LABELS: Record<InstrumentGroup, string> = {
  * onto a device that never asked for it — these five answer "who's this by",
  * "what's it called", "is it old", "can we play it", and "how long till the next
  * one", which is the whole conversation. Album, genre, charter and source are
- * the four that never come up as an *ordering*; they come up as a filter, which
+ * the four that rarely come up as an *ordering*; they come up as a filter, which
  * the panel below already does, and as a fact about one song, which the detail
  * view now shows.
  */
@@ -130,6 +130,26 @@ const COMPACT_SORTS: ReadonlyArray<{ key: SortKey; label: string }> = [
 ]
 
 /**
+ * Every other ordering YARG offers, on a quieter row under the five.
+ *
+ * "Rarely" is not "never", and the game sorts by all of these, so somebody who
+ * has used its song list will look for them here. They get a second row rather
+ * than a place among the five so the everyday answers are still the first
+ * thing a thumb meets.
+ */
+const MORE_SORTS: ReadonlyArray<{ key: SortKey; label: string; spoken?: string }> = [
+  { key: 'album', label: 'Album' },
+  { key: 'genre', label: 'Genre' },
+  { key: 'subgenre', label: 'Subgenre' },
+  { key: 'source', label: 'Source' },
+  { key: 'playlist', label: 'Playlist' },
+  { key: 'charter', label: 'Charter' },
+  { key: 'added', label: 'Added', spoken: 'Date added' },
+]
+
+const ALL_SORTS = [...COMPACT_SORTS, ...MORE_SORTS]
+
+/**
  * What the difficulty ordering is called right now.
  *
  * Under a lens the chip says the instrument rather than the word `Difficulty`,
@@ -139,14 +159,46 @@ const COMPACT_SORTS: ReadonlyArray<{ key: SortKey; label: string }> = [
  * number it means. The accessible name below still spells it out in full.
  */
 function sortLabelFor(key: SortKey, lens: DifficultyLens): string {
-  const base = COMPACT_SORTS.find((sort) => sort.key === key)?.label ?? 'Sort'
+  const base = ALL_SORTS.find((sort) => sort.key === key)?.label ?? 'Sort'
   return key === 'difficulty' && lens !== 'band' ? LENS_LABELS[lens] : base
 }
 
 function spokenSortName(key: SortKey, lens: DifficultyLens): string {
-  return key === 'difficulty' && lens !== 'band'
-    ? `${LENS_LABELS[lens]} difficulty`
-    : (COMPACT_SORTS.find((sort) => sort.key === key)?.label ?? 'Sort')
+  if (key === 'difficulty' && lens !== 'band') return `${LENS_LABELS[lens]} difficulty`
+
+  const sort = MORE_SORTS.find((candidate) => candidate.key === key)
+  return sort?.spoken ?? sortLabelFor(key, lens)
+}
+
+function SortChip({
+  sortKey,
+  active,
+  direction,
+  lens,
+  onSort,
+}: {
+  sortKey: SortKey
+  active: boolean
+  direction: SortDirection
+  lens: DifficultyLens
+  onSort: (key: SortKey) => void
+}) {
+  const spoken = spokenSortName(sortKey, lens)
+
+  return (
+    <ToggleChip
+      active={active}
+      onClick={() => onSort(sortKey)}
+      label={
+        active
+          ? `${spoken}, ${direction === 'asc' ? 'ascending' : 'descending'}. Tap to reverse`
+          : `Sort by ${spoken}`
+      }
+    >
+      {sortLabelFor(sortKey, lens)}
+      {active ? <SortArrow direction={direction} /> : null}
+    </ToggleChip>
+  )
 }
 
 interface FiltersPanelProps {
@@ -460,26 +512,41 @@ export function FiltersPanel({
          */}
         <FilterSection label="sort by">
           <div className="flex flex-wrap gap-[10px]">
-            {COMPACT_SORTS.map(({ key }) => {
-              const isActive = key === sortKey
-              const spoken = spokenSortName(key, lens)
+            {COMPACT_SORTS.map(({ key }) => (
+              <SortChip
+                key={key}
+                sortKey={key}
+                active={key === sortKey}
+                direction={sortDirection}
+                lens={lens}
+                onSort={onSort}
+              />
+            ))}
+          </div>
 
-              return (
-                <ToggleChip
-                  key={key}
-                  active={isActive}
-                  onClick={() => onSort(key)}
-                  label={
-                    isActive
-                      ? `${spoken}, ${sortDirection === 'asc' ? 'ascending' : 'descending'}. Tap to reverse`
-                      : `Sort by ${spoken}`
-                  }
-                >
-                  {sortLabelFor(key, lens)}
-                  {isActive ? <SortArrow direction={sortDirection} /> : null}
-                </ToggleChip>
-              )
-            })}
+          {/*
+           * Set off by a hairline and a word rather than by a heading of its
+           * own. They are still sorts, one choice with the five above, and a
+           * second `FilterSection` would have read as a second setting.
+           */}
+          <div
+            role="group"
+            aria-label="More sort orders"
+            className="flex flex-wrap items-center gap-[10px] border-t border-border-row pt-[10px]"
+          >
+            <span aria-hidden className="yarg-label text-[10px] text-content-faint">
+              more
+            </span>
+            {MORE_SORTS.map(({ key }) => (
+              <SortChip
+                key={key}
+                sortKey={key}
+                active={key === sortKey}
+                direction={sortDirection}
+                lens={lens}
+                onSort={onSort}
+              />
+            ))}
           </div>
         </FilterSection>
 

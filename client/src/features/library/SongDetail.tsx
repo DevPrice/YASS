@@ -45,7 +45,8 @@
  *      above and below it is type, and the group carries exactly one word —
  *      `band` — because that ring is the only one whose subject isn't a picture
  *      of itself.
- *   3. **The five short facts** — year, length, genre, charter, rating — as
+ *   3. **The six short facts** — year, length, genre, charter, rating, date
+ *      added — as
  *      label-over-value cells in two columns. `2006` does not need 380px of
  *      ruled row to itself, and putting its label directly above it rather than
  *      380px to its left is what stopped the eye having to traverse the gap
@@ -289,7 +290,7 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
       </section>
 
       {/*
-       * Five short answers in two columns, rather than five full-width rows.
+       * Six short answers in two columns, rather than six full-width rows.
        *
        * `2006`, `7:22`, `Rock`, `Harmonix` — none of them needs 380px of
        * ruled row, and each label sits directly above the value it names
@@ -311,9 +312,9 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
        * about how the file is packaged, which matters to YARG and to nobody
        * standing in a room deciding what to play. `playlist` is a real
        * organising idea, but a row that prints one name is not how it would
-       * pay off; sorting or filtering by it is, and that is a list feature, not
-       * a detail row. Both are still on the wire and still in `Song`, so
-       * neither costs anything to bring back.
+       * pay off; sorting by it is, and the list does that now. Both are still
+       * on the wire and still in `Song`, so neither costs anything to bring
+       * back.
        *
        * **A `recording: Master / Cover version` row.** It answered a question
        * about the artist line eleven rows above it, in YARG's word for the
@@ -336,7 +337,7 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
       {/*
        * Two columns, or three where the height is worth more than the measure.
        *
-       * Five facts in two columns is three rows; in three it is two, which is
+       * Six facts in two columns is three rows; in three it is two, which is
        * ~42px back on a screen that has 390. The values are `2006`, `7:22`,
        * `Rock`, `Harmonix` — short enough that a 113px column holds almost all
        * of them on one line, and `break-words` is already the answer for the
@@ -348,6 +349,12 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
         <Fact label="genre" value={genre || '—'} />
         <Fact label="charted by" value={song.charter || '—'} />
         <Fact label="rating" value={song.ageRating || '—'} />
+        {/* The one value only a header shows otherwise, and headers are
+            hidden from assistive tech — see `CategoryHeader`. */}
+        <Fact
+          label="added"
+          value={song.addedAt === null ? '—' : ADDED_DATE.format(song.addedAt)}
+        />
       </dl>
     </div>
   )
@@ -401,6 +408,8 @@ export function SongDetailEmpty({ onShowPlaying }: { onShowPlaying: (() => void)
  * the pairs; anything drawn between them would be a third mark doing the job
  * two intervals already do.
  */
+const ADDED_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
+
 function Fact({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-[5px]">

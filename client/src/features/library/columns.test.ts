@@ -23,6 +23,7 @@ import {
   OPTIONAL_COLUMNS,
   ROW_FIELDS,
   columnLabel,
+  headerlessSorts,
   isCramped,
   isDefaultColumns,
   readView,
@@ -33,7 +34,7 @@ import {
   toggleRowField,
   writeView,
 } from './columns'
-import type { ColumnId, ListView } from './columns'
+import type { Column, ColumnId, ListView } from './columns'
 
 /** A `localStorage` that records, or one that throws the way Safari's can. */
 function fakeStorage(seed?: Record<string, string>, broken = false) {
@@ -123,6 +124,41 @@ describe('what a column is called', () => {
     assert.equal(columnLabel(column('difficulty'), 'band'), 'diff')
     assert.equal(columnLabel(column('difficulty'), 'drums'), 'drums')
     assert.equal(columnLabel(column('difficulty'), 'vocals'), 'vocals')
+  })
+})
+
+describe('orderings the header cannot offer', () => {
+  const keys = (visible: readonly Column[]) =>
+    headerlessSorts(visible, 'band').map((sort) => sort.key)
+
+  it('always offers the four that have no column', () => {
+    const everything = COLUMNS.filter((entry) => entry.key !== null)
+    assert.deepEqual(keys(everything), ['charter', 'subgenre', 'playlist', 'added'])
+  })
+
+  it('takes over the sort of any column that is not drawn', () => {
+    // The default table at 900px: album, genre and source are waiting for
+    // width, and diff is off. `parts` is not an ordering and never appears.
+    const drawn = COLUMNS.filter((entry) => showsColumn(DEFAULT_VIEW, entry, 900))
+
+    assert.deepEqual(keys(drawn), [
+      'album',
+      'genre',
+      'difficulty',
+      'source',
+      'charter',
+      'subgenre',
+      'playlist',
+      'added',
+    ])
+  })
+
+  it('names a hidden column the way its header would', () => {
+    const drawn = COLUMNS.filter((entry) => entry.id === 'name' || entry.id === 'artist')
+    const sorts = headerlessSorts(drawn, 'drums')
+
+    assert.equal(sorts.find((sort) => sort.key === 'difficulty')?.label, 'drums')
+    assert.equal(sorts.find((sort) => sort.key === 'length')?.label, 'time')
   })
 })
 

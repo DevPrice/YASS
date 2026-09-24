@@ -59,6 +59,7 @@ import {
   deriveFacets,
   filterSongs,
   hasActiveView,
+  initialDirection,
   sortSongs,
 } from './features/library/filtering'
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
@@ -568,7 +569,7 @@ export function App() {
         setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'))
       } else {
         setSortKey(key)
-        setSortDirection('asc')
+        setSortDirection(initialDirection(key))
       }
     })
   }
