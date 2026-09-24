@@ -166,94 +166,107 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
           className="short:w-[104px] short:shrink-0"
         />
 
-        <div className="flex min-w-0 flex-col gap-[10px] short:gap-[5px]">
-          {/*
-           * What YARG is doing with this song, and nothing else.
-           *
-           * The preview control used to stand here too, as a filled accent pill
-           * under the artwork — the loudest object on a surface whose subject is
-           * a cover and a title, answering a question about the room from inside
-           * a card about one record. It is chrome now, in the helper bar and in
-           * the sheet's own header; see `features/preview/PreviewSound.tsx`.
-           *
-           * The badge renders only when it is true, so a song nobody is playing
-           * does not leave a 10px gap above its title.
-           */}
-          {/* Wrapped, because a bare badge is a flex child here and would stretch
-              to the width of the pane rather than to its own two words. */}
-          {isPlaying ? (
-            <div>
-              <Badge tone="accent">Now playing</Badge>
-            </div>
-          ) : null}
+        {/*
+         * Two pairs, not four lines. Title and artist are who this is; album
+         * and source are where it comes from. At an even 10px the four read
+         * as a list of equal lines, with the album and the source — both
+         * muted, both 15px — indistinguishable in rank from the artist above
+         * them. 5px inside each pair and 15px between them is the same
+         * tight-then-generous step the surface takes everywhere else.
+         */}
+        <div className="flex min-w-0 flex-col gap-[15px] short:gap-[10px]">
+          <div className="flex flex-col gap-[5px]">
+            {/*
+             * What YARG is doing with this song, and nothing else.
+             *
+             * The preview control used to stand here too, as a filled accent pill
+             * under the artwork — the loudest object on a surface whose subject is
+             * a cover and a title, answering a question about the room from inside
+             * a card about one record. It is chrome now, in the helper bar and in
+             * the sheet's own header; see `features/preview/PreviewSound.tsx`.
+             *
+             * The badge renders only when it is true, so a song nobody is playing
+             * does not leave a 10px gap above its title.
+             */}
+            {/* Wrapped, because a bare badge is a flex child here and would stretch
+                to the width of the pane rather than to its own two words. */}
+            {isPlaying ? (
+              <div className="mb-[5px]">
+                <Badge tone="accent">Now playing</Badge>
+              </div>
+            ) : null}
 
-          {/*
-           * No truncation anywhere below this line. The row has to truncate — it
-           * is 80px tall and there are four thousand of them — and that left long
-           * titles permanently unreadable, because there was nowhere else to
-           * read them. This is that somewhere: titles wrap, values wrap, and
-           * "Through the Fire and Flames" arrives whole.
-           */}
-          {/*
-           * The one surface that gives the title's asides a line of their own.
-           * Every other housing is a single line that truncates, so the credit
-           * and the version note trail the title there and take width off it;
-           * here nothing truncates and the line is free. See `SongTitle`.
-           */}
-          {/*
-           * One step down the scale on a short screen, not four.
-           *
-           * 30 / 20 / 15 / 12 becomes 22 / 16 / 13 / 12: the same four rungs at
-           * the same intervals, moved down by one, so the hierarchy the surface
-           * is built on survives the loss of ~40px. The bottom rung holds at 12px
-           * because it is a label and there is nowhere under it to go.
-           */}
-          <h2
-            dir="auto"
-            className="text-[30px] leading-[1.05] font-semibold break-words text-white short:text-[22px]"
-          >
-            <SongTitle song={song} notes="block" />
-          </h2>
-          {/*
-           * 20px, not 19: `--text-artist-sm` is a real rung on the type scale and
-           * 19 was a number somebody typed. The whole surface now sets at 30 / 20
-           * / 15 / 12, every one of them a token, which is four steps where there
-           * used to be eight sizes inside a 1.8:1 range.
-           */}
-          <p
-            dir="auto"
-            className="text-[20px] leading-tight font-medium break-words text-content-secondary italic short:text-[16px]"
-          >
-            <ArtistName song={song} />
-          </p>
-          {song.album ? (
+            {/*
+             * No truncation anywhere below this line. The row has to truncate — it
+             * is 80px tall and there are four thousand of them — and that left long
+             * titles permanently unreadable, because there was nowhere else to
+             * read them. This is that somewhere: titles wrap, values wrap, and
+             * "Through the Fire and Flames" arrives whole.
+             */}
+            {/*
+             * The one surface that gives the title's asides a line of their own.
+             * Every other housing is a single line that truncates, so the credit
+             * and the version note trail the title there and take width off it;
+             * here nothing truncates and the line is free. See `SongTitle`.
+             */}
+            {/*
+             * One step down the scale on a short screen, not four.
+             *
+             * 30 / 20 / 15 / 12 becomes 22 / 16 / 13 / 12: the same four rungs at
+             * the same intervals, moved down by one, so the hierarchy the surface
+             * is built on survives the loss of ~40px. The bottom rung holds at 12px
+             * because it is a label and there is nowhere under it to go.
+             */}
+            <h2
+              dir="auto"
+              className="text-[30px] leading-[1.05] font-semibold break-words text-white short:text-[22px]"
+            >
+              <SongTitle song={song} notes="block" />
+            </h2>
+            {/*
+             * 20px, not 19: `--text-artist-sm` is a real rung on the type scale and
+             * 19 was a number somebody typed. The whole surface now sets at 30 / 20
+             * / 15 / 12, every one of them a token, which is four steps where there
+             * used to be eight sizes inside a 1.8:1 range.
+             */}
             <p
               dir="auto"
-              className="text-[15px] leading-tight break-words text-content-muted short:text-[13px]"
+              className="text-[20px] leading-tight font-medium break-words text-content-secondary italic short:text-[16px]"
             >
-              {song.album}
+              <ArtistName song={song} />
             </p>
-          ) : null}
-          {/*
-           * The source, promoted out of the fact list.
-           *
-           * It sat in row six as `source: Rock Band 3 DLC` — an icon and a name,
-           * right-aligned, needing its own centred-baseline special case to stop
-           * the name riding low against its label. But it is not a measurement of
-           * the song like `length` is; it is part of what this record *is*, the
-           * same way a label imprint is. Put against the album line it needs no
-           * label at all: an icon and a game's name is self-evident, and that is
-           * one fewer row, one fewer rule, and one less alignment exception.
-           *
-           * Muted rather than white, because its neighbours here are the album
-           * and the artist rather than a column of answers. Identity reads in
-           * three weights — white title, cyan artist, muted context.
-           */}
-          <SourceBadge
-            source={song.source}
-            size={22}
-            nameClassName="text-[15px] leading-tight text-content-muted short:text-[13px]"
-          />
+          </div>
+
+          <div className="flex flex-col gap-[5px]">
+            {song.album ? (
+              <p
+                dir="auto"
+                className="text-[15px] leading-tight break-words text-content-muted short:text-[13px]"
+              >
+                {song.album}
+              </p>
+            ) : null}
+            {/*
+             * The source, promoted out of the fact list.
+             *
+             * It sat in row six as `source: Rock Band 3 DLC` — an icon and a name,
+             * right-aligned, needing its own centred-baseline special case to stop
+             * the name riding low against its label. But it is not a measurement of
+             * the song like `length` is; it is part of what this record *is*, the
+             * same way a label imprint is. Put against the album line it needs no
+             * label at all: an icon and a game's name is self-evident, and that is
+             * one fewer row, one fewer rule, and one less alignment exception.
+             *
+             * Muted rather than white, because its neighbours here are the album
+             * and the artist rather than a column of answers. Identity reads in
+             * three weights — white title, cyan artist, muted context.
+             */}
+            <SourceBadge
+              source={song.source}
+              size={22}
+              nameClassName="text-[15px] leading-tight text-content-muted short:text-[13px]"
+            />
+          </div>
         </div>
       </div>
 
