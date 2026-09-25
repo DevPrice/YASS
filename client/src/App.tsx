@@ -44,6 +44,7 @@ import { formatTitleCredit } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { SHORT_QUERY, useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
+import { useSetlist } from './lib/useSetlist'
 import { setPreviewNavigating, setPreviewSong, usePreviewSound } from './lib/usePreview'
 import { decodeAppState, syncUrl } from './lib/urlState'
 import { FiltersPanel } from './features/library/Filters'
@@ -64,6 +65,7 @@ import {
 } from './features/library/filtering'
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
 import { NowPlayingBar } from './features/nowPlaying/NowPlayingBar'
+import { summarizeSetlist } from './features/nowPlaying/setlist'
 import { PreviewSoundButton, PreviewVolume } from './features/preview/PreviewSound'
 
 /**
@@ -94,6 +96,7 @@ const COMPACT_CHROME_QUERY = `${SHORT_QUERY} and (pointer: coarse)`
 export function App() {
   const { library, loading, error } = useLibrary()
   const { nowPlaying, connected, settled } = useNowPlaying()
+  const setlist = useSetlist()
 
   /**
    * The view, read out of the address bar on the way in.
@@ -228,6 +231,10 @@ export function App() {
    * every phone recomputes them once and a keystroke never does.
    */
   const derivedFacets = useMemo(() => deriveFacets(songs), [songs])
+
+  /** id → song, for naming setlist entries without a scan per render. */
+  const songsById = useMemo(() => new Map(songs.map((song) => [song.id, song])), [songs])
+  const setlistSummary = useMemo(() => summarizeSetlist(setlist, songsById), [setlist, songsById])
 
   /**
    * Resolved against the whole library, not the filtered view.
@@ -597,6 +604,7 @@ export function App() {
         nowPlaying={nowPlaying}
         connected={connected}
         settled={settled}
+        setlist={setlistSummary}
         onSelect={showPlaying}
       />
 

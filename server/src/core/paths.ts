@@ -126,6 +126,16 @@ export function currentSongJsonPath(yargDataDir: string): string {
 }
 
 /**
+ * Where the YARG Setlist Bridge plugin says how to reach it: port, token, pid.
+ *
+ * Written by the plugin, never by YARG itself, and only while the game runs —
+ * so its absence is the ordinary case, not an error.
+ */
+export function setlistBridgePath(yargDataDir: string): string {
+  return join(yargDataDir, 'setlist-bridge.json')
+}
+
+/**
  * YARG's own song index, rewritten on every scan.
  *
  * The single most load-bearing path in the app: the song list is built from

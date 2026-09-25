@@ -194,6 +194,8 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
    *   `library`      just the metadata, when YARG rescans; the
    *                  client refetches `/api/songs` conditionally
    *   `venue`        YARG's stage lighting, at most twice a second
+   *   `setlist`      YARG's setlist, on every change; only ever
+   *                  `available: true` with the Setlist Bridge plugin
    *   `reload`       the host, via the tray, asking this page to reload
    *   `ping`         keepalive, so idle proxies don't hang up
    */
@@ -217,6 +219,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
       // next song change.
       await send('now-playing', state.watcher.current)
       await send('venue', state.venue.current)
+      await send('setlist', state.setlist.current)
 
       const unsubscribeNowPlaying = state.watcher.subscribe((next) => {
         void send('now-playing', next)
@@ -228,6 +231,10 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
 
       const unsubscribeVenue = state.venue.subscribe((next) => {
         void send('venue', next)
+      })
+
+      const unsubscribeSetlist = state.setlist.subscribe((next) => {
+        void send('setlist', next)
       })
 
       // The instruction is the whole message, but SSE frames still need a body
@@ -246,9 +253,23 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
         unsubscribeNowPlaying()
         unsubscribeLibrary()
         unsubscribeVenue()
+        unsubscribeSetlist()
         unsubscribeReload()
       }
     })
+  })
+
+  // --- Setlist ------------------------------------------------------------
+
+  /**
+   * YARG's setlist, when the Setlist Bridge plugin is running in the game.
+   *
+   * Always answers: `available: false` is the normal reply for a host without
+   * the plugin, not an error.
+   */
+  api.get('/setlist', (c) => {
+    c.header('Cache-Control', 'no-store')
+    return c.json(state.setlist.current)
   })
 
   // --- Album art ----------------------------------------------------------

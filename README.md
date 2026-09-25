@@ -36,6 +36,13 @@ On Linux, also do the following:
 If YASS doesn't find your songs, open the popover, expand **Settings**, and set **YARG data
 folder** to the folder that contains `songcache.bin`.
 
+### Optional: show YARG's setlist
+
+YARG doesn't save its setlist anywhere YASS can read. If you install the YARG Setlist
+Bridge plugin into YARG, the now-playing banner also shows where a show is (for example
+`2/8`) and which song is next. Without the plugin, YASS works exactly the same, just
+without that.
+
 ## Build from source
 
 You need Node.js 20 or later, or Node.js 22 or later to run the tests.

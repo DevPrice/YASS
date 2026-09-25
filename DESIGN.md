@@ -369,7 +369,10 @@ text, with a hard white border.
 ### Now-Playing Banner (signature)
 The currently playing song over the list, with the **venue wash**: YARG's live stage
 lighting, cross-faded at the song's tempo, `screen`-blended and masked off the right side
-where the numbers are. Removed entirely under `prefers-reduced-motion`.
+where the numbers are. Removed entirely under `prefers-reduced-motion`. With the optional
+Setlist Bridge plugin, a show adds a position badge (`2/8`) to the badge row and, from `sm`
+up, an **up next** title beside the length; a setlist waiting to start replaces the idle
+line. Without the plugin none of this renders and the banner is unchanged.
 
 ### Art Plate (signature)
 A square slot on Sunken Night with a Selected Blue wash from the top corner. Until real art

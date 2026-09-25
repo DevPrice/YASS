@@ -23,7 +23,7 @@
  * two people looking at the demo side by side should see the same thing.
  */
 
-import type { NowPlaying, NowPlayingSong, Song, SongLibrary, VenueState } from '@shared/types'
+import type { NowPlaying, NowPlayingSong, Setlist, Song, SongLibrary, VenueState } from '@shared/types'
 import type { LightingCue, PostProcessing } from '@shared/types'
 import { buildMockLibrary } from './library'
 
@@ -93,6 +93,12 @@ const sinks = new Set<Sink>()
 
 let nowPlaying: NowPlaying = { playing: false, song: null, updatedAt: 0 }
 let venue: VenueState = VENUE_OFF
+/**
+ * The demo plays its songs as one long setlist, so the banner's position badge
+ * and "up next" have something to show — they only ever appear for real hosts
+ * running the Setlist Bridge plugin, which a visitor to the demo won't have.
+ */
+let setlist: Setlist = { available: false, mode: 'idle', index: null, songs: [], updatedAt: 0 }
 let timers: number[] = []
 let step = 0
 /**
@@ -159,6 +165,11 @@ function setNowPlaying(next: NowPlaying): void {
   publish('now-playing', next)
 }
 
+function setSetlist(next: Setlist): void {
+  setlist = next
+  publish('setlist', next)
+}
+
 function setVenue(next: VenueState): void {
   venue = next
   publish('venue', next)
@@ -176,10 +187,19 @@ function advance(): void {
   timers = []
 
   const songs = playlist(getLibrary().songs)
-  const song = songs[step % songs.length]
+  const index = step % songs.length
+  const song = songs[index]
   step += 1
 
   if (song === undefined) return
+
+  setSetlist({
+    available: true,
+    mode: 'playing',
+    index,
+    songs: songs.map((entry) => ({ hash: entry.hash ?? '', libraryId: entry.id })),
+    updatedAt: Date.now(),
+  })
 
   setNowPlaying({ playing: true, song: toNowPlaying(song), updatedAt: Date.now() })
 
@@ -249,6 +269,7 @@ function installFetch(): void {
 
     if (route === '/songs') return json(getLibrary())
     if (route === '/now-playing') return json(nowPlaying)
+    if (route === '/setlist') return json(setlist)
 
     /*
      * `/health` and `/capabilities` are the two the client could plausibly ask
@@ -324,6 +345,7 @@ class MockEventSource extends EventTarget {
       // one. Same here.
       this.sink('now-playing', nowPlaying)
       this.sink('venue', venue)
+      this.sink('setlist', setlist)
     }, 60)
   }
 

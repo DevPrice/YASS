@@ -256,6 +256,35 @@ export interface NowPlayingSong {
 }
 
 /**
+ * YARG's current setlist, as reported by the YARG Setlist Bridge plugin.
+ *
+ * YARG keeps its setlist in memory only, so this exists solely when that
+ * optional BepInEx plugin is installed into the game. Everything else in the
+ * app works without it; `available: false` is the normal state for most hosts.
+ */
+export interface Setlist {
+  /** True while connected to the plugin. False: not installed, YARG closed, or the link dropped. */
+  available: boolean
+  /**
+   * `idle`: no setlist. `building`: songs queued in YARG's menu, show not
+   * started. `playing`: a show song is loaded. See the bridge's PROTOCOL.md.
+   */
+  mode: 'idle' | 'building' | 'playing'
+  /** Position of the current song in `songs`, from 0. Null unless `playing`. */
+  index: number | null
+  songs: SetlistEntry[]
+  /** Epoch ms this state was observed. */
+  updatedAt: number
+}
+
+export interface SetlistEntry {
+  /** Canonical uppercase hex, the same form as `Song.hash`. */
+  hash: string
+  /** Matching `Song.id` from the library, when the hash joins. */
+  libraryId: string | null
+}
+
+/**
  * YARG's build channels, which are also the folder names its data directories
  * sit in — `…/YARC/YARG/<channel>`.
  *

@@ -29,6 +29,7 @@ import { ArtistName, SongTitle, SourceBadge } from '../../ui/library'
 import { currentArtUrl } from '../../lib/api'
 import { formatArtistCredit, formatDuration, formatTitleCredit } from '../../lib/format'
 import { useVenue } from '../../lib/useVenue'
+import type { SetlistSummary } from './setlist'
 import { useVenueWash } from './venueWash'
 import type { VenueWash } from './venueWash'
 
@@ -49,12 +50,19 @@ export function NowPlayingBar({
   nowPlaying,
   connected,
   settled,
+  setlist,
   onSelect,
 }: {
   nowPlaying: NowPlaying
   connected: boolean
   /** False until the server has answered once, either way. */
   settled: boolean
+  /**
+   * YARG's setlist, or null — which is every host without the Setlist Bridge
+   * plugin, and every moment without a setlist. Null draws exactly the banner
+   * there was before the setlist existed.
+   */
+  setlist: SetlistSummary | null
   /**
    * Opens this song's details, or null when it can't be opened.
    *
@@ -70,6 +78,8 @@ export function NowPlayingBar({
 }) {
   const song = nowPlaying.song
   const playing = nowPlaying.playing && song !== null
+  // Position in the show, only while one of its songs is the one playing.
+  const show = playing && setlist?.mode === 'playing' ? setlist : null
 
   /*
    * The venue hook lives here rather than in `App`, unlike the other two.
@@ -110,7 +120,10 @@ export function NowPlayingBar({
             // The normalized title, not the raw field: with the credit lifted
             // out of both, a song whose title *and* artist named the guest
             // would otherwise have this sentence say her name twice.
-            label={`Show details for ${formatTitleCredit(song)} ${formatArtistCredit(song)}`}
+            label={
+              `Show details for ${formatTitleCredit(song)} ${formatArtistCredit(song)}` +
+              (show ? `, song ${show.position} of ${show.total} in the setlist` : '')
+            }
           >
             {/*
              * `short:contents` dissolves this row into the one above it.
@@ -127,6 +140,18 @@ export function NowPlayingBar({
               <Badge tone="accent">Now playing</Badge>
               {/* Where the chart came from, as a mark rather than a word. */}
               <SourceBadge source={song.source} size={16} showName={false} />
+              {/*
+               * Where the show is, as the one fact about the setlist a phone
+               * upright has room for. The next song's name needs the width the
+               * stats column gets from `sm` up; see `UpNext`.
+               */}
+              {show ? (
+                <Badge title={`Song ${show.position} of ${show.total} in the setlist`}>
+                  <span className="font-numeric">
+                    {show.position}/{show.total}
+                  </span>
+                </Badge>
+              ) : null}
               {!connected ? <Badge title="Live updates interrupted">offline</Badge> : null}
               {onSelect ? (
                 <span
@@ -198,6 +223,7 @@ export function NowPlayingBar({
            * this one ends.
            */}
           <dl className="hidden shrink-0 gap-[25px] text-right sm:flex">
+            {show ? <UpNext summary={show} /> : null}
             <Detail label="length" value={formatDuration(song.lengthSeconds)} />
           </dl>
         </>
@@ -224,9 +250,11 @@ export function NowPlayingBar({
             <p className="mt-[5px] min-w-0 truncate text-[14px] text-content-faint short:mt-0 short:text-[13px]">
               {!settled
                 ? 'Checking what YARG is up to'
-                : connected
-                  ? 'Waiting for YARG to start a song'
-                  : 'Reconnecting to the server'}
+                : !connected
+                  ? 'Reconnecting to the server'
+                  : setlist?.mode === 'building'
+                    ? `Setlist of ${setlist.total} ${setlist.total === 1 ? 'song' : 'songs'} ready in YARG`
+                    : 'Waiting for YARG to start a song'}
             </p>
           </div>
         </>
@@ -355,6 +383,36 @@ function Detail({ label, value }: { label: string; value: string }) {
     <div className="short:flex short:items-baseline short:gap-[6px]">
       <dt className="yarg-label text-[10px] text-count-muted">{label}</dt>
       <dd className="font-numeric mt-[5px] text-[15px] text-count short:mt-0 short:text-[13px]">
+        {value}
+      </dd>
+    </div>
+  )
+}
+
+/**
+ * The next song in YARG's setlist, beside the length.
+ *
+ * The second fact the banner states that is about time rather than about the
+ * song: length says how long this one has left, this says what comes after it.
+ * A title rather than a number, so it is set like one — but at the stats'
+ * size, because the playing song's title is the one this strip is about.
+ *
+ * Gone on a short screen, where the banner is one row and has no room for a
+ * second title; the position badge still says the show is on.
+ */
+function UpNext({ summary }: { summary: SetlistSummary }) {
+  const value = summary.isLast ? 'end of the setlist' : (summary.next ?? 'not in the library')
+
+  return (
+    <div className="min-w-0 max-w-[240px] short:hidden">
+      <dt className="yarg-label text-[10px] text-count-muted">up next</dt>
+      <dd
+        dir="auto"
+        className={cx(
+          'mt-[5px] truncate-tight text-[15px] leading-none font-semibold',
+          summary.next !== null ? 'text-white' : 'text-content-muted',
+        )}
+      >
         {value}
       </dd>
     </div>
