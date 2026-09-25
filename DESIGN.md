@@ -376,6 +376,15 @@ line. Without the plugin none of this renders and the banner is unchanged. The s
 puts an accent **Add to setlist** button under the identity in the song detail, which gives way
 to the song's place in the setlist once it is in; it is absent, not disabled, without it.
 
+### Setlist View
+The list column's other view, reached from a **setlist** button (with its count) in the
+toolbar while a setlist exists. Its bar sits where the toolbar sits, bottom on a phone held
+upright. Rows restate the song row: card surface, hairlines, cover then title over artist,
+the playing wash and white border on the current song. A position number leads each row;
+played songs step back to 60% opacity and carry no controls. Editable rows end in three
+quiet icon buttons: up, down, remove. **Clear** takes two presses, turning danger-red on the
+first; there is no modal.
+
 ### Art Plate (signature)
 A square slot on Sunken Night with a Selected Blue wash from the top corner. Until real art
 arrives it carries the song's own title as Display type. Nothing around it may be arranged
