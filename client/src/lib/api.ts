@@ -5,7 +5,7 @@
  * and behind a reverse proxy on a custom domain.
  */
 
-import type { NowPlaying, SongLibrary } from '@shared/types'
+import type { NowPlaying, SetlistEditError, SongLibrary } from '@shared/types'
 import { mockArtUrl } from '../mock/art'
 
 /**
@@ -43,6 +43,58 @@ export function fetchLibrary(): Promise<SongLibrary> {
 
 export function fetchNowPlaying(): Promise<NowPlaying> {
   return getJson<NowPlaying>('/api/now-playing')
+}
+
+// --- Setlist edits -----------------------------------------------------------
+//
+// Only possible while the host runs the YARG Setlist Bridge plugin; check
+// `Setlist.editable` before offering any of them. Each resolves once YARG has
+// taken or refused the edit. The changed setlist itself arrives over the event
+// stream, so a caller never merges a response into what it shows.
+//
+// Pass the `version` of the setlist you were looking at with anything that
+// depends on positions; if it has changed since, the edit fails with `conflict`.
+
+export type SetlistEditOutcome = { ok: true } | { ok: false; error: SetlistEditError }
+
+async function sendSetlistEdit(method: string, path: string, body?: unknown): Promise<SetlistEditOutcome> {
+  let response: Response
+  try {
+    response = await fetch(path, {
+      method,
+      headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch {
+    // The server itself is unreachable, which to the person tapping is the same
+    // as YARG being unreachable.
+    return { ok: false, error: 'unavailable' }
+  }
+
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: SetlistEditError } | null
+  if (response.ok && payload?.ok) return { ok: true }
+  return { ok: false, error: payload?.error ?? 'failed' }
+}
+
+const versionQuery = (version?: number) => (version === undefined ? '' : `?version=${version}`)
+
+/** Add a song, at the end or at `index`. */
+export function addToSetlist(hash: string, options: { index?: number; version?: number } = {}) {
+  return sendSetlistEdit('POST', '/api/setlist/songs', { hash, ...options })
+}
+
+/** Move a song so it ends up at `index`. */
+export function moveInSetlist(hash: string, index: number, version?: number) {
+  return sendSetlistEdit('PUT', `/api/setlist/songs/${hash}/position`, { index, version })
+}
+
+export function removeFromSetlist(hash: string, version?: number) {
+  return sendSetlistEdit('DELETE', `/api/setlist/songs/${hash}${versionQuery(version)}`)
+}
+
+/** Remove every song that can be removed: all of them before a show, the unplayed ones during it. */
+export function clearSetlist(version?: number) {
+  return sendSetlistEdit('DELETE', `/api/setlist/songs${versionQuery(version)}`)
 }
 
 // No binding for `/api/settings` or `/api/capabilities`, on purpose.

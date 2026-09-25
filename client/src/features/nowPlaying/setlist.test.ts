@@ -15,6 +15,8 @@ const songs = new Map<string, Song>([
 
 const setlist = (patch: Partial<Setlist>): Setlist => ({
   available: true,
+  editable: true,
+  version: 1,
   mode: 'playing',
   index: 0,
   songs: [

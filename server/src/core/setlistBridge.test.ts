@@ -37,12 +37,13 @@ describe('parseDiscovery', () => {
   it('accepts the file the plugin writes', () => {
     assert.deepEqual(
       parseDiscovery('{"protocol":1,"port":36110,"token":"abc","pid":42,"plugin":"0.1.1","yarg":"b4076"}\n'),
-      { port: 36110, token: 'abc', pid: 42 },
+      { protocol: 1, port: 36110, token: 'abc', pid: 42 },
     )
+    assert.equal(parseDiscovery('{"protocol":2,"port":36110,"token":"abc"}')?.protocol, 2)
   })
 
   it('refuses a newer protocol rather than guessing at it', () => {
-    assert.equal(parseDiscovery('{"protocol":2,"port":36110,"token":"abc"}'), null)
+    assert.equal(parseDiscovery('{"protocol":3,"port":36110,"token":"abc"}'), null)
   })
 
   it('refuses a torn or incomplete file', () => {
@@ -56,14 +57,14 @@ describe('parseStateMessage', () => {
   it('reads a show in progress', () => {
     assert.deepEqual(
       parseStateMessage({ type: 'state', version: 6, mode: 'playing', index: 1, songs: [A, B], current: B, scene: 'Gameplay' }),
-      { mode: 'playing', index: 1, hashes: [A, B] },
+      { version: 6, mode: 'playing', index: 1, hashes: [A, B] },
     )
   })
 
   it('drops the index outside a show', () => {
     assert.deepEqual(
       parseStateMessage({ type: 'state', version: 2, mode: 'building', index: null, songs: [A], current: null, scene: 'Menu' }),
-      { mode: 'building', index: null, hashes: [A] },
+      { version: 2, mode: 'building', index: null, hashes: [A] },
     )
   })
 
@@ -78,26 +79,42 @@ describe('parseStateMessage', () => {
   })
 })
 
-/** Just enough of the plugin: auth, hello, then whatever `send` pushes. */
+/**
+ * Just enough of the plugin: auth, hello, whatever `send` pushes, and an answer
+ * to every command from `answer` — which is how a test decides what YARG says.
+ */
 class FakeBridge {
   server: Server
   clients = new Set<Socket>()
   token = 'secret'
   port = 0
+  commands: Record<string, unknown>[] = []
+  /** What the "game" makes of a command; null means say nothing, as a hung YARG would. */
+  answer: (command: Record<string, unknown>) => Record<string, unknown> | null = () => ({ ok: true })
   #latest: string | null = null
 
-  constructor() {
+  constructor(readonly protocol = 2) {
     this.server = createServer((socket) => {
-      createInterface({ input: socket }).once('line', (line) => {
-        const auth = JSON.parse(line) as { token?: string }
-        if (auth.token !== this.token) {
-          socket.end('{"type":"error","code":"unauthorized"}\n')
+      let authed = false
+      createInterface({ input: socket }).on('line', (line) => {
+        const message = JSON.parse(line) as Record<string, unknown>
+
+        if (!authed) {
+          if (message.token !== this.token) {
+            socket.end('{"type":"error","code":"unauthorized"}\n')
+            return
+          }
+          authed = true
+          this.clients.add(socket)
+          socket.on('close', () => this.clients.delete(socket))
+          socket.write(`{"type":"hello","protocol":${this.protocol},"plugin":"test"}\n`)
+          if (this.#latest !== null) socket.write(this.#latest)
           return
         }
-        this.clients.add(socket)
-        socket.on('close', () => this.clients.delete(socket))
-        socket.write('{"type":"hello","protocol":1,"plugin":"test"}\n')
-        if (this.#latest !== null) socket.write(this.#latest)
+
+        this.commands.push(message)
+        const answer = this.answer(message)
+        if (answer !== null) socket.write(`${JSON.stringify({ type: 'result', id: message.id, ...answer })}\n`)
       })
     })
   }
@@ -125,8 +142,16 @@ describe('SetlistBridge', () => {
   let seen: Setlist[]
 
   const discoveryPath = () => join(dir, 'setlist-bridge.json')
-  const writeDiscovery = (port = fake.port, token = fake.token) =>
-    writeFile(discoveryPath(), JSON.stringify({ protocol: 1, port, token, pid: process.pid }))
+  const writeDiscovery = (port = fake.port, token = fake.token, protocol = fake.protocol) =>
+    writeFile(discoveryPath(), JSON.stringify({ protocol, port, token, pid: process.pid }))
+
+  /** Connected, with a state in hand: the point from which edits are possible. */
+  const connected = async () => {
+    fake.send({ mode: 'building', index: null, songs: [A] })
+    await writeDiscovery()
+    await bridge.start()
+    await waitFor('the first state', () => bridge.current.available)
+  }
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'yass-setlist-'))
@@ -240,5 +265,59 @@ describe('SetlistBridge', () => {
     known = new Set([B])
     bridge.refreshLibraryJoin()
     assert.equal(bridge.current.songs[0]?.libraryId, 'id-33D3')
+  })
+
+  it('sends an edit and reports what YARG said', async () => {
+    await connected()
+    assert.equal(bridge.current.editable, true)
+
+    const result = await bridge.edit({ type: 'add', hash: B, version: 1 })
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(fake.commands[0], { type: 'add', hash: B, version: 1, id: fake.commands[0]?.id })
+  })
+
+  it('passes a refusal through with its code', async () => {
+    await connected()
+    fake.answer = () => ({ ok: false, code: 'duplicate' })
+
+    assert.deepEqual(await bridge.edit({ type: 'add', hash: A }), { ok: false, code: 'duplicate' })
+  })
+
+  it('keeps concurrent edits apart by id', async () => {
+    await connected()
+    fake.answer = (command) => (command.hash === A ? { ok: false, code: 'locked' } : { ok: true })
+
+    const [first, second] = await Promise.all([
+      bridge.edit({ type: 'remove', hash: A }),
+      bridge.edit({ type: 'remove', hash: B }),
+    ])
+    assert.deepEqual(first, { ok: false, code: 'locked' })
+    assert.deepEqual(second, { ok: true })
+  })
+
+  it('refuses edits with no plugin, or a read-only one', async () => {
+    assert.deepEqual(await bridge.edit({ type: 'clear' }), { ok: false, code: 'unavailable' })
+
+    bridge.stop()
+    await fake.close()
+    fake = new FakeBridge(1)
+    await fake.listen()
+    bridge = new SetlistBridge({ getDataDir: () => dir, resolveLibraryId: () => null, backstopMs: 200 })
+    await connected()
+
+    assert.equal(bridge.current.editable, false)
+    assert.deepEqual(await bridge.edit({ type: 'clear' }), { ok: false, code: 'unavailable' })
+    assert.equal(fake.commands.length, 0)
+  })
+
+  it('answers an edit cut off by YARG quitting', async () => {
+    await connected()
+    fake.answer = () => null
+
+    const cutOff = bridge.edit({ type: 'clear' })
+    await waitFor('the command to arrive', () => fake.commands.length === 1)
+    await unlink(discoveryPath())
+    await fake.close()
+    assert.deepEqual(await cutOff, { ok: false, code: 'unavailable' })
   })
 })

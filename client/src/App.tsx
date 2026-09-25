@@ -66,6 +66,7 @@ import {
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
 import { NowPlayingBar } from './features/nowPlaying/NowPlayingBar'
 import { summarizeSetlist } from './features/nowPlaying/setlist'
+import { AddToSetlist } from './features/setlist/AddToSetlist'
 import { PreviewSoundButton, PreviewVolume } from './features/preview/PreviewSound'
 
 /**
@@ -687,6 +688,7 @@ export function App() {
                 isPlaying={selected.id === playingId}
                 artHash={detailArtHash}
                 className="p-[25px]"
+                actions={<AddToSetlist key={selected.id} song={selected} setlist={setlist} />}
               />
             ) : (
               <SongDetailEmpty onShowPlaying={showPlaying} />
@@ -765,6 +767,7 @@ export function App() {
             song={selected}
             isPlaying={selected.id === playingId}
             artHash={detailArtHash}
+            actions={<AddToSetlist key={selected.id} song={selected} setlist={setlist} />}
             // Less of the sheet spent on the plate than the pane spends, so a
             // phone shows the title, the album and the whole parts grid without
             // anyone scrolling for them. `--plate-cap` is the bottom sheet's

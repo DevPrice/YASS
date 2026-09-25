@@ -266,6 +266,17 @@ export interface Setlist {
   /** True while connected to the plugin. False: not installed, YARG closed, or the link dropped. */
   available: boolean
   /**
+   * True when the plugin accepts edits (protocol 2 and up). An older, read-only
+   * plugin still reports the setlist but can't change it.
+   */
+  editable: boolean
+  /**
+   * The plugin's state version. Send it back with any edit that depends on
+   * positions, so an edit made against a list that has since changed is
+   * refused instead of landing in the wrong place. Null when unavailable.
+   */
+  version: number | null
+  /**
    * `idle`: no setlist. `building`: songs queued in YARG's menu, show not
    * started. `playing`: a show song is loaded. See the bridge's PROTOCOL.md.
    */
@@ -276,6 +287,25 @@ export interface Setlist {
   /** Epoch ms this state was observed. */
   updatedAt: number
 }
+
+/**
+ * Why an edit to the setlist was refused.
+ *
+ * The plugin's codes (see the bridge's PROTOCOL.md §5), plus two from this
+ * server: `unavailable` (no plugin, or a read-only one) and `timeout`.
+ */
+export type SetlistEditError =
+  | 'invalid'
+  | 'unknown_song'
+  | 'duplicate'
+  | 'not_found'
+  | 'locked'
+  | 'full'
+  | 'conflict'
+  | 'busy'
+  | 'failed'
+  | 'unavailable'
+  | 'timeout'
 
 export interface SetlistEntry {
   /** Canonical uppercase hex, the same form as `Song.hash`. */

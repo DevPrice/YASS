@@ -6,10 +6,12 @@
  * behind a reverse proxy on a custom domain.
  */
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 
-import type { ServerStatus, Settings } from '@shared/types.js'
+import type { ServerStatus, SetlistEditError, Settings } from '@shared/types.js'
+import { normalizeHash } from '../core/hash.js'
+import type { SetlistEditResult } from '../core/setlistBridge.js'
 import type { AppState } from '../state.js'
 import { canFetchFfmpeg, FFMPEG_INSTALL_HINT } from '../media/ffmpeg.js'
 import { isArtSize } from '../media/store.js'
@@ -18,6 +20,34 @@ import { isLocalRequest, localOnly } from './local.js'
 
 /** Heartbeat interval for the SSE stream, to keep proxies from idling it out. */
 const SSE_KEEPALIVE_MS = 15_000
+
+/**
+ * HTTP status for each way a setlist edit can be refused.
+ *
+ * 409 for "the setlist is not in a state that allows this" and 503 for "YARG
+ * can't take edits right now", so a client can tell "change what you asked"
+ * from "ask again in a moment" without reading the code.
+ */
+const SETLIST_ERROR_STATUS: Record<SetlistEditError, 400 | 404 | 409 | 502 | 503 | 504> = {
+  invalid: 400,
+  unknown_song: 404,
+  not_found: 404,
+  duplicate: 409,
+  locked: 409,
+  full: 409,
+  conflict: 409,
+  busy: 503,
+  unavailable: 503,
+  failed: 502,
+  timeout: 504,
+}
+
+/** An optional non-negative integer from a body or query, or `undefined`; `false` when present but malformed. */
+function optionalIndex(raw: unknown): number | undefined | false {
+  if (raw === undefined || raw === null || raw === '') return undefined
+  const value = typeof raw === 'string' ? Number(raw) : raw
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : false
+}
 
 /** The address this process listens on, which no amount of saving can change. */
 export interface Binding {
@@ -270,6 +300,68 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
   api.get('/setlist', (c) => {
     c.header('Cache-Control', 'no-store')
     return c.json(state.setlist.current)
+  })
+
+  /*
+   * Editing the setlist.
+   *
+   * Open to everyone on the network, not host-only like settings: queueing songs
+   * from a phone is the point, and at a party the host is the person least likely
+   * to be holding one. Nothing here reveals a path or repoints the app — the worst
+   * a guest can do is what any guest at the console could do too.
+   *
+   * Each route answers once YARG has taken or refused the edit. The new setlist
+   * itself arrives over `/events` like every other change, so a client never has
+   * to merge a response into what it is showing.
+   *
+   * `version` is the setlist version the caller was looking at. Send it with any
+   * edit that depends on positions; if the setlist has moved on, the edit fails
+   * with `conflict` instead of landing somewhere the caller didn't mean.
+   */
+  const reply = (c: Context, result: SetlistEditResult) =>
+    result.ok
+      ? c.json({ ok: true })
+      : c.json({ ok: false, error: result.code }, SETLIST_ERROR_STATUS[result.code])
+
+  const invalid = (c: Context) => c.json({ ok: false, error: 'invalid' }, 400)
+
+  /** Add a song: `{ hash, index?, version? }`. Without `index`, it goes at the end. */
+  api.post('/setlist/songs', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+    const hash = normalizeHash(typeof body?.hash === 'string' ? body.hash : null)
+    const index = optionalIndex(body?.index)
+    const version = optionalIndex(body?.version)
+    if (hash === null || index === false || version === false) return invalid(c)
+
+    return reply(c, await state.setlist.edit({ type: 'add', hash, index, version }))
+  })
+
+  /** Move a song so it ends up at `index`: `{ index, version? }`. */
+  api.put('/setlist/songs/:hash/position', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+    const hash = normalizeHash(c.req.param('hash'))
+    const index = optionalIndex(body?.index)
+    const version = optionalIndex(body?.version)
+    if (hash === null || index === undefined || index === false || version === false) return invalid(c)
+
+    return reply(c, await state.setlist.edit({ type: 'move', hash, index, version }))
+  })
+
+  /** Remove one song. `?version=` optional. */
+  api.delete('/setlist/songs/:hash', async (c) => {
+    const hash = normalizeHash(c.req.param('hash'))
+    const version = optionalIndex(c.req.query('version'))
+    if (hash === null || version === false) return invalid(c)
+
+    return reply(c, await state.setlist.edit({ type: 'remove', hash, version }))
+  })
+
+  /** Remove every song that can be removed: all of them before a show, the ones not yet played during one. */
+  api.delete('/setlist/songs', async (c) => {
+    const version = optionalIndex(c.req.query('version'))
+    if (version === false) return invalid(c)
+
+    return reply(c, await state.setlist.edit({ type: 'clear', version }))
   })
 
   // --- Album art ----------------------------------------------------------

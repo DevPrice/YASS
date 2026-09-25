@@ -98,7 +98,74 @@ let venue: VenueState = VENUE_OFF
  * and "up next" have something to show — they only ever appear for real hosts
  * running the Setlist Bridge plugin, which a visitor to the demo won't have.
  */
-let setlist: Setlist = { available: false, mode: 'idle', index: null, songs: [], updatedAt: 0 }
+let setlist: Setlist = {
+  available: false,
+  editable: false,
+  version: null,
+  mode: 'idle',
+  index: null,
+  songs: [],
+  updatedAt: 0,
+}
+
+/**
+ * The demo's setlist, which guests can edit like the real one.
+ *
+ * Starts as the fixed walk through the library below and is changed in place by
+ * the edit routes, so "Add to setlist" in the demo queues a song the feed then
+ * actually plays. Filled on first use, once the library exists.
+ */
+let queue: Song[] = []
+let queueIndex = 0
+let setlistVersion = 0
+
+function publishSetlist(): void {
+  setlistVersion += 1
+  setSetlist({
+    available: true,
+    editable: true,
+    version: setlistVersion,
+    mode: 'playing',
+    index: queueIndex,
+    songs: queue.map((entry) => ({ hash: entry.hash ?? '', libraryId: entry.id })),
+    updatedAt: Date.now(),
+  })
+}
+
+/**
+ * The edit routes, with the plugin's rules: nothing at or before the playing
+ * song may change, and each song appears once.
+ */
+function editSetlist(method: string, route: string, body: Record<string, unknown> | null): Response {
+  const refuse = (error: string, status: number) =>
+    new Response(JSON.stringify({ ok: false, error }), { status, headers: { 'content-type': 'application/json' } })
+
+  const firstEditable = queueIndex + 1
+  const at = (hash: string) => queue.findIndex((song) => song.hash === hash)
+
+  if (method === 'POST' && route === '/setlist/songs') {
+    const hash = String(body?.hash ?? '').toUpperCase()
+    if (at(hash) >= 0) return refuse('duplicate', 409)
+    const song = getLibrary().songs.find((candidate) => candidate.hash === hash)
+    if (song === undefined) return refuse('unknown_song', 404)
+    queue.push(song)
+  } else if (method === 'DELETE' && route === '/setlist/songs') {
+    queue.splice(firstEditable)
+  } else {
+    const match = /^\/setlist\/songs\/([0-9A-Fa-f]{40})(\/position)?$/.exec(route)
+    const from = match ? at(match[1]!.toUpperCase()) : -1
+    if (from < 0) return refuse('not_found', 404)
+    if (from < firstEditable) return refuse('locked', 409)
+    const [song] = queue.splice(from, 1)
+    if (method === 'PUT' && match?.[2] && song !== undefined) {
+      const to = Math.max(firstEditable, Math.min(Number(body?.index), queue.length))
+      queue.splice(to, 0, song)
+    }
+  }
+
+  publishSetlist()
+  return json({ ok: true })
+}
 let timers: number[] = []
 let step = 0
 /**
@@ -186,20 +253,14 @@ function advance(): void {
   // than grown for as long as the tab is open.
   timers = []
 
-  const songs = playlist(getLibrary().songs)
-  const index = step % songs.length
-  const song = songs[index]
+  if (queue.length === 0) queue = [...playlist(getLibrary().songs)]
+  queueIndex = step % queue.length
+  const song = queue[queueIndex]
   step += 1
 
   if (song === undefined) return
 
-  setSetlist({
-    available: true,
-    mode: 'playing',
-    index,
-    songs: songs.map((entry) => ({ hash: entry.hash ?? '', libraryId: entry.id })),
-    updatedAt: Date.now(),
-  })
+  publishSetlist()
 
   setNowPlaying({ playing: true, song: toNowPlaying(song), updatedAt: Date.now() })
 
@@ -270,6 +331,10 @@ function installFetch(): void {
     if (route === '/songs') return json(getLibrary())
     if (route === '/now-playing') return json(nowPlaying)
     if (route === '/setlist') return json(setlist)
+    if (route.startsWith('/setlist/')) {
+      const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : null
+      return editSetlist(init?.method ?? 'GET', route, body)
+    }
 
     /*
      * `/health` and `/capabilities` are the two the client could plausibly ask

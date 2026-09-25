@@ -14,7 +14,15 @@ import { useEffect, useState } from 'react'
 import type { Setlist } from '@shared/types'
 import { onServerEvent } from './events'
 
-const UNAVAILABLE: Setlist = { available: false, mode: 'idle', index: null, songs: [], updatedAt: 0 }
+const UNAVAILABLE: Setlist = {
+  available: false,
+  editable: false,
+  version: null,
+  mode: 'idle',
+  index: null,
+  songs: [],
+  updatedAt: 0,
+}
 
 export function useSetlist(): Setlist {
   const [setlist, setSetlist] = useState<Setlist>(UNAVAILABLE)

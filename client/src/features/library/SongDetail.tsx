@@ -102,9 +102,15 @@ interface SongDetailProps {
    * inset under them left the artwork floating in the middle of nothing.
    */
   className?: string
+  /**
+   * What can be done with this song, under who it is: today, queueing it in
+   * YARG's setlist. A slot rather than a feature of this component, which stays
+   * a description of one record and knows nothing about the setlist.
+   */
+  actions?: ReactNode
 }
 
-export function SongDetail({ song, isPlaying, artHash, className }: SongDetailProps) {
+export function SongDetail({ song, isPlaying, artHash, className, actions }: SongDetailProps) {
   const genre = [song.genre, song.subgenre].filter(Boolean).join(' · ')
 
   return (
@@ -269,6 +275,8 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
           </div>
         </div>
       </div>
+
+      {actions ? <div>{actions}</div> : null}
 
       {/*
        * The reason anybody opened this: five parts and how hard each one is.

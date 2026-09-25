@@ -372,7 +372,9 @@ lighting, cross-faded at the song's tempo, `screen`-blended and masked off the r
 where the numbers are. Removed entirely under `prefers-reduced-motion`. With the optional
 Setlist Bridge plugin, a show adds a position badge (`2/8`) to the badge row and, from `sm`
 up, an **up next** title beside the length; a setlist waiting to start replaces the idle
-line. Without the plugin none of this renders and the banner is unchanged.
+line. Without the plugin none of this renders and the banner is unchanged. The same plugin
+puts an accent **Add to setlist** button under the identity in the song detail, which gives way
+to the song's place in the setlist once it is in; it is absent, not disabled, without it.
 
 ### Art Plate (signature)
 A square slot on Sunken Night with a Selected Blue wash from the top corner. Until real art

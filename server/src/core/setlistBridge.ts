@@ -25,20 +25,35 @@
  *     nothing to reconcile after a reconnect: the first `state` after the
  *     handshake is simply the truth.
  *
- * Nothing is ever sent to the plugin except the handshake: protocol version 1
- * is read-only.
+ * **Edits go the other way on the same connection** (protocol 2 and up). Each
+ * is a command with an id; the plugin applies it on YARG's main thread and
+ * answers with a `result` carrying that id. The state that reflects the edit
+ * arrives as an ordinary `state`, so an edit never changes `current` directly.
+ * A plugin speaking only protocol 1 is read-only, and `editable` says so.
  */
 
 import { readFile } from 'node:fs/promises'
 import { connect, type Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 
-import type { Setlist } from '@shared/types.js'
+import type { Setlist, SetlistEditError } from '@shared/types.js'
 import { FileWatcher } from './fileWatcher.js'
 import { setlistBridgePath } from './paths.js'
 
-/** The only protocol version this client speaks. */
-export const PROTOCOL_VERSION = 1
+/** Protocol versions this client speaks. 1 is read-only; 2 adds edits. */
+const SUPPORTED_PROTOCOLS = new Set([1, 2])
+
+/** The first protocol version that takes edit commands. */
+const EDIT_PROTOCOL = 2
+
+/**
+ * How long an edit may take to be answered.
+ *
+ * The plugin applies commands within a frame or two, so this only ever fires
+ * when YARG is hung or loading — and a guest's tap should fail visibly then
+ * rather than spin.
+ */
+const EDIT_TIMEOUT_MS = 3_000
 
 /** Quiet period after the discovery file changes; it is written atomically, so this only collapses the event burst. */
 const WATCH_SETTLE_MS = 100
@@ -57,6 +72,8 @@ const CONNECT_TIMEOUT_MS = 3_000
 
 export const UNAVAILABLE: Setlist = {
   available: false,
+  editable: false,
+  version: null,
   mode: 'idle',
   index: null,
   songs: [],
@@ -64,6 +81,7 @@ export const UNAVAILABLE: Setlist = {
 }
 
 export interface BridgeDiscovery {
+  protocol: number
   port: number
   token: string
   pid: number | null
@@ -85,11 +103,11 @@ export function parseDiscovery(text: string): BridgeDiscovery | null {
   if (!raw || typeof raw !== 'object') return null
 
   const { protocol, port, token, pid } = raw as Record<string, unknown>
-  if (protocol !== PROTOCOL_VERSION) return null
+  if (typeof protocol !== 'number' || !SUPPORTED_PROTOCOLS.has(protocol)) return null
   if (typeof port !== 'number' || !Number.isInteger(port) || port <= 0 || port > 65535) return null
   if (typeof token !== 'string' || token === '') return null
 
-  return { port, token, pid: typeof pid === 'number' ? pid : null }
+  return { protocol, port, token, pid: typeof pid === 'number' ? pid : null }
 }
 
 const HASH = /^[0-9A-F]{40}$/
@@ -97,6 +115,7 @@ const MODES = new Set<Setlist['mode']>(['idle', 'building', 'playing'])
 
 /** The parts of a `state` message worth keeping, before the library join. */
 export interface BridgeState {
+  version: number
   mode: Setlist['mode']
   index: number | null
   hashes: string[]
@@ -128,8 +147,31 @@ export function parseStateMessage(raw: unknown): BridgeState | null {
     index = raw
   }
 
-  return { mode: mode as Setlist['mode'], index, hashes: songs as string[] }
+  const version = typeof message.version === 'number' && Number.isInteger(message.version) ? message.version : 0
+
+  return { version, mode: mode as Setlist['mode'], index, hashes: songs as string[] }
 }
+
+/** One edit, in the plugin's own terms. See the bridge's PROTOCOL.md §5. */
+export type SetlistEdit =
+  | { type: 'add'; hash: string; index?: number; version?: number }
+  | { type: 'remove'; hash: string; version?: number }
+  | { type: 'move'; hash: string; index: number; version?: number }
+  | { type: 'clear'; version?: number }
+
+export type SetlistEditResult = { ok: true } | { ok: false; code: SetlistEditError }
+
+const EDIT_ERRORS = new Set<string>([
+  'invalid',
+  'unknown_song',
+  'duplicate',
+  'not_found',
+  'locked',
+  'full',
+  'conflict',
+  'busy',
+  'failed',
+])
 
 export interface SetlistBridgeOptions {
   /** Read lazily so a settings change takes effect without a restart. */
@@ -154,6 +196,11 @@ export class SetlistBridge {
   #socket: Socket | null = null
   /** `port:token` of the connection in hand, so an unchanged file is a no-op. */
   #connectedTo: string | null = null
+  /** Protocol of the plugin in hand; edits need 2 or more. */
+  #protocol = 0
+  /** Edits sent and not yet answered, by command id. */
+  #inFlight = new Map<string, (result: SetlistEditResult) => void>()
+  #nextId = 1
   /** Serialises checks: a watch event and the backstop can land together. */
   #checking = false
   #pending = false
@@ -217,6 +264,36 @@ export class SetlistBridge {
     this.#disconnect()
   }
 
+  /**
+   * Ask the plugin to change the setlist.
+   *
+   * Resolves with the plugin's answer; never rejects. Success means YARG took the
+   * edit, and the new state follows through `subscribe` like any other change.
+   */
+  edit(edit: SetlistEdit): Promise<SetlistEditResult> {
+    const socket = this.#socket
+    if (socket === null || !this.#state.available || this.#protocol < EDIT_PROTOCOL) {
+      return Promise.resolve({ ok: false, code: 'unavailable' })
+    }
+
+    const id = String(this.#nextId++)
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.#inFlight.delete(id)
+        resolve({ ok: false, code: 'timeout' })
+      }, EDIT_TIMEOUT_MS)
+      timer.unref?.()
+
+      this.#inFlight.set(id, (result) => {
+        clearTimeout(timer)
+        resolve(result)
+      })
+
+      socket.write(`${JSON.stringify({ ...edit, id })}\n`)
+    })
+  }
+
   /** Re-resolve the library join, e.g. after the song list is reloaded. */
   refreshLibraryJoin(): void {
     if (this.#raw !== null) this.#publishRaw(this.#raw)
@@ -275,6 +352,7 @@ export class SetlistBridge {
     const socket = connect({ host: '127.0.0.1', port: discovery.port })
     this.#socket = socket
     this.#connectedTo = key
+    this.#protocol = discovery.protocol
 
     socket.setTimeout(CONNECT_TIMEOUT_MS)
     socket.on('timeout', () => socket.destroy())
@@ -312,7 +390,14 @@ export class SetlistBridge {
 
       const type = (message as { type?: unknown } | null)?.type
 
+      if (type === 'result') {
+        this.#settle(message as { id?: unknown; ok?: unknown; code?: unknown })
+        return
+      }
+
       if (type === 'hello') {
+        const protocol = (message as { protocol?: unknown }).protocol
+        if (typeof protocol === 'number') this.#protocol = protocol
         // Authenticated. From here the plugin only speaks when something
         // changes, which can be hours at a quiet party.
         socket.setTimeout(0)
@@ -342,10 +427,36 @@ export class SetlistBridge {
     this.#setUnavailable()
   }
 
+  /** Answer the edit a `result` belongs to. Unknown ids are late answers to timed-out edits. */
+  #settle(message: { id?: unknown; ok?: unknown; code?: unknown }): void {
+    if (typeof message.id !== 'string') return
+    const settle = this.#inFlight.get(message.id)
+    if (settle === undefined) return
+    this.#inFlight.delete(message.id)
+
+    if (message.ok === true) {
+      settle({ ok: true })
+      return
+    }
+
+    // A code this client doesn't know is still a refusal; `failed` is the honest name for it.
+    const code = typeof message.code === 'string' && EDIT_ERRORS.has(message.code) ? message.code : 'failed'
+    settle({ ok: false, code: code as SetlistEditError })
+  }
+
+  /** The connection is gone, so nothing sent on it will be answered. */
+  #abandonEdits(): void {
+    const pending = [...this.#inFlight.values()]
+    this.#inFlight.clear()
+    for (const settle of pending) settle({ ok: false, code: 'unavailable' })
+  }
+
   #publishRaw(raw: BridgeState): void {
     this.#raw = raw
     this.#setState({
       available: true,
+      editable: this.#protocol >= EDIT_PROTOCOL,
+      version: raw.version,
       mode: raw.mode,
       index: raw.index,
       songs: raw.hashes.map((hash) => ({ hash, libraryId: this.#options.resolveLibraryId(hash) })),
@@ -355,6 +466,8 @@ export class SetlistBridge {
 
   #setUnavailable(): void {
     this.#raw = null
+    this.#protocol = 0
+    this.#abandonEdits()
     if (!this.#state.available) return
     this.#setState({ ...UNAVAILABLE, updatedAt: Date.now() })
   }
@@ -384,6 +497,8 @@ export class SetlistBridge {
 function sameSetlist(a: Setlist, b: Setlist): boolean {
   return (
     a.available === b.available &&
+    a.editable === b.editable &&
+    a.version === b.version &&
     a.mode === b.mode &&
     a.index === b.index &&
     a.songs.length === b.songs.length &&
