@@ -82,7 +82,7 @@ a network share.
 
 ### Push, don't poll
 
-`/api/events` is SSE: now-playing, venue lighting, library changes, and a host-triggered
+`/api/events` is SSE: now-playing, venue lighting, the setlist, library changes, and a host-triggered
 `reload` whose entire payload is the instruction. The client fetches
 the whole song index once and filters client-side (~4,000 songs is a few MB, and that makes
 search and sort instant). The library event carries only metadata — the message says "it
@@ -95,6 +95,26 @@ absolute paths and lets the caller repoint the app, so nobody browsing from a ph
 it. **Any proxy header at all counts as remote**, even though that also hides settings from
 a host browsing through its own domain: remote-address alone fails open behind a reverse
 proxy, and losing access on the host is recoverable where exposing configuration is not.
+
+### The setlist comes from an optional plugin
+
+YARG keeps its setlist in memory and writes it nowhere, so no file can say what is
+queued. `server/src/core/setlistBridge.ts` is the client for the **YARG Setlist Bridge**, a
+separate BepInEx plugin (sibling repo `YARG-Setlist-Bridge`; its `PROTOCOL.md` is the
+contract) that runs inside the game and serves the setlist as newline-delimited JSON on
+127.0.0.1. It is found through `setlist-bridge.json` in the YARG data folder, watched like
+`currentSong.json` with a slow poll behind it; a stale file from a crashed game is normal
+and just means "unavailable, retry". Like the venue stream it is purely additive: without
+the plugin the `setlist` event says `available: false` and the banner is unchanged. This is
+the one place the app talks to YARG's process rather than its files.
+
+**Edits go through the same connection** (plugin protocol 2): `/api/setlist/songs` and its
+sub-routes send a command, wait for YARG's `result`, and answer with that. They never return
+the new setlist — it arrives over `/api/events` like any other change, so no client merges a
+response into what it shows. Edits are open to every guest, unlike the host-only endpoints
+below: queueing songs from a phone is the point, and nothing here exposes a path. Positions
+are only meaningful against a known list, so position-dependent edits carry the `version`
+the caller saw and fail with `conflict` if it moved on.
 
 ### `media/` hangs off the chart index
 

@@ -44,6 +44,7 @@ import { formatTitleCredit } from './lib/format'
 import { useLibrary } from './lib/useLibrary'
 import { SHORT_QUERY, useMediaQuery } from './lib/useMediaQuery'
 import { useNowPlaying } from './lib/useNowPlaying'
+import { useSetlist } from './lib/useSetlist'
 import { setPreviewNavigating, setPreviewSong, usePreviewSound } from './lib/usePreview'
 import { decodeAppState, syncUrl } from './lib/urlState'
 import { FiltersPanel } from './features/library/Filters'
@@ -64,6 +65,9 @@ import {
 } from './features/library/filtering'
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
 import { NowPlayingBar } from './features/nowPlaying/NowPlayingBar'
+import { summarizeSetlist } from './features/nowPlaying/setlist'
+import { AddToSetlist } from './features/setlist/AddToSetlist'
+import { SetlistView } from './features/setlist/SetlistView'
 import { PreviewSoundButton, PreviewVolume } from './features/preview/PreviewSound'
 
 /**
@@ -94,6 +98,7 @@ const COMPACT_CHROME_QUERY = `${SHORT_QUERY} and (pointer: coarse)`
 export function App() {
   const { library, loading, error } = useLibrary()
   const { nowPlaying, connected, settled } = useNowPlaying()
+  const setlist = useSetlist()
 
   /**
    * The view, read out of the address bar on the way in.
@@ -228,6 +233,20 @@ export function App() {
    * every phone recomputes them once and a keystroke never does.
    */
   const derivedFacets = useMemo(() => deriveFacets(songs), [songs])
+
+  /** id → song, for naming setlist entries without a scan per render. */
+  const songsById = useMemo(() => new Map(songs.map((song) => [song.id, song])), [songs])
+  const setlistSummary = useMemo(() => summarizeSetlist(setlist, songsById), [setlist, songsById])
+
+  /**
+   * Whether the list column shows YARG's setlist instead of the library.
+   *
+   * Asked for, not derived: the view stays open while the setlist empties (it
+   * says so) and only gives way on its own when the plugin itself goes away,
+   * because then there is nothing it could show.
+   */
+  const [setlistOpen, setSetlistOpen] = useState(false)
+  const showingSetlist = setlistOpen && setlist.available
 
   /**
    * Resolved against the whole library, not the filtered view.
@@ -422,9 +441,11 @@ export function App() {
       ? `close ${openPanel}`
       : selection !== null
         ? 'close song'
-        : hasActiveView(filters, lens)
-          ? 'clear filters'
-          : null
+        : showingSetlist
+          ? 'close setlist'
+          : hasActiveView(filters, lens)
+            ? 'clear filters'
+            : null
 
   // The helper bar advertises these, so they have to actually work.
   useEffect(() => {
@@ -461,6 +482,9 @@ export function App() {
       if (
         (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
         !typing &&
+        // The arrows walk the library's results, which are not on screen while
+        // the setlist is.
+        !showingSetlist &&
         (selection !== null || inList)
       ) {
         const step = event.key === 'ArrowDown' ? 1 : -1
@@ -522,6 +546,12 @@ export function App() {
           return
         }
 
+        if (showingSetlist) {
+          event.preventDefault()
+          setSetlistOpen(false)
+          return
+        }
+
         // Otherwise it resets every filter, search included — and the
         // difficulty lens, which is the one piece of state that can outlive an
         // empty filter set and would otherwise leave the list quoting drum
@@ -538,7 +568,7 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [openPanel, selection, visible])
+  }, [openPanel, selection, visible, showingSetlist])
 
   const handleRandom = () => {
     if (visible.length === 0) return
@@ -597,6 +627,7 @@ export function App() {
         nowPlaying={nowPlaying}
         connected={connected}
         settled={settled}
+        setlist={setlistSummary}
         onSelect={showPlaying}
       />
 
@@ -633,32 +664,45 @@ export function App() {
          * against, which is why that bar is inside here and not a sibling.
          */}
         <div className="@container/list flex min-w-0 flex-1 flex-col">
-          <LibraryView
-            error={error}
-            loading={loading}
-            library={library}
-            filters={filters}
-            onFiltersChange={setFilters}
-            derivedFacets={derivedFacets}
-            lens={lens}
-            onLensChange={setLens}
-            view={view}
-            onViewChange={changeView}
-            onFieldToggle={toggleField}
-            visible={visible}
-            sortKey={sortKey}
-            sortDirection={sortDirection}
-            onSort={handleSort}
-            playingId={playingId}
-            searchRef={searchRef}
-            openPanel={openPanel}
-            onOpenPanelChange={setOpenPanel}
-            queryKey={queryKey}
-            onRandom={handleRandom}
-            selection={selection}
-            onSelect={select}
-            isSorting={isSorting}
-          />
+          {showingSetlist ? (
+            <SetlistView
+              setlist={setlist}
+              songsById={songsById}
+              playingId={playingId}
+              selectedId={selection?.id ?? null}
+              onSelect={(song) => select(song)}
+              onClose={() => setSetlistOpen(false)}
+            />
+          ) : (
+            <LibraryView
+              error={error}
+              loading={loading}
+              library={library}
+              filters={filters}
+              onFiltersChange={setFilters}
+              derivedFacets={derivedFacets}
+              lens={lens}
+              onLensChange={setLens}
+              view={view}
+              onViewChange={changeView}
+              onFieldToggle={toggleField}
+              visible={visible}
+              sortKey={sortKey}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              playingId={playingId}
+              searchRef={searchRef}
+              openPanel={openPanel}
+              onOpenPanelChange={setOpenPanel}
+              queryKey={queryKey}
+              onRandom={handleRandom}
+              selection={selection}
+              onSelect={select}
+              isSorting={isSorting}
+              setlistCount={setlist.available ? setlist.songs.length : null}
+              onShowSetlist={() => setSetlistOpen(true)}
+            />
+          )}
         </div>
 
         {twoPane ? (
@@ -679,6 +723,7 @@ export function App() {
                 isPlaying={selected.id === playingId}
                 artHash={detailArtHash}
                 className="p-[25px]"
+                actions={<AddToSetlist key={selected.id} song={selected} setlist={setlist} />}
               />
             ) : (
               <SongDetailEmpty onShowPlaying={showPlaying} />
@@ -757,6 +802,7 @@ export function App() {
             song={selected}
             isPlaying={selected.id === playingId}
             artHash={detailArtHash}
+            actions={<AddToSetlist key={selected.id} song={selected} setlist={setlist} />}
             // Less of the sheet spent on the plate than the pane spends, so a
             // phone shows the title, the album and the whole parts grid without
             // anyone scrolling for them. `--plate-cap` is the bottom sheet's
@@ -814,6 +860,8 @@ function LibraryView({
   selection,
   onSelect,
   isSorting,
+  setlistCount,
+  onShowSetlist,
 }: {
   error: string | null
   loading: boolean
@@ -840,6 +888,8 @@ function LibraryView({
   onSelect: (song: Song) => void
   /** True while a re-order is in flight; the list says so rather than freezing. */
   isSorting: boolean
+  setlistCount: number | null
+  onShowSetlist: () => void
 }) {
   if (error) {
     return (
@@ -896,6 +946,8 @@ function LibraryView({
         open={openPanel}
         onOpenChange={onOpenPanelChange}
         searchRef={searchRef}
+        setlistCount={setlistCount}
+        onShowSetlist={onShowSetlist}
       />
       <SongList
         songs={visible}

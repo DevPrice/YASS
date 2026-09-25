@@ -256,6 +256,65 @@ export interface NowPlayingSong {
 }
 
 /**
+ * YARG's current setlist, as reported by the YARG Setlist Bridge plugin.
+ *
+ * YARG keeps its setlist in memory only, so this exists solely when that
+ * optional BepInEx plugin is installed into the game. Everything else in the
+ * app works without it; `available: false` is the normal state for most hosts.
+ */
+export interface Setlist {
+  /** True while connected to the plugin. False: not installed, YARG closed, or the link dropped. */
+  available: boolean
+  /**
+   * True when the plugin accepts edits (protocol 2 and up). An older, read-only
+   * plugin still reports the setlist but can't change it.
+   */
+  editable: boolean
+  /**
+   * The plugin's state version. Send it back with any edit that depends on
+   * positions, so an edit made against a list that has since changed is
+   * refused instead of landing in the wrong place. Null when unavailable.
+   */
+  version: number | null
+  /**
+   * `idle`: no setlist. `building`: songs queued in YARG's menu, show not
+   * started. `playing`: a show song is loaded. See the bridge's PROTOCOL.md.
+   */
+  mode: 'idle' | 'building' | 'playing'
+  /** Position of the current song in `songs`, from 0. Null unless `playing`. */
+  index: number | null
+  songs: SetlistEntry[]
+  /** Epoch ms this state was observed. */
+  updatedAt: number
+}
+
+/**
+ * Why an edit to the setlist was refused.
+ *
+ * The plugin's codes (see the bridge's PROTOCOL.md §5), plus two from this
+ * server: `unavailable` (no plugin, or a read-only one) and `timeout`.
+ */
+export type SetlistEditError =
+  | 'invalid'
+  | 'unknown_song'
+  | 'duplicate'
+  | 'not_found'
+  | 'locked'
+  | 'full'
+  | 'conflict'
+  | 'busy'
+  | 'failed'
+  | 'unavailable'
+  | 'timeout'
+
+export interface SetlistEntry {
+  /** Canonical uppercase hex, the same form as `Song.hash`. */
+  hash: string
+  /** Matching `Song.id` from the library, when the hash joins. */
+  libraryId: string | null
+}
+
+/**
  * YARG's build channels, which are also the folder names its data directories
  * sit in — `…/YARC/YARG/<channel>`.
  *

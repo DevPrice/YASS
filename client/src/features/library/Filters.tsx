@@ -219,6 +219,12 @@ interface FiltersPanelProps {
   onOpenChange: (panel: OpenPanel) => void
   /** Lets the `/` shortcut in the helper bar focus the search field. */
   searchRef?: Ref<HTMLInputElement>
+  /**
+   * Songs in YARG's setlist, when there is one to show — null otherwise, which
+   * is every host without the Setlist Bridge plugin. Opens the setlist view.
+   */
+  setlistCount?: number | null
+  onShowSetlist?: () => void
 }
 
 export function FiltersPanel({
@@ -239,6 +245,8 @@ export function FiltersPanel({
   open,
   onOpenChange,
   searchRef,
+  setlistCount = null,
+  onShowSetlist,
 }: FiltersPanelProps) {
   const update = <K extends keyof Filters>(key: K, value: Filters[K]) => {
     onChange({ ...filters, [key]: value })
@@ -419,6 +427,23 @@ export function FiltersPanel({
           <span className="font-numeric text-[12px] tabular-nums">{panelCount}</span>
         ) : null}
       </Button>
+
+      {/*
+       * The way into YARG's setlist, beside the other two buttons that change
+       * what the list shows. Only while there is a setlist to show: a button
+       * leading to an empty view is one more thing on a phone's bar for nothing.
+       * The count rides in it the way the filter count does.
+       */}
+      {setlistCount !== null && setlistCount > 0 && onShowSetlist ? (
+        <Button
+          className="order-4 shrink-0 bar-stack:order-3 bar-stack:px-[14px] bar-top:order-2"
+          onClick={onShowSetlist}
+          aria-label={`Setlist, ${setlistCount} ${setlistCount === 1 ? 'song' : 'songs'}`}
+        >
+          setlist
+          <span className="font-numeric text-[12px] tabular-nums">{setlistCount}</span>
+        </Button>
+      ) : null}
 
       {/*
        * Numbers are shown, not described: bright count, dim unit.
