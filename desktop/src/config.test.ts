@@ -15,6 +15,7 @@ describe('sanitizePatch', () => {
       pollIntervalMs: 500,
       host: '127.0.0.1',
       port: 4321,
+      publicUrl: 'https://songs.example.com',
     })
 
     assert.deepEqual(patch, {
@@ -22,6 +23,7 @@ describe('sanitizePatch', () => {
       pollIntervalMs: 500,
       host: '127.0.0.1',
       port: 4321,
+      publicUrl: 'https://songs.example.com',
     })
   })
 

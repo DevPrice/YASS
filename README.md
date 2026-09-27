@@ -36,6 +36,27 @@ On Linux, also do the following:
 If YASS doesn't find your songs, open the popover, expand **Settings**, and set **YARG data
 folder** to the folder that contains `songcache.bin`.
 
+### Guests who aren't on your network
+
+If you run your own tunnel or reverse proxy to YASS, enter its address in **Settings** >
+**Public address** (or set `YASS_PUBLIC_URL`). The QR code then shows that address, and
+the LAN addresses stay under **other addresses**. The address must start with `https://`
+or `http://`.
+
+The setting only changes what the popover displays. YASS doesn't open, forward, or check
+anything because of it; the tunnel or proxy is yours to run. For example, a temporary
+Cloudflare tunnel:
+
+```bash
+npx cloudflared tunnel --url http://<LAN IP>:<port>
+```
+
+Point the tunnel at the LAN address shown in the popover, not at `localhost`. YASS treats a
+loopback connection that has no proxy headers as the host itself, so a tunnel that connects
+over loopback could give every guest the host-only settings.
+
+Anyone who has the public address can browse your library and play previews.
+
 ## Build from source
 
 You need Node.js 20 or later, or Node.js 22 or later to run the tests.

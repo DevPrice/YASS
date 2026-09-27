@@ -137,11 +137,12 @@ async function publish(): Promise<void> {
   // The tooltip is the only thing the app says without being opened, so it says
   // the one thing worth knowing at a glance: is this working, and where.
   if (tray) {
+    // The shareable one, not `localUrl`: 127.0.0.1 is the single address in
+    // the app that is of no use to the person being told it. A public address
+    // wins, the same as on the popover's QR code.
+    const where = state.view.settings.publicUrl || (shareableUrl(state) ?? 'this machine')
     const summaries: Record<DesktopState['server']['status'], () => string> = {
-      // The shareable one, not `localUrl`: 127.0.0.1 is the single address in
-      // the app that is of no use to the person being told it.
-      running: () =>
-        `YASS — ${state.songs?.count ?? 0} songs on ${shareableUrl(state) ?? 'this machine'}`,
+      running: () => `YASS — ${state.songs?.count ?? 0} songs on ${where}`,
       failed: () => `YASS — ${state.server.message ?? 'the server is not running'}`,
       starting: () => 'YASS — starting…',
       stopped: () => 'YASS — the server is stopped',
