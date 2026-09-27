@@ -50,6 +50,7 @@ const EDITABLE: ReadonlyArray<keyof Settings> = [
   'pollIntervalMs',
   'host',
   'port',
+  'publicUrl',
 ]
 
 export function sanitizePatch(raw: unknown): Partial<Settings> {

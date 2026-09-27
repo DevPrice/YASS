@@ -54,6 +54,7 @@ export function defaultSettings(): Settings {
     // through a reverse proxy.
     host: '0.0.0.0',
     port: DEFAULT_PORT,
+    publicUrl: '',
   }
 }
 
@@ -67,6 +68,27 @@ function clampPort(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isInteger(n) || n < 1 || n > 65535) return fallback
   return n
+}
+
+/**
+ * An absolute http(s) URL, trimmed, or the fallback.
+ *
+ * The scheme check is the part that matters: this string becomes a QR code a
+ * stranger's phone opens, so `javascript:` or a bare hostname must never reach
+ * it. Empty is its own valid value — it means "no public address".
+ */
+function asPublicUrl(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback
+
+  const trimmed = value.trim()
+  if (trimmed === '') return ''
+
+  try {
+    const { protocol } = new URL(trimmed)
+    return protocol === 'http:' || protocol === 'https:' ? trimmed : fallback
+  } catch {
+    return fallback
+  }
 }
 
 function asString(value: unknown, fallback: string): string {
@@ -85,6 +107,7 @@ export function normalizeSettings(raw: unknown): Settings {
     pollIntervalMs: clampPollInterval(input.pollIntervalMs, defaults.pollIntervalMs),
     host: asString(input.host, defaults.host),
     port: clampPort(input.port, defaults.port),
+    publicUrl: asPublicUrl(input.publicUrl, defaults.publicUrl),
   }
 }
 
@@ -106,6 +129,9 @@ export function applyEnvOverrides(settings: Settings): Settings {
       : settings.pollIntervalMs,
     host: env.YASS_HOST ?? settings.host,
     port: env.YASS_PORT ? clampPort(env.YASS_PORT, settings.port) : settings.port,
+    publicUrl: env.YASS_PUBLIC_URL
+      ? asPublicUrl(env.YASS_PUBLIC_URL, settings.publicUrl)
+      : settings.publicUrl,
   }
 }
 

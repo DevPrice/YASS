@@ -302,6 +302,41 @@ function splitPort(authority: string): [string, string] {
   return at === -1 ? [authority, ''] : [authority.slice(0, at), authority.slice(at + 1)]
 }
 
+function LanAddressText({ url }: { url: string }) {
+  const [host, port] = splitPort(url.replace(/^https?:\/\//, ''))
+
+  return (
+    <p className="font-numeric text-address leading-none">
+      <span className="selectable text-content">{host}</span>
+      <span className="text-content-muted">:{port}</span>
+    </p>
+  )
+}
+
+/**
+ * A tunnel's hostname is usually twice the width of this column. It wraps at
+ * its dots and hyphens, balanced, so the last line is never a stranded `com`.
+ */
+function PublicAddress({ url }: { url: string }) {
+  const bare = url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+  const parts = bare.split('.')
+
+  return (
+    <p className="selectable font-numeric text-address leading-tight text-balance text-content [overflow-wrap:anywhere]">
+      {parts.map((part, index) => (
+        <span key={index}>
+          {part}
+          {index < parts.length - 1 ? (
+            <>
+              .<wbr />
+            </>
+          ) : null}
+        </span>
+      ))}
+    </p>
+  )
+}
+
 /**
  * The one string this window exists to move into somebody's phone.
  *
@@ -310,14 +345,16 @@ function splitPort(authority: string): [string, string] {
  * face, next to a code that skips the typing altogether.
  */
 function AddressBlock({ state }: { state: DesktopState }) {
-  const primary = state.lan[0] ?? null
-  const url = primary?.url ?? state.localUrl
+  // Nothing checks that a public address leads anywhere, which is why every LAN
+  // address stays one click away under the disclosure below.
+  const publicUrl = state.view.settings.publicUrl || null
+  const primary = publicUrl ? null : (state.lan[0] ?? null)
+  const url = publicUrl ?? primary?.url ?? state.localUrl
   const [copied, copy] = useCopy(url ?? '')
 
   if (!url) return null
 
-  const [host, port] = splitPort(url.replace(/^https?:\/\//, ''))
-  const others = state.lan.slice(1)
+  const others = publicUrl ? state.lan : state.lan.slice(1)
 
   return (
     <>
@@ -325,12 +362,9 @@ function AddressBlock({ state }: { state: DesktopState }) {
         <QrCode value={url} />
 
         <div className="min-w-0 flex-1">
-          <p className="font-numeric text-address leading-none">
-            <span className="selectable text-content">{host}</span>
-            <span className="text-content-muted">:{port}</span>
-          </p>
+          {publicUrl ? <PublicAddress url={publicUrl} /> : <LanAddressText url={url} />}
           <p className="mt-1.5 text-note text-content-faint">
-            {primary ? primary.name : 'this machine only'}
+            {publicUrl ? 'public address' : primary ? primary.name : 'this machine only'}
           </p>
           <div className="mt-2.5">
             <QuietButton aria-label={`Copy ${url}`} onClick={copy}>
@@ -381,9 +415,11 @@ function AddressBlock({ state }: { state: DesktopState }) {
       ) : null}
 
       <p className="mt-2.5 text-note text-content-faint">
-        {primary
-          ? "Point a guest's camera at the code. If they can't reach it, the firewall prompt was probably dismissed."
-          : 'Bound to this machine only — nothing on the network can reach it.'}
+        {publicUrl
+          ? 'Anyone who has this address can browse the library and play previews.'
+          : primary
+            ? "Point a guest's camera at the code. If they can't reach it, the firewall prompt was probably dismissed."
+            : 'Bound to this machine only — nothing on the network can reach it.'}
       </p>
     </>
   )
@@ -793,6 +829,19 @@ const HOSTS = [
 
 function hostLabel(value: string): string {
   return HOSTS.find((option) => option.value === value)?.label ?? value
+}
+
+/**
+ * A warning only, never a gate: the server's `normalizeSettings` is what
+ * decides, and this has to agree with it or it is a second opinion.
+ */
+function isPublicUrl(value: string): boolean {
+  if (value.trim() === '') return true
+  try {
+    return ['http:', 'https:'].includes(new URL(value.trim()).protocol)
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -1247,6 +1296,33 @@ function App() {
                 readOnly={locked('port')}
                 value={settings.port}
                 onChange={(event) => edit({ port: Number(event.target.value) })}
+              />
+            )}
+          </Field>
+
+          <Field
+            label="Public address"
+            env={envVar('publicUrl')}
+            hint={
+              isPublicUrl(settings.publicUrl) ? (
+                'Only if you run your own tunnel or proxy to YASS. The QR code shows this instead; YASS opens nothing for it.'
+              ) : (
+                <span className="text-warning">
+                  Needs to start with https:// or http://, or it is dropped on save.
+                </span>
+              )
+            }
+          >
+            {(control) => (
+              <input
+                {...control}
+                className={FIELD_CLASS}
+                type="url"
+                placeholder="https://"
+                spellCheck={false}
+                readOnly={locked('publicUrl')}
+                value={settings.publicUrl}
+                onChange={(event) => edit({ publicUrl: event.target.value })}
               />
             )}
           </Field>

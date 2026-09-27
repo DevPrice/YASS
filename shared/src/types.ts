@@ -305,6 +305,15 @@ export interface Settings {
   /** Bind address. `0.0.0.0` exposes on the LAN; `127.0.0.1` keeps it local. */
   host: string
   port: number
+  /**
+   * An http(s) URL the host exposes YASS at themselves — a tunnel, a reverse
+   * proxy — or empty for none. When set, the tray's QR code shows it instead of
+   * a LAN address.
+   *
+   * A display hint and nothing more. YASS opens, proxies and listens on nothing
+   * because of it, and has no way to check that it leads anywhere.
+   */
+  publicUrl: string
 }
 
 /**
@@ -369,6 +378,7 @@ export const ENV_VARS: Record<keyof Settings, string> = {
   pollIntervalMs: 'YASS_POLL_INTERVAL_MS',
   host: 'YASS_HOST',
   port: 'YASS_PORT',
+  publicUrl: 'YASS_PUBLIC_URL',
 }
 
 export interface SettingsView {

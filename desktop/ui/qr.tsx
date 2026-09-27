@@ -25,7 +25,8 @@ import qrcode from 'qrcode-generator'
 export function QrCode({ value, size = 104 }: { value: string; size?: number }) {
   const { path, span } = useMemo(() => {
     // Type 0 asks for the smallest version the data fits in; 'L' correction is
-    // ample for a 30-character URL read from arm's length.
+    // ample for a URL read from arm's length, and keeps a 50-character tunnel
+    // address at a module size a phone still resolves at 104px.
     const code = qrcode(0, 'L')
     code.addData(value)
     code.make()
