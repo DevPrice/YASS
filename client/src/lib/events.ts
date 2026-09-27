@@ -19,7 +19,12 @@ const listeners = new Map<string, Set<Listener<never>>>()
 const connectionListeners = new Set<Listener<boolean>>()
 
 let source: EventSource | null = null
-let connected = false
+/**
+ * Null until the stream has first come up or failed, so that failing on the
+ * very first attempt is still a transition — it is the one `useNowPlaying`
+ * starts polling on.
+ */
+let connected: boolean | null = null
 
 function setConnected(next: boolean): void {
   if (connected === next) return
@@ -29,7 +34,7 @@ function setConnected(next: boolean): void {
 
 /** Whether the stream is currently established. */
 export function isConnected(): boolean {
-  return connected
+  return connected === true
 }
 
 function dispatch(event: string, raw: string): void {
@@ -86,7 +91,8 @@ function closeIfIdle(): void {
 
   source.close()
   source = null
-  setConnected(false)
+  // Nobody is left to tell; the next subscriber starts from "not yet known".
+  connected = null
 }
 
 /** Subscribe to one server event type. Returns an unsubscribe function. */
