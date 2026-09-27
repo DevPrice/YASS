@@ -5,9 +5,6 @@
  * failure this module swallows is a banner that never updates. Module state is
  * global — one stream per page — so each case imports a fresh copy through a
  * cache-busting query.
- *
- * The stall cases run on mocked timers: the watchdog is measured in tens of
- * seconds, and a buffering proxy is a stream that simply never emits.
  */
 
 import assert from 'node:assert/strict'
@@ -15,7 +12,8 @@ import { describe, it, type TestContext } from 'node:test'
 
 const MODULE = new URL('./events.ts', import.meta.url).href
 
-/** `STALL_MS` in `events.ts`. */
+/** `FIRST_EVENT_MS` and `STALL_MS` in `events.ts`. */
+const FIRST_EVENT_MS = 5_000
 const STALL_MS = 37_500
 const KEEPALIVE_MS = 15_000
 
@@ -48,11 +46,8 @@ class FakeEventSource {
 let caseNumber = 0
 
 /**
- * A fresh module, on mocked timers.
- *
- * Every case needs the mock, not only the stall cases: a subscription left open
- * holds a real watchdog that re-arms itself forever, and would keep the test
- * process alive.
+ * A fresh module, on mocked timers. Every case needs the mock: a subscription
+ * left open holds a watchdog that re-arms forever and keeps the process alive.
  */
 async function load(t: TestContext) {
   t.mock.timers.enable({ apis: ['setTimeout'] })
@@ -118,11 +113,6 @@ describe('event stream connection', () => {
 })
 
 describe('a stream that opens and then says nothing', () => {
-  /*
-   * A buffering proxy sends the response headers on at once, so the browser
-   * fires `open`, and then holds every event behind them. Believing `open`
-   * showed "connected" on a page whose banner never moved again.
-   */
   it('does not count an opened socket as connected', async (t) => {
     const { events, stream } = await load(t)
     const heard: boolean[] = []
@@ -144,7 +134,37 @@ describe('a stream that opens and then says nothing', () => {
     assert.deepEqual(heard, [true])
   })
 
-  it('gives up on it, and opens another', async (t) => {
+  it('reports it down when no first event arrives, but keeps the stream', async (t) => {
+    const { events, stream } = await load(t)
+    const heard: boolean[] = []
+
+    events.onConnectionChange((up) => heard.push(up))
+    stream().emit('open')
+
+    t.mock.timers.tick(FIRST_EVENT_MS - 1)
+    assert.deepEqual(heard, [])
+
+    t.mock.timers.tick(1)
+    assert.deepEqual(heard, [false])
+    assert.equal(FakeEventSource.instances.length, 1)
+
+    // Held back, not lost: when the proxy lets go, the stream takes over.
+    stream().emit('now-playing', '{}')
+    assert.deepEqual(heard, [false, true])
+  })
+
+  it('does not report a stream down once its first event has arrived', async (t) => {
+    const { events, stream } = await load(t)
+    const heard: boolean[] = []
+
+    events.onConnectionChange((up) => heard.push(up))
+    stream().emit('now-playing', '{}')
+    t.mock.timers.tick(FIRST_EVENT_MS)
+
+    assert.deepEqual(heard, [true])
+  })
+
+  it('replaces a stream that stays silent', async (t) => {
     const { events, stream } = await load(t)
     const heard: boolean[] = []
 
@@ -153,14 +173,12 @@ describe('a stream that opens and then says nothing', () => {
     first.emit('open')
 
     t.mock.timers.tick(STALL_MS - 1)
-    assert.deepEqual(heard, [])
+    assert.equal(first.closed, false)
 
     t.mock.timers.tick(1)
-    assert.deepEqual(heard, [false])
     assert.equal(first.closed, true)
     assert.equal(FakeEventSource.instances.length, 2)
 
-    // A stall that was only transient: the replacement gets through.
     stream().emit('now-playing', '{}')
     assert.deepEqual(heard, [false, true])
   })
@@ -181,11 +199,6 @@ describe('a stream that opens and then says nothing', () => {
     assert.equal(FakeEventSource.instances.length, 1)
   })
 
-  /*
-   * Behind a proxy that buffers for good, every replacement stalls too. That
-   * has to read as one long outage rather than a connection that flickers up
-   * and down every forty seconds.
-   */
   it('reports a stream that never gets through as down once, not once a cycle', async (t) => {
     const { events, stream } = await load(t)
     const heard: boolean[] = []
@@ -203,12 +216,18 @@ describe('a stream that opens and then says nothing', () => {
   })
 
   it('stops watching once the last subscriber has gone', async (t) => {
-    const { events } = await load(t)
+    const { events, stream } = await load(t)
 
     const leave = events.onConnectionChange(() => {})
     leave()
     t.mock.timers.tick(STALL_MS * 4)
-
     assert.equal(FakeEventSource.instances.length, 1)
+
+    // A deadline left running would have settled the flag at `false`, and the
+    // next subscriber's first failure would no longer be a transition.
+    const heard: boolean[] = []
+    events.onConnectionChange((up) => heard.push(up))
+    stream().emit('error')
+    assert.deepEqual(heard, [false])
   })
 })

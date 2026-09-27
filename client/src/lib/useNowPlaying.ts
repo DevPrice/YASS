@@ -3,14 +3,8 @@
  *
  * SSE gives us automatic browser reconnection, which matters here because YARG
  * restarts, network blips, and proxy idle-timeouts are all routine. A polling
- * fallback takes over whenever the stream is down — refused outright, dropped
- * while the browser reconnects, or open but silent behind a buffering proxy
- * (see `events.ts`).
- *
- * `connected` asks whether the server is reachable, not whether the stream is.
- * Behind a proxy that buffers the stream for good, polling *is* the live
- * connection, and a guest whose polls get through should not be shown
- * "offline" for the whole party.
+ * fallback takes over whenever the stream is down, including open but silent
+ * behind a buffering proxy (see `events.ts`).
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -25,7 +19,11 @@ const INITIAL: NowPlaying = { playing: false, song: null, updatedAt: 0 }
 
 export interface NowPlayingState {
   nowPlaying: NowPlaying
-  /** False once the stream is down and the polling fallback is failing too. */
+  /**
+   * Whether the server is reachable, not whether the stream is: behind a proxy
+   * that buffers for good, polling is the connection, and a guest whose polls
+   * succeed shouldn't see "offline" all night.
+   */
   connected: boolean
   /**
    * False until the first answer arrives, either way.
@@ -58,8 +56,7 @@ export function useNowPlaying(): NowPlayingState {
     }
 
     const poll = () => {
-      // A request still in flight when the stream came back is older than what
-      // the stream has since said.
+      // A poll that lands after the stream is back would overwrite newer state.
       const current = () => !disposed && pollTimer.current !== null
 
       void fetchNowPlaying()
@@ -70,7 +67,6 @@ export function useNowPlaying(): NowPlayingState {
           setSettled(true)
         })
         .catch(() => {
-          // The next tick retries.
           if (!current()) return
           setConnected(false)
           setSettled(true)
@@ -97,8 +93,8 @@ export function useNowPlaying(): NowPlayingState {
         setConnected(true)
         stopPolling()
       } else {
-        // Left as it was until a poll answers, so a stream that drops while the
-        // server is still reachable never flashes "offline".
+        // `connected` waits for a poll to fail, so a dropped stream on a
+        // reachable server never flashes "offline".
         startPolling()
       }
     })
