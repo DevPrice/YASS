@@ -16,8 +16,10 @@ import { Hono } from 'hono'
 import { createApiRoutes } from './api/routes.js'
 import { lanAddresses } from './core/net.js'
 import { settingsFilePath } from './core/paths.js'
+import type { TunnelBindings } from './api/local.js'
 import { AppState } from './state.js'
 import { serveClient } from './static.js'
+import { tunnelGate } from './tunnel/gate.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -42,6 +44,10 @@ async function main(): Promise<void> {
   const { host, port } = state.settings
 
   const app = new Hono()
+
+  // First, ahead of the API and the client: over the tunnel, nothing is served
+  // without the key. A no-op for every request that didn't come that way.
+  app.use('*', tunnelGate(() => state.tunnel.key))
 
   // The binding is fixed for the life of the process — settings saved after
   // this point are what `/api/status` compares against to say "restart me".
@@ -101,8 +107,29 @@ async function main(): Promise<void> {
     process.exit(1)
   })
 
+  /*
+   * The tunnel's own listener: loopback only, on whatever port is free, and
+   * always open whether the tunnel is on or not — it costs a socket, and
+   * having it means switching the tunnel on is only a child process.
+   *
+   * The same app, with one flag added to the bindings. That flag is how the
+   * gate and the host-only guard know a request came through Cloudflare, and
+   * because it is set by *which socket* rather than read from a header, there
+   * is no request cloudflared can forward that arrives without it.
+   */
+  const tunnelServer = serve(
+    {
+      fetch: (request, env: object) =>
+        app.fetch(request, { ...env, viaTunnel: true } satisfies TunnelBindings),
+      hostname: '127.0.0.1',
+      port: 0,
+    },
+    (info) => state.tunnel.attach(`http://127.0.0.1:${info.port}`),
+  )
+
   const shutdown = () => {
     state.stop()
+    tunnelServer.close()
     server.close(() => process.exit(0))
     // Don't let a hung connection block exit — the tray app will rely on this.
     setTimeout(() => process.exit(0), 2000).unref()

@@ -7,8 +7,11 @@
  * first subscriber and closing after the last one leaves.
  *
  * `EventSource` reconnects on its own, which is most of why the stream is SSE.
- * The polling fallback below only exists for the case where the stream can't be
- * established at all — a proxy that strips `text/event-stream`, say.
+ * The polling fallback in `useNowPlaying` exists for the case where the stream
+ * can't be established at all — a proxy that strips `text/event-stream`, say,
+ * or the Cloudflare tunnel, where the server declines it on purpose (see
+ * `/api/events`). Declined is a different state from dropped: nothing is
+ * wrong, the page just learns about songs by asking.
  */
 
 const STREAM_URL = '/api/events'
@@ -20,9 +23,16 @@ const connectionListeners = new Set<Listener<boolean>>()
 
 let source: EventSource | null = null
 let connected = false
+/** The server answered and said no — the stream will not come back. */
+let declined = false
 
-function setConnected(next: boolean): void {
-  if (connected === next) return
+/**
+ * `force` for the one transition that is not a change: a stream declined on
+ * its very first attempt goes from "not connected" to "not connected", and the
+ * listeners that start polling still have to hear about it.
+ */
+function setConnected(next: boolean, force = false): void {
+  if (connected === next && !force) return
   connected = next
   for (const listener of connectionListeners) listener(next)
 }
@@ -30,6 +40,16 @@ function setConnected(next: boolean): void {
 /** Whether the stream is currently established. */
 export function isConnected(): boolean {
   return connected
+}
+
+/**
+ * Whether the server declined the stream, so polling is how this page works.
+ *
+ * Not an outage and not worth an "offline" badge: over the Cloudflare tunnel
+ * this is permanent and expected.
+ */
+export function isStreamDeclined(): boolean {
+  return declined
 }
 
 function dispatch(event: string, raw: string): void {
@@ -54,7 +74,16 @@ function open(): void {
   source = stream
 
   stream.addEventListener('open', () => setConnected(true))
-  stream.addEventListener('error', () => setConnected(false))
+  stream.addEventListener('error', () => {
+    // CLOSED rather than CONNECTING: a network drop is retried by the browser;
+    // a 204 or a wrong content type is final, and `EventSource` gives up.
+    if (stream.readyState === EventSource.CLOSED && !declined) {
+      declined = true
+      setConnected(false, true)
+      return
+    }
+    setConnected(false)
+  })
 
   // Every event type the server sends has to be registered explicitly;
   // `EventSource` only fires `message` for frames with no `event:` line.

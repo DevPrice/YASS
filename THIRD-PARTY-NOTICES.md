@@ -18,6 +18,7 @@ YASS, and especially if you are selling it, read the upstream terms yourself.
 | Red Hat Display, Barlow, Inter (woff2) | yes | yes |
 | Tables ported or transcribed from YARG's source | yes | yes |
 | ffmpeg | no | no — fetched by the user's own machine |
+| cloudflared | no | no — fetched by the user's own machine |
 | npm dependencies | lockfile only | the ones the bundles pull in |
 
 Everything else — the server, the client, the tray app, the binary-format
@@ -123,6 +124,10 @@ original description of those formats. All of it is covered by the dedication.
   into `%LOCALAPPDATA%\yass\bin`. Nothing about it is bundled or redistributed by
   this project, and the media features degrade quietly when it is absent. If you
   ever ship it inside a build, the GPL's obligations attach to what you ship.
+- **cloudflared** — `server/src/tunnel/cloudflared.ts` downloads Cloudflare's
+  cloudflared 2026.9.3 release executable (**Apache-2.0**) for Windows or Linux x64
+  on demand, but only when the host asks for the tunnel. It is pinned by tag and
+  SHA-256 and goes into the same `bin` directory. It isn't bundled or redistributed.
 - **Genrelizer mappings** — read from the YARG installation already on the
   user's machine, under `StreamingAssets`. No copy is kept here.
 - **Google Fonts** — the web client's `@import`s, as above.

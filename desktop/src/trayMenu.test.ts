@@ -49,7 +49,7 @@ describe('tray menu', () => {
     assert.equal(submenu.length, DATA_FOLDERS.length)
     assert.deepEqual(
       submenu.map((item) => item.label),
-      ['Settings and data', 'Logs', 'Album art and previews', 'Downloaded ffmpeg'],
+      ['Settings and data', 'Logs', 'Album art and previews', 'Downloaded tools'],
     )
   })
 

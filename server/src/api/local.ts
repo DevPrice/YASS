@@ -11,6 +11,10 @@
  * counts as remote, even though that also hides settings from a host browsing
  * through its own domain. Losing access on the host is recoverable; exposing
  * configuration to the party is not.
+ *
+ * The Cloudflare tunnel is the same case without needing the headers: it
+ * arrives on its own loopback listener, which marks every request `viaTunnel`
+ * before the app sees it. Those are never local, whatever else they claim.
  */
 
 import type { Context, MiddlewareHandler } from 'hono'
@@ -34,7 +38,22 @@ function remoteAddress(c: Context): string | null {
   return incoming?.socket?.remoteAddress ?? null
 }
 
+/**
+ * The environment the tunnel's listener hands the app — Node's own bindings,
+ * plus the one flag. See `index.ts`, which sets it, and `tunnel/tunnel.ts`.
+ */
+export interface TunnelBindings {
+  viaTunnel?: boolean
+}
+
+/** Did this request come through the Cloudflare tunnel? */
+export function viaTunnel(c: Context): boolean {
+  return (c.env as TunnelBindings | undefined)?.viaTunnel === true
+}
+
 export function isLocalRequest(c: Context): boolean {
+  if (viaTunnel(c)) return false
+
   for (const header of PROXY_HEADERS) {
     if (c.req.header(header)) return false
   }

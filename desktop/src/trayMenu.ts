@@ -37,7 +37,7 @@ export const DATA_FOLDERS: ReadonlyArray<{ folder: DataFolder; label: string }> 
   { label: 'Settings and data', folder: 'config' },
   { label: 'Logs', folder: 'logs' },
   { label: 'Album art and previews', folder: 'media' },
-  { label: 'Downloaded ffmpeg', folder: 'bin' },
+  { label: 'Downloaded tools', folder: 'bin' },
 ]
 
 export interface TrayActions {

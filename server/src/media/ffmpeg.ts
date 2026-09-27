@@ -40,11 +40,16 @@
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { delimiter, dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { inflateRaw } from 'node:zlib'
 import { promisify } from 'node:util'
 
+import {
+  executableName,
+  findOnPath,
+  installExecutable,
+  isExecutableFile,
+} from '../core/executables.js'
 import { managedBinDir } from '../core/paths.js'
 
 const inflateRawAsync = promisify(inflateRaw)
@@ -76,9 +81,6 @@ export interface FfmpegInfo {
   source: FfmpegSource
 }
 
-const executableName = (name: string): string =>
-  process.platform === 'win32' ? `${name}.exe` : name
-
 /**
  * Whether this platform has a build to fetch.
  *
@@ -97,32 +99,6 @@ export const FFMPEG_INSTALL_HINT =
 /** Where a fetched ffmpeg lives. */
 export function managedFfmpegPath(): string {
   return join(managedBinDir(), executableName('ffmpeg'))
-}
-
-async function isExecutableFile(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isFile()
-  } catch {
-    return false
-  }
-}
-
-/** Search `PATH` for an executable, honouring `PATHEXT` on Windows. */
-async function findOnPath(name: string): Promise<string | null> {
-  const directories = (process.env.PATH ?? '').split(delimiter).filter(Boolean)
-  const extensions =
-    process.platform === 'win32'
-      ? (process.env.PATHEXT ?? '.EXE').split(';').filter(Boolean)
-      : ['']
-
-  for (const directory of directories) {
-    for (const extension of extensions) {
-      const candidate = join(directory, name + extension)
-      if (await isExecutableFile(candidate)) return candidate
-    }
-  }
-
-  return null
 }
 
 /**
@@ -336,18 +312,7 @@ export async function fetchFfmpeg(onProgress?: (progress: FetchProgress) => void
   const binary = await extractZipEntry(archive, DOWNLOAD.entry)
 
   const destination = managedFfmpegPath()
-  await mkdir(dirname(destination), { recursive: true })
-
-  const temp = `${destination}.${process.pid}.tmp`
-  await writeFile(temp, binary)
-  try {
-    // A no-op on Windows, and required everywhere else.
-    await chmod(temp, 0o755)
-    await rename(temp, destination)
-  } catch (error) {
-    await unlink(temp).catch(() => {})
-    throw error
-  }
+  await installExecutable(destination, binary)
 
   return destination
 }

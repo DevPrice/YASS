@@ -65,6 +65,10 @@ host's machine, not a separate service or account.
   them.
 - **Host-only settings.** Configuration, reload and reindex are only reachable from the host
   machine and fail closed; the web client deliberately has no settings.
+- **Optional Cloudflare tunnel.** Off by default. When the host switches it on, a quick
+  tunnel makes the app reachable from outside the LAN, and every request through it must
+  carry a key that changes on each run. The tunnel never counts as the host. Live updates
+  degrade to polling there, because quick tunnels don't support SSE.
 - **Not in scope yet: queueing.** No queue features until existing karaoke/music-queue
   technology has been researched and a direction chosen.
 - **No scores.** Score data (stars, medals, stats) is not available and must not be shown.

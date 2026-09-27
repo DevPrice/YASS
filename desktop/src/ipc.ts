@@ -12,6 +12,7 @@ import type {
   MediaSummary,
   Settings,
   SettingsView,
+  TunnelSummary,
 } from '@shared/types.js'
 
 export type ServerStatusName = 'starting' | 'running' | 'stopped' | 'failed'
@@ -62,6 +63,13 @@ export interface DesktopState {
   /** True while an ffmpeg download this process started is still running. */
   fetchingFfmpeg: boolean
   /**
+   * The Cloudflare tunnel, or null when there is no server to ask — same rule
+   * as `media`. Its `url` is the address the QR code shows while it is up.
+   */
+  tunnel: TunnelSummary | null
+  /** True while a cloudflared download this process started is still running. */
+  fetchingCloudflared: boolean
+  /**
    * Addresses to hand to a guest, reachable ones first. Empty unless the
    * server is bound LAN-wide.
    */
@@ -102,6 +110,7 @@ export const CHANNELS = {
   pickDirectory: 'yass:pick-directory',
   restartServer: 'yass:restart-server',
   fetchFfmpeg: 'yass:fetch-ffmpeg',
+  fetchCloudflared: 'yass:fetch-cloudflared',
   rebuildMediaIndex: 'yass:rebuild-media-index',
   setOpenAtLogin: 'yass:set-open-at-login',
   checkForUpdates: 'yass:check-for-updates',
@@ -128,6 +137,12 @@ export interface DesktopApi {
    * shows progress rather than blocking on it.
    */
   fetchFfmpeg(): Promise<DesktopState>
+  /**
+   * Download cloudflared, which the tunnel needs. Same shape as `fetchFfmpeg`:
+   * resolves when the download finishes, and the tunnel starts on its own
+   * afterwards if it was already switched on.
+   */
+  fetchCloudflared(): Promise<DesktopState>
   /** Re-read YARG's song cache and rebuild the map from songs to files. */
   rebuildMediaIndex(): Promise<DesktopState>
   setOpenAtLogin(enabled: boolean): Promise<DesktopState>

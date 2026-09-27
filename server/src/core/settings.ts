@@ -54,6 +54,8 @@ export function defaultSettings(): Settings {
     // through a reverse proxy.
     host: '0.0.0.0',
     port: DEFAULT_PORT,
+    // Off until the host asks: on means reachable from the internet.
+    tunnel: false,
   }
 }
 
@@ -67,6 +69,22 @@ function clampPort(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isInteger(n) || n < 1 || n > 65535) return fallback
   return n
+}
+
+/**
+ * `true`/`1`/`yes`/`on` for an environment variable; a JSON boolean otherwise.
+ *
+ * Anything unrecognised is the fallback rather than `false`, so a typo in
+ * `YASS_TUNNEL` does not quietly mean something.
+ */
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value !== 'string') return fallback
+
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return fallback
 }
 
 function asString(value: unknown, fallback: string): string {
@@ -85,6 +103,7 @@ export function normalizeSettings(raw: unknown): Settings {
     pollIntervalMs: clampPollInterval(input.pollIntervalMs, defaults.pollIntervalMs),
     host: asString(input.host, defaults.host),
     port: clampPort(input.port, defaults.port),
+    tunnel: typeof input.tunnel === 'boolean' ? input.tunnel : defaults.tunnel,
   }
 }
 
@@ -106,6 +125,7 @@ export function applyEnvOverrides(settings: Settings): Settings {
       : settings.pollIntervalMs,
     host: env.YASS_HOST ?? settings.host,
     port: env.YASS_PORT ? clampPort(env.YASS_PORT, settings.port) : settings.port,
+    tunnel: env.YASS_TUNNEL ? asBoolean(env.YASS_TUNNEL, settings.tunnel) : settings.tunnel,
   }
 }
 

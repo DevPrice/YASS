@@ -2,7 +2,7 @@
  * The only thing the popover's renderer can reach.
  *
  * The renderer runs sandboxed with no Node integration, so this is the whole
- * surface: eleven verbs and a subscription, each one a message to the main
+ * surface: twelve verbs and a subscription, each one a message to the main
  * process. Nothing here does any work — deliberately, because everything this
  * app can do (write the settings file, stop the server, download a hundred
  * megabytes) is something a page must never be able to do on its own.
@@ -28,6 +28,8 @@ const api: DesktopApi = {
     ipcRenderer.invoke(CHANNELS.pickDirectory, current) as Promise<string | null>,
   restartServer: () => ipcRenderer.invoke(CHANNELS.restartServer) as Promise<DesktopState>,
   fetchFfmpeg: () => ipcRenderer.invoke(CHANNELS.fetchFfmpeg) as Promise<DesktopState>,
+  fetchCloudflared: () =>
+    ipcRenderer.invoke(CHANNELS.fetchCloudflared) as Promise<DesktopState>,
   rebuildMediaIndex: () =>
     ipcRenderer.invoke(CHANNELS.rebuildMediaIndex) as Promise<DesktopState>,
   setOpenAtLogin: (enabled: boolean) =>
