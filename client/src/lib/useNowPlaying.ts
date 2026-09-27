@@ -50,20 +50,23 @@ export function useNowPlaying(): NowPlayingState {
       }
     }
 
+    const poll = () => {
+      void fetchNowPlaying()
+        .then((state) => {
+          if (disposed) return
+          setNowPlaying(state)
+          setSettled(true)
+        })
+        .catch(() => {
+          /* Server down; the next tick retries. */
+        })
+    }
+
     const startPolling = () => {
       if (pollTimer.current !== null) return
 
-      pollTimer.current = window.setInterval(() => {
-        void fetchNowPlaying()
-          .then((state) => {
-            if (disposed) return
-            setNowPlaying(state)
-            setSettled(true)
-          })
-          .catch(() => {
-            /* Server down; the next tick retries. */
-          })
-      }, POLL_FALLBACK_MS)
+      pollTimer.current = window.setInterval(poll, POLL_FALLBACK_MS)
+      poll()
     }
 
     const unsubscribeState = onServerEvent<NowPlaying>('now-playing', (next) => {
