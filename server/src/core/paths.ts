@@ -105,7 +105,7 @@ export function mediaCacheDir(): string {
   return join(appCacheDir(), 'cache')
 }
 
-/** Binaries the app fetched for itself, which today means ffmpeg. */
+/** Binaries the app fetched for itself: ffmpeg, and cloudflared for the tunnel. */
 export function managedBinDir(): string {
   return join(appCacheDir(), 'bin')
 }

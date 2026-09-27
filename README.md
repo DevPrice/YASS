@@ -33,6 +33,23 @@ On Linux, also do the following:
 - For album art and previews, install ffmpeg with your package manager, and then restart
   the server.
 
+### Share beyond your Wi-Fi
+
+For guests who aren't on your network, YASS can open a Cloudflare quick tunnel. You
+don't need a Cloudflare account.
+
+1. In the popover, click **get cloudflared**. On Linux on ARM and on macOS, install
+   cloudflared yourself instead, for example with `brew install cloudflared`.
+1. Select **Share through a Cloudflare tunnel**.
+1. When the QR code changes to a `trycloudflare.com` address, guests can scan it from
+   anywhere.
+
+The address includes a key, and YASS turns away tunnel visitors who don't have it. The
+key and the address both change every time the server restarts. To stop an address
+from working, clear the checkbox and then select it again. Through the tunnel, the
+now-playing banner refreshes every two seconds instead of instantly, because
+Cloudflare's quick tunnels don't carry live updates.
+
 If YASS doesn't find your songs, open the popover, expand **Settings**, and set **YARG data
 folder** to the folder that contains `songcache.bin`.
 

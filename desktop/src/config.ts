@@ -50,6 +50,7 @@ const EDITABLE: ReadonlyArray<keyof Settings> = [
   'pollIntervalMs',
   'host',
   'port',
+  'tunnel',
 ]
 
 export function sanitizePatch(raw: unknown): Partial<Settings> {
@@ -189,6 +190,23 @@ export async function installFfmpeg(origin: string | null): Promise<boolean> {
   if (!origin) return false
 
   const result = await apiJson<{ ok: boolean }>(`${origin}/api/media/ffmpeg`, {
+    method: 'POST',
+    timeoutMs: null,
+  })
+
+  return result?.ok === true
+}
+
+/**
+ * Ask the server to download cloudflared.
+ *
+ * No timeout, for the same reason as ffmpeg: abandoning the request would not
+ * abandon the download, only the popover's knowledge of it.
+ */
+export async function installCloudflared(origin: string | null): Promise<boolean> {
+  if (!origin) return false
+
+  const result = await apiJson<{ ok: boolean }>(`${origin}/api/tunnel/cloudflared`, {
     method: 'POST',
     timeoutMs: null,
   })

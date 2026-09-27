@@ -305,6 +305,13 @@ export interface Settings {
   /** Bind address. `0.0.0.0` exposes on the LAN; `127.0.0.1` keeps it local. */
   host: string
   port: number
+  /**
+   * Share the server through a Cloudflare quick tunnel as well as the LAN.
+   *
+   * Off by default: it makes the app reachable from the internet, guarded by a
+   * key in the address the tray hands out. See `server/src/tunnel/tunnel.ts`.
+   */
+  tunnel: boolean
 }
 
 /**
@@ -324,6 +331,33 @@ export interface ServerStatus {
   restartRequired: boolean
   /** Album art and previews: whether they work, and how far along they are. */
   media: MediaSummary
+  /** The Cloudflare tunnel, and the address it gives guests if it is up. */
+  tunnel: TunnelSummary
+}
+
+/**
+ * What the tray needs to say about the Cloudflare tunnel.
+ *
+ * `url` carries the key that lets a guest in, which is why this only ever
+ * travels in the host-only `/api/status`.
+ */
+export interface TunnelSummary {
+  /** The setting, as in force — the tunnel may still be starting or failing. */
+  enabled: boolean
+  /** Whether a cloudflared executable was found. */
+  cloudflared: boolean
+  /** Whether this platform has a pinned build YASS can fetch for itself. */
+  canFetchCloudflared: boolean
+  /** Size of that download, to say before starting it. Null when there is none. */
+  downloadBytes: number | null
+  /**
+   * `missing` is enabled with nothing to run; `failed` is waiting to retry,
+   * with the reason in `message`.
+   */
+  phase: 'off' | 'missing' | 'starting' | 'running' | 'failed'
+  /** The address to give a guest, key included. Only while `running`. */
+  url: string | null
+  message: string | null
 }
 
 /**
@@ -369,6 +403,7 @@ export const ENV_VARS: Record<keyof Settings, string> = {
   pollIntervalMs: 'YASS_POLL_INTERVAL_MS',
   host: 'YASS_HOST',
   port: 'YASS_PORT',
+  tunnel: 'YASS_TUNNEL',
 }
 
 export interface SettingsView {

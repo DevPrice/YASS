@@ -26,6 +26,7 @@ import { bindingChanged } from '@server/core/settings.js'
 import { readAutostart, writeAutostart } from './autostart.js'
 import {
   apiJson,
+  installCloudflared,
   installFfmpeg,
   readSettingsView,
   rebuildMediaIndex,
@@ -67,6 +68,8 @@ let quitting = false
 let pollTimer: NodeJS.Timeout | null = null
 /** True while an ffmpeg download is running, so the popover can say so. */
 let fetchingFfmpeg = false
+/** Likewise for cloudflared. */
+let fetchingCloudflared = false
 /** What the last update check found, or that none was ever asked for. */
 let update: UpdateState = { status: 'idle' }
 
@@ -118,6 +121,8 @@ async function buildState(): Promise<DesktopState> {
     songs: status?.songs ?? null,
     media: status?.media ?? null,
     fetchingFfmpeg,
+    tunnel: status?.tunnel ?? null,
+    fetchingCloudflared,
     // Only worth showing when the server can actually be reached at them.
     lan: running && server.isLanBound && boundPort ? lanAddresses(boundPort) : [],
     localUrl: running ? server.localUrl : null,
@@ -260,6 +265,24 @@ function registerIpc(): void {
     return state
   })
 
+  // The ffmpeg handler's shape, for the ffmpeg handler's reasons.
+  ipcMain.handle(CHANNELS.fetchCloudflared, async () => {
+    if (fetchingCloudflared) return buildState()
+
+    fetchingCloudflared = true
+    void publish()
+
+    try {
+      await installCloudflared(server.apiOrigin)
+    } finally {
+      fetchingCloudflared = false
+    }
+
+    const state = await buildState()
+    void publish()
+    return state
+  })
+
   ipcMain.handle(CHANNELS.rebuildMediaIndex, async () => {
     await rebuildMediaIndex(server.apiOrigin)
     const state = await buildState()
@@ -317,7 +340,7 @@ function registerIpc(): void {
  *
  * Created first if it isn't there. Three of these four are made lazily — `logs`
  * when the server first starts, `cache` when the first thumbnail is generated,
- * `bin` only if ffmpeg was ever downloaded — so on a fresh install most of them
+ * `bin` only once ffmpeg or cloudflared was downloaded — so on a fresh install most of them
  * do not exist yet, and `shell.openPath` on a missing directory fails with a
  * message nobody sees. Creating an empty folder someone explicitly asked to look
  * at is both honest about where the thing will be and better than a menu item

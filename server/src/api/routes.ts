@@ -14,7 +14,8 @@ import type { AppState } from '../state.js'
 import { canFetchFfmpeg, FFMPEG_INSTALL_HINT } from '../media/ffmpeg.js'
 import { isArtSize } from '../media/store.js'
 import { serveFile } from '../static.js'
-import { isLocalRequest, localOnly } from './local.js'
+import { canFetchCloudflared, CLOUDFLARED_INSTALL_HINT } from '../tunnel/cloudflared.js'
+import { isLocalRequest, localOnly, viaTunnel } from './local.js'
 
 /** Heartbeat interval for the SSE stream, to keep proxies from idling it out. */
 const SSE_KEEPALIVE_MS = 15_000
@@ -48,7 +49,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
    * bound address is the tray's own business and this sits beside `/settings`
    * in what it is for.
    */
-  api.get('/status', localOnly, (c) => {
+  api.get('/status', localOnly, async (c) => {
     c.header('Cache-Control', 'no-store')
 
     const media = state.media.status
@@ -69,6 +70,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
         precomputed: media.precomputed,
         precomputeTotal: media.precomputeTotal,
       },
+      tunnel: await state.tunnel.summary(),
     }
 
     return c.json(status)
@@ -112,6 +114,29 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
       return c.json({ ok: true, installed: path !== null })
     } catch (error) {
       console.error('[media] ffmpeg install failed:', error)
+      return c.json({ ok: false, error: String(error) }, 500)
+    }
+  })
+
+  // --- Tunnel ---------------------------------------------------------------
+
+  /**
+   * Download cloudflared into the app's own directory.
+   *
+   * Host-only and deduplicated, like the ffmpeg download beside it. Switching
+   * the tunnel on and off is not an endpoint of its own: it is the `tunnel`
+   * setting, saved through `PUT /settings` like any other.
+   */
+  api.post('/tunnel/cloudflared', localOnly, async (c) => {
+    if (!canFetchCloudflared()) {
+      return c.json({ ok: false, error: CLOUDFLARED_INSTALL_HINT }, 501)
+    }
+
+    try {
+      await state.installCloudflared()
+      return c.json({ ok: true })
+    } catch (error) {
+      console.error('[tunnel] cloudflared install failed:', error)
       return c.json({ ok: false, error: String(error) }, 500)
     }
   })
@@ -199,6 +224,18 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
    */
   api.get('/events', (c) => {
     c.header('Cache-Control', 'no-store')
+
+    /*
+     * Declined over the tunnel, deliberately and at once.
+     *
+     * Cloudflare's quick tunnels do not carry SSE. Left to try, the stream
+     * would sit buffered at the edge — open as far as the browser knows, and
+     * silent — so the client would neither get events nor fall back to
+     * polling. A 204 is the one answer `EventSource` treats as final: it stops
+     * reconnecting, and the client polls now-playing instead.
+     */
+    if (viaTunnel(c)) return c.body(null, 204)
+
     // Tell nginx not to buffer, or events arrive in bursts.
     c.header('X-Accel-Buffering', 'no')
 

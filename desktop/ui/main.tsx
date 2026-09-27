@@ -310,6 +310,13 @@ function splitPort(authority: string): [string, string] {
  * face, next to a code that skips the typing altogether.
  */
 function AddressBlock({ state }: { state: DesktopState }) {
+  const tunnelUrl = state.tunnel?.phase === 'running' ? state.tunnel.url : null
+  if (tunnelUrl) return <TunnelAddressBlock state={state} url={tunnelUrl} />
+
+  return <LanAddressBlock state={state} />
+}
+
+function LanAddressBlock({ state }: { state: DesktopState }) {
   const primary = state.lan[0] ?? null
   const url = primary?.url ?? state.localUrl
   const [copied, copy] = useCopy(url ?? '')
@@ -340,50 +347,98 @@ function AddressBlock({ state }: { state: DesktopState }) {
         </div>
       </div>
 
-      {/*
-       * The rest, demoted rather than hidden. A developer's machine answers
-       * with VirtualBox and WSL addresses that look exactly like the real one
-       * and go nowhere; the ranking is a heuristic, so it must never be the
-       * only way to reach an address it guessed wrong about.
-       */}
-      {others.length > 0 ? (
-        <details className="group mt-2.5">
-          <summary
-            className={cx(
-              'yarg-label inline-flex min-h-6 cursor-default list-none items-center gap-1.5',
-              'rounded-[5px] pr-1 text-label text-content-muted hover:text-content',
-              '[&::-webkit-details-marker]:hidden',
-              FOCUS,
-            )}
-          >
-            {others.length} other {others.length === 1 ? 'address' : 'addresses'}
-            <svg
-              viewBox="0 0 12 12"
-              aria-hidden
-              className="size-3 transition-transform group-open:rotate-180"
-            >
-              <path
-                d="M2.5 4.5 6 8l3.5-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </summary>
-          <div className="mt-2 space-y-2">
-            {others.map((entry) => (
-              <CopyRow key={entry.url} url={entry.url} label={entry.name} />
-            ))}
-          </div>
-        </details>
-      ) : null}
+      <OtherAddresses entries={others} />
 
       <p className="mt-2.5 text-note text-content-faint">
         {primary
           ? "Point a guest's camera at the code. If they can't reach it, the firewall prompt was probably dismissed."
           : 'Bound to this machine only — nothing on the network can reach it.'}
+      </p>
+    </>
+  )
+}
+
+/**
+ * The addresses that aren't the headline, demoted rather than hidden.
+ *
+ * A developer's machine answers with VirtualBox and WSL addresses that look
+ * exactly like the real one and go nowhere; the ranking is a heuristic, so it
+ * must never be the only way to reach an address it guessed wrong about. With
+ * the tunnel up, every LAN address lands here — still the better choice for a
+ * guest on the same Wi-Fi, since it doesn't round-trip through Cloudflare.
+ */
+function OtherAddresses({ entries }: { entries: readonly { url: string; name: string }[] }) {
+  if (entries.length === 0) return null
+
+  return (
+    <details className="group mt-2.5">
+      <summary
+        className={cx(
+          'yarg-label inline-flex min-h-6 cursor-default list-none items-center gap-1.5',
+          'rounded-[5px] pr-1 text-label text-content-muted hover:text-content',
+          '[&::-webkit-details-marker]:hidden',
+          FOCUS,
+        )}
+      >
+        {entries.length} other {entries.length === 1 ? 'address' : 'addresses'}
+        <svg
+          viewBox="0 0 12 12"
+          aria-hidden
+          className="size-3 transition-transform group-open:rotate-180"
+        >
+          <path
+            d="M2.5 4.5 6 8l3.5-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </summary>
+      <div className="mt-2 space-y-2">
+        {entries.map((entry) => (
+          <CopyRow key={entry.url} url={entry.url} label={entry.name} />
+        ))}
+      </div>
+    </details>
+  )
+}
+
+/**
+ * The tunnel's address, which replaces the LAN one as the code to scan.
+ *
+ * It is long — a four-word trycloudflare hostname plus the key — so the code
+ * is drawn larger than the LAN one to keep each module a few pixels wide, and
+ * the hostname wraps instead of pretending to be the 22px headline a LAN
+ * address is. The key is left out of what is printed: it is in the code and
+ * on the clipboard, and nobody needs to read it aloud.
+ */
+function TunnelAddressBlock({ state, url }: { state: DesktopState; url: string }) {
+  const [copied, copy] = useCopy(url)
+  const host = new URL(url).host
+
+  return (
+    <>
+      <div className="mt-3 flex items-start gap-3">
+        <QrCode value={url} size={136} />
+
+        <div className="min-w-0 flex-1">
+          <p className="selectable font-numeric text-body break-all text-content">{host}</p>
+          <p className="mt-1.5 text-note text-content-faint">through Cloudflare, with a key</p>
+          <div className="mt-2.5">
+            <QuietButton aria-label="Copy the tunnel address" onClick={copy}>
+              {copied ? 'copied' : 'copy'}
+            </QuietButton>
+          </div>
+        </div>
+      </div>
+
+      <OtherAddresses entries={state.lan} />
+
+      <p className="mt-2.5 text-note text-content-faint">
+        Anyone with this code can open YASS from anywhere, until the server restarts. Switch the
+        tunnel off and on to make a new one.
       </p>
     </>
   )
@@ -541,6 +596,104 @@ function MediaLine({ state, busy }: { state: DesktopState; busy: boolean }) {
   )
 }
 
+/** `55366080` → `55 MB`, the size a person would say. */
+function megabytes(bytes: number): string {
+  return `${Math.round(bytes / 1_000_000)} MB`
+}
+
+/**
+ * The Cloudflare tunnel: fetch cloudflared, then a box to switch it on.
+ *
+ * Beside the ffmpeg line because it is the same kind of thing — an optional
+ * tool, fetched once on request — and above the address because switching it
+ * on changes what that address is. The box saves straight away rather than
+ * joining the form's draft: it acts like "start when I sign in", on the spot.
+ *
+ * Only the states worth a sentence get one. Running says nothing here; the
+ * code below it is the news.
+ */
+function TunnelLine({
+  state,
+  busy,
+  onToggle,
+}: {
+  state: DesktopState
+  busy: boolean
+  onToggle: (enabled: boolean) => void
+}) {
+  const tunnel = state.tunnel
+  if (!tunnel) return null
+
+  const locked = state.view.envOverrides.includes('tunnel')
+
+  if (!tunnel.cloudflared) {
+    return (
+      <div className="mt-2">
+        <p className="text-body text-content-muted">
+          {tunnel.enabled
+            ? 'The tunnel is switched on but needs cloudflared to run.'
+            : 'Guests off this network can reach YASS through a Cloudflare tunnel, which needs cloudflared.'}
+        </p>
+        {tunnel.canFetchCloudflared && tunnel.downloadBytes !== null ? (
+          <div className="mt-2.5">
+            <Button
+              tone={tunnel.enabled ? 'accent' : 'neutral'}
+              disabled={busy || state.fetchingCloudflared}
+              onClick={() => void window.yass.fetchCloudflared()}
+            >
+              {state.fetchingCloudflared
+                ? 'downloading…'
+                : `get cloudflared (${megabytes(tunnel.downloadBytes)})`}
+            </Button>
+          </div>
+        ) : (
+          // No pinned build for this platform — see `tunnel/cloudflared.ts`.
+          <p className="mt-1.5 text-note text-content-faint">
+            Install it with{' '}
+            <code className="font-numeric text-content-default">brew install cloudflared</code> or
+            your package manager, then restart the server.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  const note =
+    tunnel.phase === 'starting' ? (
+      <span className="text-content-faint">opening the tunnel…</span>
+    ) : tunnel.phase === 'failed' ? (
+      <span className="selectable text-warning">
+        {tunnel.message ?? 'The tunnel stopped.'} Trying again shortly.
+      </span>
+    ) : null
+
+  return (
+    <div className="mt-2">
+      {/* `min-h-6` so the click target clears SC 2.5.8, like the sign-in box. */}
+      <label className="flex min-h-6 items-center gap-2.5">
+        <input
+          type="checkbox"
+          className={cx('size-4 accent-[var(--yarg-vivid-sky-blue)]', FOCUS)}
+          checked={tunnel.enabled}
+          disabled={busy || locked}
+          onChange={(event) => onToggle(event.target.checked)}
+        />
+        <span className="text-body text-content-muted">
+          Share through a Cloudflare tunnel
+          {locked ? (
+            <span className="text-content-faint"> · set by {ENV_VARS.tunnel}</span>
+          ) : null}
+        </span>
+      </label>
+      {note ? (
+        <p aria-live="polite" className="mt-1 text-note">
+          {note}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 /**
  * The version, and the one question anybody ever has about it.
  *
@@ -642,12 +795,14 @@ function StatusBlock({
   onRestart,
   onTryPort,
   onSwitch,
+  onTunnel,
 }: {
   state: DesktopState
   busy: boolean
   onRestart: () => void
   onTryPort: (port: number) => void
   onSwitch: (install: YargInstall) => void
+  onTunnel: (enabled: boolean) => void
 }) {
   const songs = state.songs
   const kind = health(state)
@@ -756,6 +911,8 @@ function StatusBlock({
       ) : null}
 
       {kind === 'ready' ? <MediaLine state={state} busy={busy} /> : null}
+
+      {kind === 'ready' ? <TunnelLine state={state} busy={busy} onToggle={onTunnel} /> : null}
 
       {songs && songs.warnings.length > 0 ? (
         <ul className="mt-1.5 space-y-0.5">
@@ -1085,6 +1242,25 @@ function App() {
       return window.yass.restartServer()
     })
 
+  /**
+   * Switch the tunnel on or off, now.
+   *
+   * Saved on its own, never with the draft: ticking a box on the card must not
+   * also commit a half-typed folder path from the fold below it.
+   */
+  const setTunnel = (enabled: boolean) =>
+    run(async () => {
+      const outcome = await window.yass.saveSettings({ tunnel: enabled })
+      setSaved(
+        outcome.applied
+          ? enabled
+            ? 'tunnel switched on'
+            : 'tunnel switched off'
+          : 'saved to the settings file',
+      )
+      return outcome.state
+    })
+
   const pending = bindingPending(state, draft)
 
   // Opened for you when a path is wrong, because that is the one time the
@@ -1105,6 +1281,7 @@ function App() {
           onRestart={() => void run(() => window.yass.restartServer())}
           onTryPort={(port) => void tryPort(port)}
           onSwitch={(install) => void switchInstall(install)}
+          onTunnel={(enabled) => void setTunnel(enabled)}
         />
 
         {failure ? (

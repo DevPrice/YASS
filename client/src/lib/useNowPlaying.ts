@@ -3,14 +3,16 @@
  *
  * SSE gives us automatic browser reconnection, which matters here because YARG
  * restarts, network blips, and proxy idle-timeouts are all routine. A polling
- * fallback kicks in only if the stream can't be established at all.
+ * fallback kicks in while the stream is down, and for good when the server
+ * declines it — over the Cloudflare tunnel, where polling is simply how the
+ * banner stays current and `connected` follows whether the polls succeed.
  */
 
 import { useEffect, useRef, useState } from 'react'
 
 import type { NowPlaying } from '@shared/types'
 import { fetchNowPlaying } from './api'
-import { isConnected, onConnectionChange, onServerEvent } from './events'
+import { isConnected, isStreamDeclined, onConnectionChange, onServerEvent } from './events'
 
 const POLL_FALLBACK_MS = 2000
 
@@ -53,17 +55,25 @@ export function useNowPlaying(): NowPlayingState {
     const startPolling = () => {
       if (pollTimer.current !== null) return
 
-      pollTimer.current = window.setInterval(() => {
+      const poll = () => {
         void fetchNowPlaying()
           .then((state) => {
             if (disposed) return
             setNowPlaying(state)
             setSettled(true)
+            // With no stream coming back, an answer is what "connected" means.
+            if (isStreamDeclined()) setConnected(true)
           })
           .catch(() => {
             /* Server down; the next tick retries. */
+            if (!disposed && isStreamDeclined()) setConnected(false)
           })
-      }, POLL_FALLBACK_MS)
+      }
+
+      pollTimer.current = window.setInterval(poll, POLL_FALLBACK_MS)
+      // Declined means there is no stream to have sent the first state, and a
+      // banner that reads "nothing playing" for two seconds is a wrong answer.
+      if (isStreamDeclined()) poll()
     }
 
     const unsubscribeState = onServerEvent<NowPlaying>('now-playing', (next) => {
@@ -74,7 +84,8 @@ export function useNowPlaying(): NowPlayingState {
 
     const unsubscribeConnection = onConnectionChange((next) => {
       if (disposed) return
-      setConnected(next)
+      // Declined is not offline; the polls below decide that from here on.
+      setConnected(next || isStreamDeclined())
 
       if (next) {
         stopPolling()

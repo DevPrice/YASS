@@ -15,6 +15,8 @@ import { fetchFfmpeg } from './media/ffmpeg.js'
 import { songCachePath } from './core/paths.js'
 import { buildChartIndex, ChartIndex, type ChartIndexMeta } from './media/index.js'
 import { MediaService } from './media/service.js'
+import { fetchCloudflared } from './tunnel/cloudflared.js'
+import { Tunnel } from './tunnel/tunnel.js'
 import {
   applyEnvOverrides,
   bindingChanged,
@@ -59,6 +61,16 @@ export class AppState {
   /** In-flight ffmpeg download, so two clicks don't become two downloads. */
   #installingFfmpeg: Promise<string> | null = null
   /**
+   * The Cloudflare tunnel, which follows the `tunnel` setting.
+   *
+   * Held here rather than in `index.ts` because a settings save is what turns
+   * it on and off, and that is this class's business. `index.ts` only tells it
+   * where the tunnel's listener ended up.
+   */
+  #tunnel = new Tunnel()
+  /** In-flight cloudflared download, for the same reason as ffmpeg's. */
+  #installingCloudflared: Promise<string> | null = null
+  /**
    * Venue lighting, if YARG is broadcasting it.
    *
    * Not configurable and not required. It listens, and if nothing ever arrives
@@ -101,6 +113,8 @@ export class AppState {
     await state.#watcher.start()
     await state.#cacheWatcher.start()
     state.#venue.start()
+    // Waits for `attach` before it spawns anything; see `index.ts`.
+    state.#tunnel.setEnabled(state.#effective.tunnel)
 
     /*
      * The index is built after the server is otherwise ready, and not awaited.
@@ -123,6 +137,10 @@ export class AppState {
 
   get media(): MediaService {
     return this.#media
+  }
+
+  get tunnel(): Tunnel {
+    return this.#tunnel
   }
 
   /**
@@ -308,6 +326,29 @@ export class AppState {
     return this.#installingFfmpeg
   }
 
+  /**
+   * Fetch and install cloudflared, then start the tunnel if it is switched on.
+   *
+   * The host may have ticked the box before there was anything to run, in
+   * which case the tunnel is sitting at `missing` and this is what it was
+   * waiting for.
+   */
+  async installCloudflared(): Promise<string> {
+    if (this.#installingCloudflared !== null) return this.#installingCloudflared
+
+    this.#installingCloudflared = fetchCloudflared()
+      .then((path) => {
+        console.log(`[tunnel] installed cloudflared to ${path}`)
+        this.#tunnel.retry()
+        return path
+      })
+      .finally(() => {
+        this.#installingCloudflared = null
+      })
+
+    return this.#installingCloudflared
+  }
+
   /** Tell every connected browser the library metadata moved. */
   #publishLibrary(): void {
     for (const listener of this.#librarySubscribers) {
@@ -351,6 +392,10 @@ export class AppState {
       void this.rebuildChartIndex()
     }
 
+    // Live, like the data directory: it needs no socket of its own, only a
+    // child process, and the listener it points at is already open.
+    this.#tunnel.setEnabled(this.#effective.tunnel)
+
     return this.settingsView
   }
 
@@ -364,5 +409,6 @@ export class AppState {
     this.#cacheWatcher.stop()
     this.#media.stopPrecompute()
     this.#venue.stop()
+    this.#tunnel.stop()
   }
 }

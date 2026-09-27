@@ -110,6 +110,25 @@ ffmpeg does the decoding and is fetched on demand. The pinned build is a Windows
 Linux the fetch refuses rather than leaving a PE executable named `ffmpeg` in the app's
 directory; art and previews stay dark until the user installs one.
 
+### The tunnel is gated by which socket, not by headers
+
+`server/src/tunnel/` runs an optional Cloudflare quick tunnel. cloudflared is fetched
+on request, like ffmpeg, and the `tunnel` setting switches it live. cloudflared does
+**not** point at the LAN port. `index.ts` opens a second listener on loopback, on an
+ephemeral port, that serves the same Hono app with `viaTunnel: true` added to the
+bindings. The first middleware, `tunnelGate`, requires the per-run key on every
+request that has that flag. The key arrives as `?key=` from the QR code, is swapped
+for an HttpOnly cookie, and is removed from the address with a redirect.
+`isLocalRequest` treats anything flagged `viaTunnel` as remote. Because the socket
+decides, rather than a header that can be forged or left out, nothing that
+cloudflared forwards can skip the gate.
+
+Quick tunnels don't carry SSE, so `/api/events` returns 204 when `viaTunnel` is set.
+`EventSource` treats that as final, and the client polls now-playing instead
+(`isStreamDeclined` in `client/src/lib/events.ts`). The tunnel doesn't count as
+`running` until Cloudflare's resolver can find the hostname. Showing the QR code any
+earlier lets a phone's router cache an NXDOMAIN for the address.
+
 ### The tray app
 
 `desktop/` is CommonJS **on purpose, and only here** — preload scripts cannot be ESM under
