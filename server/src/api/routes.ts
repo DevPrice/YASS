@@ -16,7 +16,12 @@ import { isArtSize } from '../media/store.js'
 import { serveFile } from '../static.js'
 import { isLocalRequest, localOnly } from './local.js'
 
-/** Heartbeat interval for the SSE stream, to keep proxies from idling it out. */
+/**
+ * Heartbeat interval for the SSE stream, to keep proxies from idling it out.
+ *
+ * Also the client's proof that the stream is still arriving: `STALL_MS` in
+ * `client/src/lib/events.ts` is a multiple of this, so change them together.
+ */
 const SSE_KEEPALIVE_MS = 15_000
 
 /** The address this process listens on, which no amount of saving can change. */

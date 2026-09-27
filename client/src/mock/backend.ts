@@ -306,9 +306,9 @@ class MockEventSource extends EventTarget {
     }
 
     // A tick of latency, because opening synchronously inside the constructor
-    // would fire `open` before the caller has attached its listener — which no
-    // real EventSource can do, and which would leave the connection indicator
-    // stuck reading "offline".
+    // would deliver the first events before the caller has attached its
+    // listeners — which no real EventSource can do, and which would leave
+    // `lib/events.ts` waiting for a first event that had already gone by.
     window.setTimeout(() => {
       if (this.readyState === MockEventSource.CLOSED) return
 
