@@ -7,26 +7,25 @@
  * first subscriber and closing after the last one leaves.
  *
  * `EventSource` reconnects on its own, which is most of why the stream is SSE.
- * What it cannot notice is a stream that is open and silent. A buffering proxy —
- * nginx without `X-Accel-Buffering`, a Cloudflare quick tunnel — passes the
- * response headers straight through, so `open` fires, and then holds back every
- * event behind them. So "connected" here means an event has actually arrived,
- * not that the socket opened, and a watchdog treats a stream that has delivered
- * nothing for `STALL_MS` as down: subscribers hear it (the now-playing hook
- * polls instead) and the `EventSource` is replaced, so a stall that was only
- * transient recovers on its own. The same replacement retries a stream the
- * browser has given up on, which it does for good after an error status or a
- * wrong content type.
+ * It cannot notice a stream that is open but silent: a buffering proxy (nginx
+ * without `X-Accel-Buffering`, a Cloudflare quick tunnel) passes the headers
+ * through, so `open` fires, then holds back every event. So "connected" means an
+ * event has arrived, not that the socket opened.
  */
 
 const STREAM_URL = '/api/events'
 
 /**
- * How long the stream may deliver nothing before it counts as stalled.
- *
- * Two and a half times the server's `SSE_KEEPALIVE_MS` (`server/src/api/routes.ts`),
- * the longest a healthy stream goes without at least a `ping`: one late ping is
- * jitter, two missing is a stream that is not arriving. Change them together.
+ * The server writes `now-playing` the moment a stream opens, so silence this
+ * long means the stream is being held back. Subscribers hear "down" and poll,
+ * but the stream is left to `STALL_MS` to replace: behind a proxy that buffers
+ * for good, replacing it this often would be a new request every few seconds.
+ */
+const FIRST_EVENT_MS = 5_000
+
+/**
+ * 2.5× the server's `SSE_KEEPALIVE_MS` (`server/src/api/routes.ts`): one late
+ * `ping` is jitter, two missing is a stall. Change them together.
  */
 const STALL_MS = 37_500
 
@@ -43,6 +42,7 @@ let source: EventSource | null = null
  */
 let connected: boolean | null = null
 let watchdog: ReturnType<typeof setTimeout> | undefined
+let firstEventDeadline: ReturnType<typeof setTimeout> | undefined
 
 function setConnected(next: boolean): void {
   if (connected === next) return
@@ -56,6 +56,7 @@ function armWatchdog(): void {
 }
 
 function heard(): void {
+  clearTimeout(firstEventDeadline)
   setConnected(true)
   armWatchdog()
 }
@@ -93,6 +94,8 @@ function open(): void {
   const stream = new EventSource(STREAM_URL)
   source = stream
   armWatchdog()
+  clearTimeout(firstEventDeadline)
+  firstEventDeadline = setTimeout(() => setConnected(false), FIRST_EVENT_MS)
 
   stream.addEventListener('error', () => setConnected(false))
 
@@ -126,6 +129,7 @@ function closeIfIdle(): void {
   if (hasSubscribers || source === null) return
 
   clearTimeout(watchdog)
+  clearTimeout(firstEventDeadline)
   source.close()
   source = null
   // Nobody is left to tell; the next subscriber starts from "not yet known".

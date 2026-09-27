@@ -18,9 +18,8 @@ import { isLocalRequest, localOnly } from './local.js'
 
 /**
  * Heartbeat interval for the SSE stream, to keep proxies from idling it out.
- *
- * Also the client's proof that the stream is still arriving: `STALL_MS` in
- * `client/src/lib/events.ts` is a multiple of this, so change them together.
+ * `STALL_MS` in `client/src/lib/events.ts` is a multiple of this; change them
+ * together.
  */
 const SSE_KEEPALIVE_MS = 15_000
 

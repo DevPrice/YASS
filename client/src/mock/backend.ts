@@ -305,10 +305,9 @@ class MockEventSource extends EventTarget {
       this.dispatchEvent(new MessageEvent(event, { data: JSON.stringify(payload) }))
     }
 
-    // A tick of latency, because opening synchronously inside the constructor
-    // would deliver the first events before the caller has attached its
-    // listeners — which no real EventSource can do, and which would leave
-    // `lib/events.ts` waiting for a first event that had already gone by.
+    // A tick of latency: events sent inside the constructor would beat the
+    // caller's listeners, which no real EventSource can do, and `lib/events.ts`
+    // would wait for a first event that had already gone by.
     window.setTimeout(() => {
       if (this.readyState === MockEventSource.CLOSED) return
 
