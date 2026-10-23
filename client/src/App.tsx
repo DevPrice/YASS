@@ -740,7 +740,9 @@ export function App() {
                   isPlaying={selected.id === playingId}
                   artHash={detailArtHash}
                   className="p-[25px]"
-                  setlistBadge={<SetlistStanding setlist={setlist} hash={selected.hash} />}
+                  setlistBadge={
+                    <SetlistStanding setlist={setlist} hash={selected.hash} isPlaying={selected.id === playingId} />
+                  }
                 />
               ) : setlistPresent ? (
                 /*
@@ -763,7 +765,13 @@ export function App() {
               )}
             </div>
             {selected ? (
-              <SetlistActionBar key={selected.id} setlist={setlist} hash={selected.hash} mine={mine} />
+              <SetlistActionBar
+                key={selected.id}
+                setlist={setlist}
+                hash={selected.hash}
+                mine={mine}
+                isPlaying={selected.id === playingId}
+              />
             ) : null}
           </aside>
         ) : null}
@@ -843,7 +851,13 @@ export function App() {
           leading={showSound ? <PreviewSoundButton /> : null}
           footer={
             selected ? (
-              <SetlistActionBar key={selected.id} setlist={setlist} hash={selected.hash} mine={mine} />
+              <SetlistActionBar
+                key={selected.id}
+                setlist={setlist}
+                hash={selected.hash}
+                mine={mine}
+                isPlaying={selected.id === playingId}
+              />
             ) : null
           }
         >
@@ -852,7 +866,9 @@ export function App() {
               song={selected}
               isPlaying={selected.id === playingId}
               artHash={detailArtHash}
-              setlistBadge={<SetlistStanding setlist={setlist} hash={selected.hash} />}
+              setlistBadge={
+                <SetlistStanding setlist={setlist} hash={selected.hash} isPlaying={selected.id === playingId} />
+              }
               // Less of the sheet spent on the plate than the pane spends, so a
               // phone shows the title, the album and the whole parts grid without
               // anyone scrolling for them. `--plate-cap` is the bottom sheet's

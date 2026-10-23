@@ -392,15 +392,15 @@ function refusalWords(outcome: EditOutcome): string {
   if (outcome.ok) return ''
   switch (outcome.reason) {
     case 'incompatible':
-      return "this song has no part for someone who's playing right now."
+      return "it's missing an instrument someone in this show is playing."
     case 'songNotFound':
-      return "YARG couldn't find it."
+      return "the host's game won't play this one."
     case 'full':
       return 'the setlist is full.'
     case 'inactive':
       return 'YARG stopped taking songs just then.'
     case 'locked':
-      return "everyone's picking their parts. Try again once the show starts."
+      return 'wait for the first song to start, then add.'
     case 'offline':
       return "couldn't reach the server."
     default:
@@ -964,7 +964,7 @@ function changeRefusal(outcome: EditOutcome, played: boolean): string {
     case 'locked':
       return played
         ? "It's already been played."
-        : "Hold on a moment. Everyone's picking their parts."
+        : 'Wait for the first song to start, then try again.'
     case 'editsOff':
       return 'The host has turned off setlist changes for guests.'
     case 'unavailable':
