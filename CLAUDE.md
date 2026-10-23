@@ -60,6 +60,13 @@ switching, and all three consequences still bite:
   redo it. Without the mappings, genres fall back to exactly as authored.
 - **Nothing is filtered.** Songs above the player's Max Song Rating appear here even though
   YARG hides them.
+- **YARG's settings are followed, not copied.** `core/yargSettings.ts` reads `Genrelizer`
+  and `CensorMatureContent` out of YARG's own `settings.json`; YASS has no setting for
+  either. Censorship moves a `clean_vocals` chart from Mature/Sensitive to Supervision
+  Recommended (`ratingFor`) and switches previews to the `_clean` stems (`chooseAudio`).
+  Whether censorship exists at all is decided by the **cache version**, not the settings
+  file: a cache older than `26_08_12_00` was written by a YARG that plays neither `_clean`
+  nor `_explicit` audio, so previews keep the old mix (`PreviewMix` `legacy`).
 - **There is no second source.** `media/scan.ts` recovers paths and hashes from a disk walk
   but no metadata, so an unsupported cache version means an empty library and a warning.
   The version allowlist in `media/cache.ts` is what guards that.
@@ -74,11 +81,16 @@ same state without going through Hono. Two invariants worth knowing before editi
   overrides. Only `#stored` is ever written back — saving the effective values would bake a
   one-off `YASS_PORT=…` into the user's configuration permanently.
 - **Rebuilds are serialised.** The tray's rebuild button, the cache watcher and startup can
-  all fire at once, and a fallback scan is far too expensive to run three times.
+  all fire at once, and a fallback scan is far too expensive to run three times. Library
+  reloads are not queued but generation-counted: the one that started last wins, so a
+  slow read of an old setting can't land on top of a newer one.
 
 `songcache.bin` is watched; on change the song list reloads first and the chart index
 rebuilds behind it, because the first is a parse and the second can degrade into a walk of
-a network share.
+a network share. YARG's `settings.json` is watched too, because toggling censorship or the
+Genrelizer in game rewrites nothing else; it reloads only the song list, and only when one
+of those two values moved. A half-written `settings.json` keeps the last reading rather
+than falling back to defaults, which would briefly switch censorship off.
 
 ### Push, don't poll
 
@@ -105,6 +117,13 @@ fingerprint, so a stale index is detected rather than trusted. One file per data
 one install's absolute paths being handed to another. Everything downstream — SNG /
 `.yargsong` / CON readers, art extraction, previews, the disk cache — is a function of a
 `ChartRef`. **The index never leaves the server: it holds absolute paths.**
+
+Art is served `immutable`; previews are not. A preview's audio depends on YARG's censorship
+setting as well as the hash, so `/api/preview/:hash` is one URL whose mix the server picks,
+served `no-cache` and revalidated. Per-mix immutable URLs would let a phone that missed the
+library event keep playing uncensored audio out of its own cache. Each mix that can differ
+is its own file on disk (`<hash>.opus`, `.full.opus`, `.clean.opus` — see
+`previewVariant`); CON previews are shared, since a mogg has no clean variant.
 
 ffmpeg does the decoding and is fetched on demand. The pinned build is a Windows one, so on
 Linux the fetch refuses rather than leaving a PE executable named `ffmpeg` in the app's

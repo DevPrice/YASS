@@ -26,7 +26,7 @@ import { calculateBlockLocation } from './stfs.js'
 import { decodeDxt, expectedPayloadBytes, readDxtHeader } from './dxt.js'
 import { parseDta, findSongNode, readSongAudio, getNumbers } from './dta.js'
 import { deriveYargSongKey, decipherYargSong } from './yargsong.js'
-import { previewWindow, buildPanFilter } from './preview.js'
+import { previewWindow, buildPanFilter, chooseAudio, previewVariant } from './preview.js'
 import { parseRange } from '../static.js'
 
 // --- LEB128 ------------------------------------------------------------------
@@ -167,6 +167,7 @@ interface MetadataOptions {
   albumTrack?: number
   lengthMs?: bigint
   rating?: number
+  cleanVocals?: boolean
 }
 
 /**
@@ -184,12 +185,13 @@ const YARG_GUID = 'fixture-guid'
  * The metadata run every entry carries after its hash.
  *
  * Written in `SongEntry.Serialize`'s order, and deliberately followed by a tail
- * of junk: the parser stops at `SongRating`, and the bytes after it stand in
- * for the ~70 fields — venue hints, `CleanVocals`, links, credits — it must
- * never read.
+ * of junk: the parser stops at `CleanVocals`, and the bytes after it stand in
+ * for the ~70 fields — venue hints, links, credits — it must never read.
  *
  * Takes a layout because the run is not the same shape in every supported
- * version: `26_08_21_00` put `YargGuid` in the middle of it.
+ * version: `26_08_21_00` put `YargGuid` in the middle of it, and `26_08_12_00`
+ * added `CleanVocals` at the end. The junk starts with a non-zero byte, so a
+ * reader that took it for `CleanVocals` on an older version reads `true`.
  */
 function metadata(layout: CacheEntryLayout, options: MetadataOptions = {}): Buffer {
   const indices = options.indices ?? [0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -205,6 +207,7 @@ function metadata(layout: CacheEntryLayout, options: MetadataOptions = {}): Buff
     int64(options.lengthMs ?? 0n),
     int64(0n), // SongOffset
     uint32(options.rating ?? 4),
+    ...(layout.cleanVocals ? [Buffer.from([options.cleanVocals === true ? 1 : 0])] : []),
     Buffer.from('venue hints, links and credits, none of which is read'),
   ])
 }
@@ -249,6 +252,7 @@ const ESCAPING_PATH = WINDOWS ? '..\\..\\Windows\\System32' : '../../etc/shadow'
  */
 const CACHE_VERSIONS = [...SUPPORTED_CACHE_VERSIONS.keys()]
 const BASE_VERSION = CACHE_VERSIONS[0]!
+const CLEAN_VOCALS_VERSION = 26_08_12_00
 const GUID_VERSION = 26_08_21_00
 
 /**
@@ -261,7 +265,7 @@ const GUID_VERSION = 26_08_21_00
  * would test nothing the parser will ever see.
  */
 function buildCacheFile(version: number, patches: { corruptUpdate?: boolean } = {}): Buffer {
-  const layout = SUPPORTED_CACHE_VERSIONS.get(version) ?? { yargGuid: false }
+  const layout = SUPPORTED_CACHE_VERSIONS.get(version) ?? { yargGuid: false, cleanVocals: false }
 
   const stringTables = Buffer.concat(
     STRING_TABLES.map((table) =>
@@ -280,6 +284,7 @@ function buildCacheFile(version: number, patches: { corruptUpdate?: boolean } = 
       albumTrack: 3,
       lengthMs: 197_500n,
       rating: 2,
+      cleanVocals: true,
       parts: {
         [BAND]: [1, 4],
         [FIVE_FRET_GUITAR]: [31, 2],
@@ -471,10 +476,28 @@ describe('songcache.bin', () => {
     // index and `IsMaster`, so every scalar after it moves — and none of them is
     // a value a reader could sanity-check. Wrong here means a library of wrong
     // durations and wrong track numbers, presented with total confidence.
-    const before = parseSongCache(buildCacheFile(BASE_VERSION)).songs
+    const before = parseSongCache(buildCacheFile(CLEAN_VOCALS_VERSION)).songs
     const after = parseSongCache(buildCacheFile(GUID_VERSION)).songs
 
     assert.deepEqual(after, before)
+  })
+
+  it('reads CleanVocals only from the versions that write it', () => {
+    const [ini, sng] = parseSongCache(buildCacheFile(CLEAN_VOCALS_VERSION)).songs
+    assert.equal(ini?.meta.cleanVocals, true)
+    assert.equal(sng?.meta.cleanVocals, false)
+    // Everything else in the run is unmoved by the byte after it.
+    assert.equal(ini?.meta.rating, 2)
+
+    // Before `26_08_12_00` the byte after `SongRating` is the start of the tail,
+    // and a non-zero one at that. Reading it would call every chart clean.
+    const [old] = parseSongCache(buildCacheFile(BASE_VERSION)).songs
+    assert.equal(old?.meta.cleanVocals, false)
+  })
+
+  it('reports the layout it read, which is what says YARG can censor', () => {
+    assert.equal(parseSongCache(buildCacheFile(BASE_VERSION)).layout.cleanVocals, false)
+    assert.equal(parseSongCache(buildCacheFile(CLEAN_VOCALS_VERSION)).layout.cleanVocals, true)
   })
 
   it('reads past a YargGuid rather than off the end of it', () => {
@@ -927,6 +950,121 @@ describe('previewWindow', () => {
       start: 20,
       duration: 30,
     })
+  })
+})
+
+describe('chooseAudio', () => {
+  /** A chart folder holding exactly these files. */
+  const chart = (...names: string[]) => {
+    const files = new Set(names)
+    return (name: string) => files.has(name)
+  }
+
+  /** Every file name that matters, in the shape In Bloom ships plus the rest. */
+  const everything = chart(
+    'preview.ogg',
+    'preview_clean.ogg',
+    'song.opus',
+    'song_clean.opus',
+    'guitar.opus',
+    'vocals.opus',
+    'vocals_1.opus',
+    'vocals_clean.opus',
+    'vocals_explicit.opus',
+    'crowd.ogg',
+    'crowd_clean.ogg',
+    'crowd_explicit.ogg',
+  )
+
+  it('plays a pre-YARG-censorship chart exactly as before', () => {
+    // The release-channel regression check: a `legacy` mix must ignore every
+    // `_clean` and `_explicit` file, because the YARG playing it does.
+    assert.deepEqual(chooseAudio(everything, 'legacy'), { preview: 'preview.ogg' })
+
+    const stems = chart('song.opus', 'vocals.opus', 'vocals_clean.opus', 'vocals_explicit.opus', 'crowd.ogg')
+    assert.deepEqual(chooseAudio(stems, 'legacy'), { stems: ['song.opus', 'vocals.opus'] })
+  })
+
+  it('uses the clean preview file, and only that one, when censoring', () => {
+    assert.deepEqual(chooseAudio(everything, 'censored'), { preview: 'preview_clean.ogg' })
+    assert.deepEqual(chooseAudio(everything, 'uncensored'), { preview: 'preview.ogg' })
+  })
+
+  it('mixes stems rather than trust an unlabelled preview when censoring', () => {
+    // YARG cannot know `preview.ogg` is clean, so it does not use it.
+    const choice = chooseAudio(chart('preview.ogg', 'song.opus', 'vocals_clean.opus'), 'censored')
+    assert.deepEqual(choice, { stems: ['vocals_clean.opus', 'song.opus'] })
+  })
+
+  it('replaces a whole stem group with its clean stem', () => {
+    // `vocals_clean` loads as `SongStem.Vocals`, which is what `vocals`,
+    // `vocals_1` and `vocals_2` load as too — so all three give way to it.
+    const stems = chart(
+      'song.opus',
+      'song_clean.opus',
+      'guitar.opus',
+      'vocals.opus',
+      'vocals_1.opus',
+      'vocals_2.opus',
+      'vocals_clean.opus',
+      'crowd_clean.ogg',
+    )
+    assert.deepEqual(chooseAudio(stems, 'censored'), {
+      stems: ['song_clean.opus', 'vocals_clean.opus', 'guitar.opus'],
+    })
+  })
+
+  it('leaves a group alone when it has no clean stem', () => {
+    // In Bloom's shape: clean vocals, an ordinary backing track.
+    const stems = chart('song.opus', 'guitar.opus', 'vocals.opus', 'vocals_clean.opus')
+    assert.deepEqual(chooseAudio(stems, 'censored'), {
+      stems: ['vocals_clean.opus', 'song.opus', 'guitar.opus'],
+    })
+    // And the same chart uncensored is the explicit take, `vocals_clean` unused.
+    assert.deepEqual(chooseAudio(stems, 'uncensored'), {
+      stems: ['song.opus', 'guitar.opus', 'vocals.opus'],
+    })
+  })
+
+  it('layers the explicit stems on top when not censoring', () => {
+    const stems = chart('song.opus', 'vocals.opus', 'vocals_explicit.opus', 'vocals_2_explicit.ogg')
+    assert.deepEqual(chooseAudio(stems, 'uncensored'), {
+      stems: ['song.opus', 'vocals.opus', 'vocals_explicit.opus', 'vocals_2_explicit.ogg'],
+    })
+    assert.deepEqual(chooseAudio(stems, 'censored'), { stems: ['song.opus', 'vocals.opus'] })
+  })
+
+  it('never mixes the crowd, in any of its variants', () => {
+    const crowd = chart('song.opus', 'crowd.ogg', 'crowd_clean.ogg', 'crowd_explicit.ogg')
+    for (const mix of ['legacy', 'uncensored', 'censored'] as const) {
+      assert.deepEqual(chooseAudio(crowd, mix), { stems: ['song.opus'] })
+    }
+  })
+
+  it('takes the first extension present for each stem, as TryLoadStem does', () => {
+    const stems = chart('vocals_clean.ogg', 'vocals_clean.mp3', 'vocals_clean.opus')
+    assert.deepEqual(chooseAudio(stems, 'censored'), { stems: ['vocals_clean.opus'] })
+  })
+
+  it('has nothing to offer a chart with no audio', () => {
+    assert.equal(chooseAudio(chart('notes.mid', 'song.ini'), 'censored'), null)
+  })
+})
+
+describe('previewVariant', () => {
+  it('keeps the original file name wherever the mix cannot differ', () => {
+    // An install that never runs a censoring YARG keeps its whole cache.
+    assert.equal(previewVariant('Ini', 'legacy'), 'base')
+    assert.equal(previewVariant('Sng', 'legacy'), 'base')
+    // A mogg sounds the same under any mix, and extracting it twice is the
+    // most expensive preview there is.
+    assert.equal(previewVariant('CON', 'censored'), 'base')
+    assert.equal(previewVariant('ExCON', 'uncensored'), 'base')
+  })
+
+  it('gives each censorship-aware mix its own file', () => {
+    assert.equal(previewVariant('Ini', 'uncensored'), 'full')
+    assert.equal(previewVariant('Sng', 'censored'), 'clean')
   })
 })
 

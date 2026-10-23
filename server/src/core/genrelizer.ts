@@ -37,6 +37,7 @@ import { join } from 'node:path'
 
 import { BROAD_GENRES, BROAD_OTHER } from './genrelizer.broad.js'
 import { MAGMA_PAIRS } from './genrelizer.magma.js'
+import { readYargSettings } from './yargSettings.js'
 
 /**
  * YARG's `GenrelizerMode`, as stored in its own `settings.json`.
@@ -50,27 +51,14 @@ import { MAGMA_PAIRS } from './genrelizer.magma.js'
  */
 export type GenrelizerMode = 'off' | 'genrelize' | 'overgenrelize'
 
-const MODES: readonly GenrelizerMode[] = ['off', 'genrelize', 'overgenrelize']
-
 /**
  * Read the player's setting out of YARG's data directory.
  *
  * Defaults to `genrelize`, which is YARG's own default, whenever the file is
- * missing or says something unexpected — the same rule `readSongFolders` uses
- * for the same file.
+ * missing or says something unexpected. See `core/yargSettings.ts`.
  */
 export async function readGenrelizerMode(yargDataDir: string): Promise<GenrelizerMode> {
-  if (!yargDataDir) return 'genrelize'
-
-  try {
-    const raw: unknown = JSON.parse(await readFile(join(yargDataDir, 'settings.json'), 'utf8'))
-    const value = (raw as { Genrelizer?: unknown })?.Genrelizer
-    if (typeof value === 'number' && MODES[value] !== undefined) return MODES[value]!
-  } catch {
-    // No settings file, or not readable. YARG's default it is.
-  }
-
-  return 'genrelize'
+  return (await readYargSettings(yargDataDir)).genrelizer
 }
 
 /** What a lookup produces: an official genre, and the detail it came with. */
@@ -538,8 +526,8 @@ export async function loadGenreTable(directory: string): Promise<GenreTable> {
  * Cached, and the mode deliberately is not. Building the table is seventy-three
  * file reads and seven thousand keys, and YARG only re-downloads the mappings
  * when *it* starts — but the mode is one small JSON read, and a player who
- * changes the setting and rescans should see the difference on the reload that
- * follows rather than on a server restart.
+ * changes the setting should see the difference as soon as `state.ts` notices
+ * YARG saving it, rather than on a server restart.
  */
 let cachedTable: Promise<GenreTable | null> | null = null
 
@@ -568,8 +556,7 @@ function table(): Promise<GenreTable | null> {
  * normalization off in YARG, or the mappings are not on this machine. Both end
  * in the same place, and the caller does not have to care which.
  */
-export async function genreResolver(yargDataDir: string): Promise<Genrelizer | null> {
-  const mode = await readGenrelizerMode(yargDataDir)
+export async function genreResolver(mode: GenrelizerMode): Promise<Genrelizer | null> {
   if (mode === 'off') return null
 
   const loaded = await table()

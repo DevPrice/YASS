@@ -150,11 +150,12 @@ async function sendFile(
   c.header('Accept-Ranges', 'bytes')
   // Vite fingerprints asset filenames, so those can be cached hard. index.html
   // must not be, or a rebuild never reaches an open tab.
+  const scope = options.privateCache ? 'private' : 'public'
   c.header(
     'Cache-Control',
     options.immutable
-      ? `${options.privateCache ? 'private' : 'public'}, max-age=31536000, immutable`
-      : 'no-cache, must-revalidate',
+      ? `${scope}, max-age=31536000, immutable`
+      : `${options.privateCache ? 'private, ' : ''}no-cache, must-revalidate`,
   )
 
   const range = parseRange(c.req.header('range'), info.size)

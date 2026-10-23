@@ -138,9 +138,15 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
      * `builtAt` moves on every rebuild, including ones that changed nothing.
      * That costs an occasional re-download of a payload the client asked to
      * revalidate anyway, which is the right side to be wrong on.
+     *
+     * YARG's own settings are in it for the same reason: toggling censorship or
+     * the Genrelizer rewrites every rating or genre in the payload without
+     * touching the cache file, and a 304 then would strand phones on the old
+     * ones.
      */
     const media = state.charts.meta
-    const etag = `W/"songs-${library.meta.generatedAt ?? 0}-${library.meta.count}-${media.builtAt}-${media.count}"`
+    const yarg = `${state.previewMix}-${state.yargSettings.genrelizer}`
+    const etag = `W/"songs-${library.meta.generatedAt ?? 0}-${library.meta.count}-${media.builtAt}-${media.count}-${yarg}"`
     if (c.req.header('if-none-match') === etag) {
       return c.body(null, 304)
     }
@@ -320,22 +326,28 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
   /**
    * About thirty seconds of a song, as Opus.
    *
-   * Generated on first request and cached forever after, so the first person to
-   * open a song waits roughly a second and nobody else does. The client hides
-   * even that by prefetching with a `HEAD` as soon as a song is selected.
+   * Generated on first request and kept on disk after, so the first person to
+   * open a song waits roughly a second and nobody else does.
    *
    * **Range support is load-bearing here.** iOS Safari refuses to play an
    * `<audio>` source from a server that answers a range request with a `200`,
    * so `serveFile` handles `Range`, `206` and `416` — see `static.ts`.
+   *
+   * **Revalidated, not `immutable`, unlike art.** The hash does not decide the
+   * audio on its own: YARG's censorship setting does too, and the host can flip
+   * it mid-party. One URL whose answer the server picks is the only shape a
+   * phone cannot get wrong. A URL per mix, cached for a year, would let a phone
+   * that missed the library event — a dropped stream, a sleeping tab — keep
+   * playing the uncensored file straight out of its own cache, with nothing on
+   * the server able to stop it. The price is one conditional request per play,
+   * answered `304` on a LAN. Each mix is its own file, so the default
+   * `mtime-size` ETag already tells them apart.
    */
   api.get('/preview/:hash', async (c) => {
-    const path = await state.media.previewFile(c.req.param('hash'))
+    const path = await state.media.previewFile(c.req.param('hash'), state.previewMix)
     if (path === null) return c.body(null, 404)
 
-    // Same reasoning as art: the hash is the content key, so this URL can never
-    // come to mean different audio.
     const response = await serveFile(c, path, {
-      immutable: true,
       privateCache: true,
       contentType: 'audio/ogg',
     })

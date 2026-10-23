@@ -22,6 +22,22 @@
  * plays. A chart that ships an explicit `preview.ogg` is the exception: that
  * file *is* the preview, and it is used alone.
  *
+ * ## Censorship changes the mix, and so does the YARG version
+ *
+ * YARG's `CensorMatureContent` setting decides which files a loose or `.sng`
+ * chart plays, by file name alone — `clean_vocals` in the song.ini plays no
+ * part in it. See `chooseAudio` for the rules. A CON's mogg has no clean
+ * variant and sounds the same either way.
+ *
+ * A YARG from before the setting existed plays neither the `_clean` nor the
+ * `_explicit` files, and a preview here must not either: a phone playing a
+ * `vocals_explicit` layer the game leaves out is the same disagreement as one
+ * playing swearing the game mutes. That is the third `PreviewMix`, and it is
+ * decided by the cache version — see `CacheEntryLayout.cleanVocals`.
+ *
+ * Each mix that can sound different is cached under its own name — see
+ * `previewVariant` — so flipping the setting never serves the other one's file.
+ *
  * ## Output
  *
  * Opus at 64 kbps, ~150-200 KB, seekable, and playable in every browser a
@@ -71,6 +87,111 @@ export const AUDIO_EXTENSIONS = ['.opus', '.ogg', '.mp3', '.wav', '.aiff'] as co
 
 /** `preview.opus`, `preview.ogg`, … — a chart's own pre-made preview. */
 export const PREVIEW_FILES = AUDIO_EXTENSIONS.map((extension) => `preview${extension}`)
+
+/** `CLEAN_PREVIEW_FILES`: the pre-made preview a censoring YARG plays instead. */
+export const CLEAN_PREVIEW_FILES = AUDIO_EXTENSIONS.map((extension) => `preview_clean${extension}`)
+
+/**
+ * `IniAudio.SupportedCleanStems`, each with the stem group it stands in for.
+ *
+ * The group is YARG's `SongStem`, and it is the unit of replacement: one
+ * `vocals_clean` displaces `vocals`, `vocals_1` and `vocals_2` together, since
+ * all three load as `SongStem.Vocals`. `crowd_clean` is left out for the reason
+ * `crowd` is.
+ */
+const CLEAN_STEMS = [
+  ['song_clean', 'song'],
+  ['vocals_clean', 'vocals'],
+  ['vocals_1_clean', 'vocals'],
+  ['vocals_2_clean', 'vocals'],
+] as const
+
+/** `IniAudio.SupportedExplicitStems`, less `crowd_explicit`. */
+const EXPLICIT_STEMS = ['vocals_explicit', 'vocals_1_explicit', 'vocals_2_explicit'] as const
+
+/** The `SongStem` a base stem loads as, for the two groups a clean stem can replace. */
+function stemGroup(stem: string): 'song' | 'vocals' | null {
+  if (stem === 'song') return 'song'
+  if (stem === 'vocals' || stem === 'vocals_1' || stem === 'vocals_2') return 'vocals'
+  return null
+}
+
+/**
+ * Which of YARG's stem rules a preview follows.
+ *
+ *  - `legacy` — a YARG that predates censorship: `preview.*`, else the base
+ *    stems. Exactly what this file did before any of this existed.
+ *  - `uncensored` — censorship off: as `legacy`, plus the `_explicit` stems
+ *    mixed in on top.
+ *  - `censored` — censorship on: `preview_clean.*` and never `preview.*`, else
+ *    the base stems with each `_clean` one replacing its group.
+ */
+export type PreviewMix = 'legacy' | 'uncensored' | 'censored'
+
+/** A chart's own preview file, used alone, or the stems to mix. Lower-case names. */
+export type AudioChoice = { preview: string } | { stems: string[] }
+
+/**
+ * The files YARG would play as this chart's preview.
+ *
+ * A port of `LoadPreviewAudio` and `CreateAudioMixer` (`SongEntry.Sng.cs`,
+ * `SongEntry.UnpackedIni.cs`), with `SongStem.Crowd` ignored as the preview
+ * ignores it. Each stem takes the first extension present, as `TryLoadStem`
+ * does. `has` answers for a lower-case file name.
+ *
+ * Note what a censored chart with only `preview.ogg` gets: a stem mix. YARG
+ * cannot know whether that file is clean, so it does not use it.
+ */
+export function chooseAudio(has: (name: string) => boolean, mix: PreviewMix): AudioChoice | null {
+  const first = (stem: string): string | null =>
+    AUDIO_EXTENSIONS.map((extension) => `${stem}${extension}`).find(has) ?? null
+
+  const preview = (mix === 'censored' ? CLEAN_PREVIEW_FILES : PREVIEW_FILES).find(has)
+  if (preview !== undefined) return { preview }
+
+  const stems: string[] = []
+  const replaced = new Set<string>()
+
+  if (mix === 'censored') {
+    for (const [stem, group] of CLEAN_STEMS) {
+      const name = first(stem)
+      if (name === null) continue
+      stems.push(name)
+      replaced.add(group)
+    }
+  }
+
+  for (const stem of PREVIEW_STEMS) {
+    const group = stemGroup(stem)
+    if (group !== null && replaced.has(group)) continue
+    const name = first(stem)
+    if (name !== null) stems.push(name)
+  }
+
+  if (mix === 'uncensored') {
+    for (const stem of EXPLICIT_STEMS) {
+      const name = first(stem)
+      if (name !== null) stems.push(name)
+    }
+  }
+
+  return stems.length === 0 ? null : { stems }
+}
+
+/**
+ * Which cached file a preview is: one name per mix that can sound different.
+ *
+ * `base` is the name every preview had before censorship existed, and it is
+ * still right for `legacy` and for every CON, whose mogg sounds the same under
+ * any mix — so an install that never runs a censoring YARG keeps its cache,
+ * and a CON is never extracted twice for the same audio.
+ */
+export type PreviewVariant = 'base' | 'full' | 'clean'
+
+export function previewVariant(format: ChartRef['format'], mix: PreviewMix): PreviewVariant {
+  if (format === 'CON' || format === 'ExCON' || mix === 'legacy') return 'base'
+  return mix === 'censored' ? 'clean' : 'full'
+}
 
 export interface PreviewWindow {
   start: number
@@ -222,7 +343,7 @@ async function tempDir(): Promise<string> {
 }
 
 /** Loose ini chart: a preview file, or every stem but the crowd. */
-async function planIni(ref: ChartRef, ffmpegPath: string): Promise<PreviewPlan | null> {
+async function planIni(ref: ChartRef, ffmpegPath: string, mix: PreviewMix): Promise<PreviewPlan | null> {
   let names: Map<string, string>
   try {
     names = new Map(
@@ -248,40 +369,19 @@ async function planIni(ref: ChartRef, ffmpegPath: string): Promise<PreviewPlan |
     }
   }
 
-  // A chart's own preview file is used alone, and its length is its own.
-  for (const candidate of PREVIEW_FILES) {
-    const actual = names.get(candidate)
-    if (actual === undefined) continue
+  const choice = chooseAudio((name) => names.has(name), mix)
+  if (choice === null) return null
 
-    const path = join(ref.path, actual)
-    return {
-      inputs: [path],
-      temporary: [],
-      lengthSeconds: await probeDuration(ffmpegPath, path),
-      startMs,
-      endMs,
-      panFilter: null,
-    }
-  }
-
-  const inputs: string[] = []
-  for (const stem of PREVIEW_STEMS) {
-    for (const extension of AUDIO_EXTENSIONS) {
-      const actual = names.get(`${stem}${extension}`)
-      if (actual !== undefined) {
-        inputs.push(join(ref.path, actual))
-        break
-      }
-    }
-  }
-
-  if (inputs.length === 0) return null
+  const inputs = ('preview' in choice ? [choice.preview] : choice.stems).map((name) =>
+    join(ref.path, names.get(name)!),
+  )
 
   return {
     inputs,
     temporary: [],
-    // Probing the first stem is one extra ffmpeg call and avoids depending on
-    // the CSV having a length for this song.
+    // Probing the first input is one extra ffmpeg call and avoids depending on
+    // the song list having a length for this song. A preview file's length is
+    // its own, not the song's.
     lengthSeconds: await probeDuration(ffmpegPath, inputs[0]!),
     startMs,
     endMs,
@@ -297,7 +397,12 @@ async function planIni(ref: ChartRef, ffmpegPath: string): Promise<PreviewPlan |
  * SNG preview the most expensive kind, which is why they are generated on
  * demand and then kept.
  */
-async function planSng(ref: ChartRef, ffmpegPath: string, hash: string): Promise<PreviewPlan | null> {
+async function planSng(
+  ref: ChartRef,
+  ffmpegPath: string,
+  hash: string,
+  mix: PreviewMix,
+): Promise<PreviewPlan | null> {
   const pkg = await openSngPackage(ref.path)
   if (pkg === null) return null
 
@@ -308,40 +413,19 @@ async function planSng(ref: ChartRef, ffmpegPath: string, hash: string): Promise
     const startMs = Number(pkg.metadata.get('preview_start_time') ?? NaN)
     const endMs = Number(pkg.metadata.get('preview_end_time') ?? NaN)
 
-    const write = async (name: string): Promise<string> => {
-      const listing = pkg.listings.get(name)!
-      const path = join(dir, `${hash}.${name}`)
-      await writeFile(path, await pkg.readFile(listing))
-      temporary.push(path)
-      return path
-    }
-
-    for (const candidate of PREVIEW_FILES) {
-      if (!pkg.listings.has(candidate)) continue
-
-      const path = await write(candidate)
-      return {
-        inputs: [path],
-        temporary,
-        lengthSeconds: await probeDuration(ffmpegPath, path),
-        startMs: Number.isFinite(startMs) ? startMs : null,
-        endMs: Number.isFinite(endMs) ? endMs : null,
-        panFilter: null,
-      }
-    }
+    const choice = chooseAudio((name) => pkg.listings.has(name), mix)
+    if (choice === null) return null
 
     const inputs: string[] = []
-    for (const stem of PREVIEW_STEMS) {
-      for (const extension of AUDIO_EXTENSIONS) {
-        const name = `${stem}${extension}`
-        if (pkg.listings.has(name)) {
-          inputs.push(await write(name))
-          break
-        }
-      }
+    for (const name of 'preview' in choice ? [choice.preview] : choice.stems) {
+      // The mix is in the name because two mixes of one song can be built at
+      // once, and both extract `guitar.opus`: whichever finished first would
+      // delete the other's input out from under ffmpeg.
+      const path = join(dir, `${hash}.${mix}.${name}`)
+      temporary.push(path)
+      await writeFile(path, await pkg.readFile(pkg.listings.get(name)!))
+      inputs.push(path)
     }
-
-    if (inputs.length === 0) return null
 
     return {
       inputs,
@@ -513,6 +597,7 @@ export interface GenerateOptions {
    * file we just extracted.
    */
   fallbackLengthSeconds: number | null
+  mix: PreviewMix
 }
 
 /**
@@ -522,17 +607,17 @@ export interface GenerateOptions {
  * share that went away — and the route turns it into a 404.
  */
 export async function generatePreview(options: GenerateOptions): Promise<boolean> {
-  const { ffmpegPath, ref, hash, destination } = options
+  const { ffmpegPath, ref, hash, destination, mix } = options
 
   let plan: PreviewPlan | null = null
 
   try {
     switch (ref.format) {
       case 'Ini':
-        plan = await planIni(ref, ffmpegPath)
+        plan = await planIni(ref, ffmpegPath, mix)
         break
       case 'Sng':
-        plan = await planSng(ref, ffmpegPath, hash)
+        plan = await planSng(ref, ffmpegPath, hash, mix)
         break
       case 'CON':
         plan = await planCon(ref, hash)

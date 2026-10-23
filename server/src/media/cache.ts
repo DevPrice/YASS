@@ -68,10 +68,9 @@ import type { ChartRef } from './types.js'
 /**
  * What a given cache version does to the run this reader reads.
  *
- * There is one flag here today, and the honest description of this type is "the
- * differences that were not free". Everything else YARG has added since this
- * parser was written landed in the tail an entry's own length prefix skips, and
- * cost nothing; `yargGuid` is the first field that did not.
+ * The honest description of this type is "the differences that were not free".
+ * Everything else YARG has added since this parser was written landed in the
+ * tail an entry's own length prefix skips, and cost nothing.
  */
 export interface CacheEntryLayout {
   /**
@@ -83,6 +82,18 @@ export interface CacheEntryLayout {
    * the value — it is read only to know where `IsMaster` starts.
    */
   yargGuid: boolean
+  /**
+   * `CleanVocals`, a `bool` written immediately after `SongRating`. Added in
+   * `26_08_12_00`, by the same YARG.Core commit (`6e08bad1`) that taught the
+   * game to censor.
+   *
+   * So this flag means two things, and the second is the one that matters
+   * more: the build that wrote this cache knows about `_clean` and `_explicit`
+   * audio, and about the `CensorMatureContent` setting. A cache without it was
+   * written by a YARG that mixes neither, whatever its `settings.json` says —
+   * see `PreviewMix` in `preview.ts`.
+   */
+  cleanVocals: boolean
 }
 
 /**
@@ -98,7 +109,7 @@ export interface CacheEntryLayout {
  * So a version earns its place here by inspection, not by being recent. Each
  * was verified by diffing every file under `Song/Cache/` and `Song/Entries/`
  * between its commit and the one before it, and accounting for every
- * serialization change at or before `SongRating` — which is where
+ * serialization change up to and including `CleanVocals` — which is where
  * `readMetadata` stops. Across all seven, the head of every entry — relative
  * path, format byte, timestamps, then the hash — is byte-identical, as are the
  * group order, `AvailableParts`, the string-table count, the CON group's
@@ -108,7 +119,7 @@ export interface CacheEntryLayout {
  * |---------------|---------------------------------------------------------|-----------------------------------|
  * | `26_04_28_00` | `108f6c16` "Add support for charter_audio metadata …"    | —                                 |
  * | `26_07_23_00` | `1a970e88` "Fix vocal gender parsing for ini and con"    | — `VenueHint` and after           |
- * | `26_08_12_00` | `6e08bad1` "Add vocals censorship chart feature (#405)"  | — `CleanVocals`, one field after  |
+ * | `26_08_12_00` | `6e08bad1` "Add vocals censorship chart feature (#405)"  | **`CleanVocals`, after `SongRating`** |
  * | `26_08_21_00` | `180dc09f` "Add support for yarg_guid ini tag"           | **`YargGuid`, before `IsMaster`** |
  * | `26_09_04_00` | `b9be7bb1` "Parse 6f credit tags from ini and save …"    | — `Charter*` strings, in the tail |
  * | `26_09_29_00` | `65e4fc99` "Parse Date Released and Vocalist Gender …"   | — `ReleaseDate`, in the tail      |
@@ -120,7 +131,8 @@ export interface CacheEntryLayout {
  * rescan that fills it in.
  * `26_08_12_00` and `26_08_21_00` are worth reading together, because they are
  * the two outcomes this table exists to tell apart. `26_08_12_00` added a
- * `bool` immediately *after* `SongRating` and needed no code at all.
+ * `bool` immediately *after* `SongRating`, which moved nothing this reader had
+ * already read — it is read now only because the age rating depends on it.
  * `26_08_21_00` added a variable-length string *before* `IsMaster` and moved
  * every scalar after it — a reader that ignored the difference would have kept
  * parsing, silently, and returned a library of wrong track numbers and wrong
@@ -139,13 +151,13 @@ export interface CacheEntryLayout {
  * YARG's process guarantees that.
  */
 export const SUPPORTED_CACHE_VERSIONS: ReadonlyMap<number, CacheEntryLayout> = new Map([
-  [26_04_28_00, { yargGuid: false }],
-  [26_07_23_00, { yargGuid: false }],
-  [26_08_12_00, { yargGuid: false }],
-  [26_08_21_00, { yargGuid: true }],
-  [26_09_04_00, { yargGuid: true }],
-  [26_09_29_00, { yargGuid: true }],
-  [26_10_14_00, { yargGuid: true }],
+  [26_04_28_00, { yargGuid: false, cleanVocals: false }],
+  [26_07_23_00, { yargGuid: false, cleanVocals: false }],
+  [26_08_12_00, { yargGuid: false, cleanVocals: true }],
+  [26_08_21_00, { yargGuid: true, cleanVocals: true }],
+  [26_09_04_00, { yargGuid: true, cleanVocals: true }],
+  [26_09_29_00, { yargGuid: true, cleanVocals: true }],
+  [26_10_14_00, { yargGuid: true, cleanVocals: true }],
 ])
 
 /** 20 bytes of SHA-1, written raw by `HashWrapper.Serialize`. */
@@ -236,8 +248,13 @@ export interface CacheSongMeta {
   /** `int.MaxValue` when unset, which is YARG's sentinel rather than a track. */
   albumTrack: number
   lengthMs: number
-  /** `SongRating`, as its raw enum ordinal. */
+  /** `SongRating`, as its raw enum ordinal — as authored, before censorship. */
   rating: number
+  /**
+   * `clean_vocals` from the chart's song.ini. False on every version older than
+   * `26_08_12_00`, and on every CON, which has no way to set it.
+   */
+  cleanVocals: boolean
 
   parts: Record<PartName, PartValue>
 }
@@ -487,10 +504,11 @@ function pick(table: readonly string[], index: number, what: string): string {
  *
  * ## Why this is safe to read, when the ~90 fields after it are not
  *
- * The layout from the hash up to `SongRating` is almost all fixed-size: a
+ * The layout from the hash up to `CleanVocals` is almost all fixed-size: a
  * `sizeof`'d `AvailableParts`, nine string-table indices, two bools, four
- * `int32`s, two `int64`s and a `uint32`. Nothing in it is parsed conditionally,
- * so nothing here depends on having correctly interpreted anything before it.
+ * `int32`s, two `int64`s, a `uint32` and a last bool. Nothing in it is parsed
+ * conditionally, so nothing here depends on having correctly interpreted
+ * anything before it.
  *
  * The one exception is `YargGuid`, a string `26_08_21_00` inserted after the
  * `Source` index, which is why `layout` exists — see `CacheEntryLayout`. Note
@@ -498,11 +516,12 @@ function pick(table: readonly string[], index: number, what: string): string {
  * but only because the version told us to expect it. A version whose layout was
  * guessed would read a length byte out of `IsMaster` and wander.
  *
- * This still stops at `SongRating` rather than going further, and the entry's
- * own length prefix skips the rest. Everything past that point — the previews,
- * `CleanVocals`, the venue hints, the links, the credits — has changed
- * repeatedly across the supported versions and never once cost us a line of
- * code. That is the whole reason the read region is drawn where it is.
+ * This still stops at `CleanVocals` — `SongRating` on older versions — rather
+ * than going further, and the entry's own length prefix skips the rest.
+ * Everything past that point — the previews, the venue hints, the links, the
+ * credits — has changed repeatedly across the supported versions and never once
+ * cost us a line of code. That is the whole reason the read region is drawn
+ * where it is.
  */
 function readMetadata(
   entry: Cursor,
@@ -541,6 +560,7 @@ function readMetadata(
   entry.skip(8) // SongOffset
 
   const rating = entry.u32()
+  const cleanVocals = layout.cleanVocals ? entry.bool() : false
 
   return {
     name,
@@ -556,6 +576,7 @@ function readMetadata(
     albumTrack,
     lengthMs,
     rating,
+    cleanVocals,
     parts,
   }
 }
@@ -756,6 +777,8 @@ export interface CacheParseResult {
   songs: CacheSong[]
   /** The version stamp actually found, for the log line when it isn't ours. */
   version: number
+  /** What that version wrote — which also says what the YARG that wrote it can do. */
+  layout: CacheEntryLayout
 }
 
 /**
@@ -792,7 +815,7 @@ export function parseSongCache(data: Buffer): CacheParseResult {
   for (const group of stream.loop()) readIniGroup(group, strings, layout, songs)
   for (const group of stream.loop()) readConGroup(group, strings, layout, mods, songs)
 
-  return { songs, version }
+  return { songs, version, layout }
 }
 
 /** Read and parse a cache file. Rejects with `CacheFormatError` on a bad one. */

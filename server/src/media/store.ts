@@ -6,7 +6,9 @@
  *     charts-<digest>.json the chart index, one per YARG data dir (see index.ts)
  *     art\<hash>.sm.webp   256px thumbnails, precomputed for the whole library
  *     art\<hash>.lg.webp   640px covers, generated when a song is opened
- *     preview\<hash>.opus  ~30s previews, generated when one is played
+ *     preview\<hash>.opus        ~30s previews, generated when one is played
+ *     preview\<hash>.full.opus   the same, where YARG's censorship setting can
+ *     preview\<hash>.clean.opus  change the mix (see `previewVariant`)
  * ```
  *
  * Two different caching stories, on purpose:
@@ -25,6 +27,7 @@ import { mkdir, readdir, rm, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { mediaCacheDir } from '../core/paths.js'
+import type { PreviewVariant } from './preview.js'
 
 export { mediaCacheDir }
 
@@ -66,9 +69,10 @@ export function artPath(hash: string, size: ArtSize): string | null {
   return safe === null ? null : join(artDir(), `${safe}.${size}.webp`)
 }
 
-export function previewPath(hash: string): string | null {
+export function previewPath(hash: string, variant: PreviewVariant): string | null {
   const safe = safeHash(hash)
-  return safe === null ? null : join(previewDir(), `${safe}.opus`)
+  if (safe === null) return null
+  return join(previewDir(), variant === 'base' ? `${safe}.opus` : `${safe}.${variant}.opus`)
 }
 
 /** Canonical uppercase hex, or null. The only thing allowed into a filename. */

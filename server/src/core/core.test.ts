@@ -18,10 +18,12 @@ import {
   buildLibrarySongs,
   parseYear,
   partDifficulty,
+  previewMixFor,
   trackNumber,
   vocalPartCount,
 } from './library.js'
 import { stripRichText } from './richtext.js'
+import { DEFAULT_YARG_SETTINGS } from './yargSettings.js'
 import type { CacheSong, CacheSongMeta, PartName, PartValue } from '../media/cache.js'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures')
@@ -80,6 +82,7 @@ function entry(hash: string, meta: Partial<CacheSongMeta> = {}): CacheSong {
       albumTrack: 2147483647,
       lengthMs: 0,
       rating: 4,
+      cleanVocals: false,
       parts: noParts(),
       ...meta,
     },
@@ -242,6 +245,43 @@ describe('library from cache entries', () => {
       'No Rating',
       'No Rating',
     ])
+  })
+
+  it("moves a clean-vocals chart down a tier only when YARG is censoring", () => {
+    const rated = (rating: number, cleanVocals: boolean, censored: boolean) =>
+      buildLibrarySongs([entry('B'.repeat(40), { name: 'x', rating, cleanVocals })], null, censored)
+        .songs[0]?.ageRating
+
+    // `GetSongRating`: Mature and Sensitive become Supervision Recommended.
+    assert.equal(rated(2, true, true), 'Supervision Recommended')
+    assert.equal(rated(3, true, true), 'Supervision Recommended')
+
+    // Censoring off, or a chart with no clean vocals to censor with, keeps the
+    // rating the charter gave it.
+    assert.equal(rated(2, true, false), 'Mature')
+    assert.equal(rated(3, false, true), 'Sensitive Content')
+
+    // Nothing at or below the tier it would move to, and nothing unrated, is
+    // touched — an unrated chart is not made to claim a rating.
+    assert.equal(rated(0, true, true), 'Family Friendly')
+    assert.equal(rated(1, true, true), 'Supervision Recommended')
+    assert.equal(rated(4, true, true), 'No Rating')
+  })
+
+  it('lets the cache version, not the settings file, decide whether censorship exists', () => {
+    const on = { ...DEFAULT_YARG_SETTINGS, censorMatureContent: true }
+    const off = DEFAULT_YARG_SETTINGS
+    const old = { yargGuid: false, cleanVocals: false }
+    const current = { yargGuid: true, cleanVocals: true }
+
+    // A YARG that predates censorship plays neither variant, whatever its
+    // settings say — a settings file can outlive the build that wrote it.
+    assert.equal(previewMixFor(old, on), 'legacy')
+    assert.equal(previewMixFor(old, off), 'legacy')
+    assert.equal(previewMixFor(null, on), 'legacy')
+
+    assert.equal(previewMixFor(current, on), 'censored')
+    assert.equal(previewMixFor(current, off), 'uncensored')
   })
 
   it('maps every instrument to its part in the struct', () => {

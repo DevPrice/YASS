@@ -82,7 +82,7 @@ describe('songcache.bin against a real library', options, () => {
    * is a much stronger assertion here than it looks.
    */
   it('builds a library every song of which is coherent', async () => {
-    const library = await loadLibraryFromCache(YARG_DIR!)
+    const { library } = await loadLibraryFromCache(YARG_DIR!)
 
     assert.deepEqual(library.meta.warnings, [])
     assert.equal(library.meta.source, 'cache')
@@ -149,7 +149,7 @@ describe('songcache.bin against a real library', options, () => {
       return
     }
 
-    const library = await loadLibraryFromCache(YARG_DIR!)
+    const { library } = await loadLibraryFromCache(YARG_DIR!)
     const table = await loadGenreTable(mappings)
 
     // The official list, plus the two answers Genrelizer gives when it has none.
@@ -167,7 +167,7 @@ describe('songcache.bin against a real library', options, () => {
   })
 
   it('agrees with the chart index on how many songs there are', async () => {
-    const library = await loadLibraryFromCache(YARG_DIR!)
+    const { library } = await loadLibraryFromCache(YARG_DIR!)
     const all = await refs()
 
     // Not equality: duplicate charts share a hash, so the index dedupes where

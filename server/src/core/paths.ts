@@ -137,6 +137,11 @@ export function songCachePath(yargDataDir: string): string {
   return join(yargDataDir, 'songcache.bin')
 }
 
+/** YARG's own `settings.json` — the player's, not this app's. See `yargSettings.ts`. */
+export function yargSettingsPath(yargDataDir: string): string {
+  return join(yargDataDir, 'settings.json')
+}
+
 /**
  * One spelling of a directory, for comparing two of them.
  *

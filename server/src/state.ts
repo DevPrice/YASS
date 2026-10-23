@@ -8,12 +8,19 @@
 
 import type { LibraryMeta, Settings, SettingsView, SongLibrary } from '@shared/types.js'
 import { FileWatcher } from './core/fileWatcher.js'
-import { emptyLibrary, loadLibraryFromCache } from './core/library.js'
+import { emptyLibrary, loadLibraryFromCache, type LoadedLibrary } from './core/library.js'
 import { NowPlayingWatcher } from './core/nowPlaying.js'
 import { VenueStream } from './core/venueStream.js'
+import {
+  DEFAULT_YARG_SETTINGS,
+  readYargSettings,
+  sameYargSettings,
+  type YargSettings,
+} from './core/yargSettings.js'
 import { fetchFfmpeg } from './media/ffmpeg.js'
-import { songCachePath } from './core/paths.js'
+import { songCachePath, yargSettingsPath } from './core/paths.js'
 import { buildChartIndex, ChartIndex, type ChartIndexMeta } from './media/index.js'
+import type { PreviewMix } from './media/preview.js'
 import { MediaService } from './media/service.js'
 import {
   applyEnvOverrides,
@@ -36,6 +43,18 @@ export class AppState {
   #effective: Settings
 
   #library: SongLibrary = emptyLibrary()
+  /**
+   * What `#library` was built against, assigned with it and never apart: the
+   * ratings in the list and the audio the preview route hands out must come
+   * from the same reading of YARG's censorship setting.
+   */
+  #yarg: YargSettings = DEFAULT_YARG_SETTINGS
+  #previewMix: PreviewMix = 'legacy'
+  /** The data directory `#yarg` was read from, so it is never a fallback for another. */
+  #libraryDir: string | null = null
+  /** Bumped by every reload. See `reloadLibrary`. */
+  #reloadGeneration = 0
+  #latestReload: Promise<SongLibrary> | null = null
   /** hash → song id, for joining now-playing to the library. */
   #byHash = new Map<string, string>()
   #watcher: NowPlayingWatcher
@@ -52,6 +71,12 @@ export class AppState {
    * questions — what the songs are, and where their files are.
    */
   #cacheWatcher: FileWatcher
+  /**
+   * And one over YARG's own `settings.json`, because the player toggling
+   * censorship or the Genrelizer in game re-sorts YARG's in-memory list and
+   * rewrites nothing else — the cache watcher would never hear of it.
+   */
+  #yargSettingsWatcher: FileWatcher
   /** Serialises index rebuilds so a burst of events can't start three. */
   #indexing: Promise<ChartIndexMeta> | null = null
   /** Art and preview generation, caching and concurrency. */
@@ -93,6 +118,23 @@ export class AppState {
         console.error('[yass] song cache watch:', error)
       },
     })
+
+    // YARG saves this file for every setting it has — volume, calibration —
+    // so most writes change nothing here, and a reload is only worth its
+    // library event when one of the two values this app reads has moved.
+    this.#yargSettingsWatcher = new FileWatcher({
+      getPath: () => {
+        const dir = this.#effective.yargDataDir
+        return dir ? yargSettingsPath(dir) : ''
+      },
+      onChange: async () => {
+        const next = await this.#readYargSettings(this.#effective.yargDataDir)
+        if (!sameYargSettings(next, this.#yarg)) await this.reloadLibrary()
+      },
+      onError: (error) => {
+        console.error('[yass] YARG settings watch:', error)
+      },
+    })
   }
 
   static async create(): Promise<AppState> {
@@ -100,6 +142,7 @@ export class AppState {
     await state.reloadLibrary()
     await state.#watcher.start()
     await state.#cacheWatcher.start()
+    await state.#yargSettingsWatcher.start()
     state.#venue.start()
 
     /*
@@ -219,6 +262,16 @@ export class AppState {
     return this.#library
   }
 
+  /** The YARG settings the current library was built with. */
+  get yargSettings(): YargSettings {
+    return this.#yarg
+  }
+
+  /** The stem rules previews follow, as of the current library. */
+  get previewMix(): PreviewMix {
+    return this.#previewMix
+  }
+
   get watcher(): NowPlayingWatcher {
     return this.#watcher
   }
@@ -227,9 +280,49 @@ export class AppState {
     return this.#venue
   }
 
-  /** Re-read the song list from disk and rebuild the hash join index. */
-  async reloadLibrary(): Promise<SongLibrary> {
-    this.#library = await loadLibraryFromCache(this.#effective.yargDataDir)
+  /**
+   * Re-read the song list from disk and rebuild the hash join index.
+   *
+   * Overlapping calls are ordinary — the cache watcher, the settings watcher,
+   * the tray's reload and a change of data directory each start one — and the
+   * one that *started* last wins. A reload that finishes after a newer one has
+   * begun throws its result away and answers with the newer one's, so a slow
+   * read of the old censorship setting can never land on top of a fast read of
+   * the new one and leave every phone with the wrong ratings.
+   */
+  reloadLibrary(): Promise<SongLibrary> {
+    const generation = ++this.#reloadGeneration
+    const dir = this.#effective.yargDataDir
+
+    const reload = this.#readYargSettings(dir)
+      .then((settings) => loadLibraryFromCache(dir, settings))
+      .then((loaded) => {
+        if (generation !== this.#reloadGeneration) return this.#latestReload!
+        this.#applyLibrary(loaded, dir)
+        return this.#library
+      })
+
+    this.#latestReload = reload
+    return reload
+  }
+
+  /**
+   * YARG's settings for `dir`, keeping the last reading if the file is caught
+   * mid-write — but only a reading from the same directory. See `yargSettings.ts`.
+   */
+  #readYargSettings(dir: string): Promise<YargSettings> {
+    return readYargSettings(dir, this.#libraryDir === dir ? this.#yarg : null)
+  }
+
+  #applyLibrary(loaded: LoadedLibrary, dir: string): void {
+    if (this.#libraryDir === dir && loaded.previewMix !== this.#previewMix) {
+      console.log(`[yass] previews now follow YARG's ${loaded.previewMix} mix`)
+    }
+
+    this.#library = loaded.library
+    this.#yarg = loaded.settings
+    this.#previewMix = loaded.previewMix
+    this.#libraryDir = dir
 
     this.#byHash = new Map()
     for (const song of this.#library.songs) {
@@ -255,8 +348,6 @@ export class AppState {
     this.#watcher.refreshLibraryJoin()
 
     this.#publishLibrary()
-
-    return this.#library
   }
 
   /**
@@ -340,10 +431,11 @@ export class AppState {
     // behind it.
     if (this.#effective.yargDataDir !== previousDataDir) {
       await this.reloadLibrary()
-      // Follow the files; the old directory is no longer interesting. Both
-      // watchers are bound to a directory, so neither can pick this up on its
-      // own the way a path-reading poll could.
+      // Follow the files; the old directory is no longer interesting. All three
+      // watchers are bound to a directory, so none can pick this up on its own
+      // the way a path-reading poll could.
       await this.#cacheWatcher.start()
+      await this.#yargSettingsWatcher.start()
       await this.#watcher.rearm()
       // Not forced: the persisted index is keyed to the directory it was built
       // from, so this cannot pick up the old install's paths, and flipping back
@@ -362,6 +454,7 @@ export class AppState {
   stop(): void {
     this.#watcher.stop()
     this.#cacheWatcher.stop()
+    this.#yargSettingsWatcher.stop()
     this.#media.stopPrecompute()
     this.#venue.stop()
   }

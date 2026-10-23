@@ -25,7 +25,8 @@
  *    mappings cannot be found, genres fall back to exactly as authored.
  *  - **Nothing is filtered.** The CSV exported `SongContainer.Songs`, which
  *    drops anything above the player's Max Song Rating setting. The cache holds
- *    the whole library, so songs hidden inside YARG appear here.
+ *    the whole library, so songs hidden inside YARG appear here. Ratings do
+ *    follow the player's censorship setting, though — see `ratingFor`.
  *  - **Track numbers exist.** The CSV had no column for one. See `albumTrack`.
  *
  * ## The cost
@@ -49,10 +50,19 @@ import type {
   SongLibrary,
 } from '@shared/types.js'
 import { INSTRUMENTS, NO_RATING, SONG_RATINGS } from '@shared/types.js'
-import { CacheFormatError, readSongCache, type CacheSong, type PartValue } from '../media/cache.js'
+import {
+  CacheFormatError,
+  readSongCache,
+  type CacheEntryLayout,
+  type CacheParseResult,
+  type CacheSong,
+  type PartValue,
+} from '../media/cache.js'
+import type { PreviewMix } from '../media/preview.js'
 import { genreResolver, type Genrelizer } from './genrelizer.js'
 import { songCachePath } from './paths.js'
 import { stripRichText } from './richtext.js'
+import { readYargSettings, type YargSettings } from './yargSettings.js'
 
 /** `int.MaxValue` is YARG's "unset" sentinel for numeric metadata. */
 const INT_MAX = 2147483647
@@ -134,6 +144,28 @@ export function trackNumber(raw: number): number | null {
   return raw
 }
 
+/** `SongRating` ordinals `ratingFor` needs. See `SONG_RATINGS` for the full list. */
+const SUPERVISION_RECOMMENDED = 1
+const MATURE = 2
+const SENSITIVE_CONTENT = 3
+
+/**
+ * The `SongRating` ordinal YARG shows for a chart: `SongEntry.GetSongRating`.
+ *
+ * A chart that ships clean vocals is no longer Mature or Sensitive to a player
+ * who has censorship on, because the version they will hear is not — and YARG
+ * moves it down to Supervision Recommended in its sidebar and its Max Song
+ * Rating filter alike. This is the sidebar's answer less one thing: YARG's
+ * `GetEffectiveSongRating` also substitutes the player's "unrated songs count
+ * as" setting for a missing rating, and an unrated chart here stays unrated.
+ */
+export function ratingFor(rating: number, cleanVocals: boolean, censored: boolean): number {
+  if (censored && cleanVocals && (rating === MATURE || rating === SENSITIVE_CONTENT)) {
+    return SUPERVISION_RECOMMENDED
+  }
+  return rating
+}
+
 /** Tally a string column into descending-count facet buckets. */
 function tally(values: readonly string[]): FacetCount[] {
   const counts = new Map<string, number>()
@@ -184,7 +216,12 @@ function buildFacets(songs: readonly Song[]): SongFacets {
  * what the chart author actually wrote, and plenty of them wrote
  * `<color=#FF0000>`. Without this the list renders markup as text.
  */
-export function songFromCache(entry: CacheSong, id: string, genres: Genrelizer | null): Song {
+export function songFromCache(
+  entry: CacheSong,
+  id: string,
+  genres: Genrelizer | null,
+  censored = false,
+): Song {
   const { meta } = entry
 
   const difficulties = {} as Record<InstrumentKey, number | null>
@@ -242,9 +279,11 @@ export function songFromCache(entry: CacheSong, id: string, genres: Genrelizer |
     addedAt: entry.lastWrite,
 
     isMaster: meta.isMaster,
-    // Kept identical to `SongExport.cs` so the strings the UI filters on can't
-    // silently change spelling underneath it. See `SONG_RATINGS`.
-    ageRating: SONG_RATINGS[meta.rating] ?? NO_RATING,
+    // Spelled as `SongExport.cs` spells it, so the strings the UI filters on
+    // can't silently change underneath it — but the value is the sidebar's, not
+    // the export's: the export ignores censorship on purpose, and a guest is
+    // asking what the room will hear. See `SONG_RATINGS` and `ratingFor`.
+    ageRating: SONG_RATINGS[ratingFor(meta.rating, meta.cleanVocals, censored)] ?? NO_RATING,
     vocalParts: vocalPartCount(meta.parts.harmonyVocals, meta.parts.leadVocals),
 
     difficulties,
@@ -272,6 +311,7 @@ export interface ParseCacheLibraryResult {
 export function buildLibrarySongs(
   entries: readonly CacheSong[],
   genres: Genrelizer | null = null,
+  censored = false,
 ): ParseCacheLibraryResult {
   const warnings: string[] = []
   const songs: Song[] = []
@@ -279,7 +319,7 @@ export function buildLibrarySongs(
   let nameless = 0
 
   for (const entry of entries) {
-    const song = songFromCache(entry, entry.ref.hash, genres)
+    const song = songFromCache(entry, entry.ref.hash, genres, censored)
 
     // A chart with no identifying text at all is not something anybody can
     // search for, and it would render as a blank row. Dropped before its id is
@@ -309,16 +349,50 @@ export function buildLibrarySongs(
   return { songs, warnings }
 }
 
+/** A library, and the two things about YARG it was built against. */
+export interface LoadedLibrary {
+  library: SongLibrary
+  /** The YARG settings the ratings and genres were derived with. */
+  settings: YargSettings
+  /** The stem rules this library's previews follow. */
+  previewMix: PreviewMix
+}
+
+/**
+ * Which mix the YARG that wrote this cache plays.
+ *
+ * The cache version decides whether censorship exists at all, and the setting
+ * only matters once it does: a release `settings.json` copied forward, or a
+ * cache from an older build sitting beside a newer build's settings, must not
+ * turn on rules the game in front of the player does not follow.
+ */
+export function previewMixFor(layout: CacheEntryLayout | null, settings: YargSettings): PreviewMix {
+  if (layout === null || !layout.cleanVocals) return 'legacy'
+  return settings.censorMatureContent ? 'censored' : 'uncensored'
+}
+
 /**
  * Read and parse YARG's song cache for the given data directory.
  *
  * Every failure is a warning on an empty library rather than a throw: the
  * server has to come up regardless, and the tray and the terminal both read
  * these strings back to the user.
+ *
+ * `settings` defaults to whatever the directory's own `settings.json` says.
  */
-export async function loadLibraryFromCache(yargDataDir: string): Promise<SongLibrary> {
+export async function loadLibraryFromCache(
+  yargDataDir: string,
+  settings?: YargSettings,
+): Promise<LoadedLibrary> {
+  const yarg = settings ?? (await readYargSettings(yargDataDir))
+  const empty = (warning: string): LoadedLibrary => ({
+    library: emptyLibrary([warning]),
+    settings: yarg,
+    previewMix: previewMixFor(null, yarg),
+  })
+
   if (!yargDataDir) {
-    return emptyLibrary(['No YARG data directory configured. Set yargDataDir in settings.json.'])
+    return empty('No YARG data directory configured. Set yargDataDir in settings.json.')
   }
 
   const path = songCachePath(yargDataDir)
@@ -329,30 +403,34 @@ export async function loadLibraryFromCache(yargDataDir: string): Promise<SongLib
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     if (code === 'ENOENT') {
-      return emptyLibrary([
-        `No song cache at ${path}. Run a song scan in YARG, then reload.`,
-      ])
+      return empty(`No song cache at ${path}. Run a song scan in YARG, then reload.`)
     }
-    return emptyLibrary([`Could not read the song cache at ${path}: ${String(error)}.`])
+    return empty(`Could not read the song cache at ${path}: ${String(error)}.`)
   }
 
-  let entries: readonly CacheSong[]
+  let parsed: CacheParseResult
   try {
-    entries = (await readSongCache(path)).songs
+    parsed = await readSongCache(path)
   } catch (error) {
     // A version this reader has not been checked against is the one failure
     // worth spelling out, because it is temporary and has a known shape: the
     // app is a YARG update ahead of itself, and the fix is a code change here.
     if (error instanceof CacheFormatError) {
-      return emptyLibrary([`YARG's song cache is in a layout this version cannot read. ${error.message}`])
+      return empty(`YARG's song cache is in a layout this version cannot read. ${error.message}`)
     }
-    return emptyLibrary([`Could not read the song cache at ${path}: ${String(error)}.`])
+    return empty(`Could not read the song cache at ${path}: ${String(error)}.`)
   }
+
+  const previewMix = previewMixFor(parsed.layout, yarg)
 
   // Null when the player turned normalization off in YARG, or when the mappings
   // are not on this machine — either way genres read as authored rather than the
   // load failing. See `core/genrelizer.ts`.
-  const { songs, warnings } = buildLibrarySongs(entries, await genreResolver(yargDataDir))
+  const { songs, warnings } = buildLibrarySongs(
+    parsed.songs,
+    await genreResolver(yarg.genrelizer),
+    previewMix === 'censored',
+  )
 
   const meta: LibraryMeta = {
     source: 'cache',
@@ -361,5 +439,5 @@ export async function loadLibraryFromCache(yargDataDir: string): Promise<SongLib
     warnings,
   }
 
-  return { songs, facets: buildFacets(songs), meta }
+  return { library: { songs, facets: buildFacets(songs), meta }, settings: yarg, previewMix }
 }

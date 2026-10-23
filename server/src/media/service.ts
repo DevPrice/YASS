@@ -10,7 +10,8 @@
  * laptop at once:
  *
  *  1. **Cache on disk, keyed by hash.** Derived media is immutable per hash and
- *     size, so a hit is a `stat` and nothing more.
+ *     size — or, for a preview, per hash and mix — so a hit is a `stat` and
+ *     nothing more.
  *  2. **One job per key.** Concurrent requests for the same song await the same
  *     promise. See `SingleFlight`.
  *  3. **A hard cap on concurrent ffmpeg.** `cpus - 2`, so the server stays
@@ -24,7 +25,7 @@ import { ChartIndex } from './index.js'
 import { extractArt, deriveArt } from './art.js'
 import { resolveFfmpeg, type FfmpegInfo } from './ffmpeg.js'
 import { Semaphore, SingleFlight, defaultConcurrency } from './pool.js'
-import { generatePreview } from './preview.js'
+import { generatePreview, previewVariant, type PreviewMix } from './preview.js'
 import {
   artPath,
   enforcePreviewCap,
@@ -289,29 +290,32 @@ export class MediaService {
   }
 
   /**
-   * The path to a song's preview, generating it if needed.
+   * The path to a song's preview under `mix`, generating it if needed.
    *
    * Unlike art, this is never precomputed: 4,168 previews would be ~600 MB and
-   * a party plays perhaps thirty songs. A cold request costs about a second,
-   * which the client hides by prefetching as soon as a song is selected.
+   * a party plays perhaps thirty songs. A cold request costs about a second.
+   *
+   * Every key here carries the variant. Two mixes of one song are two jobs that
+   * can run at once, and a failure to build one says nothing about the other.
    */
-  async previewFile(hash: string): Promise<string | null> {
+  async previewFile(hash: string, mix: PreviewMix): Promise<string | null> {
     const safe = safeHash(hash)
     if (safe === null) return null
 
-    const path = previewPath(safe)
+    const ref = this.#charts.get(safe)
+    if (ref === null) return null
+
+    const variant = previewVariant(ref.format, mix)
+    const path = previewPath(safe, variant)
     if (path === null) return null
 
     if (await exists(path)) return path
 
-    const key = `preview:${safe}`
+    const key = `preview:${safe}:${variant}`
     if (this.#failed(key)) return null
 
     return this.#previews.run(key, async () => {
       if (await exists(path)) return path
-
-      const ref = this.#charts.get(safe)
-      if (ref === null) return null
 
       const ffmpeg = await this.ffmpeg()
       if (ffmpeg === null) return null
@@ -325,6 +329,7 @@ export class MediaService {
           hash: safe,
           destination: path,
           fallbackLengthSeconds: this.#lengths.get(safe) ?? null,
+          mix,
         })
       })
 
