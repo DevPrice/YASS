@@ -99,7 +99,7 @@ export interface CacheEntryLayout {
  * was verified by diffing every file under `Song/Cache/` and `Song/Entries/`
  * between its commit and the one before it, and accounting for every
  * serialization change at or before `SongRating` — which is where
- * `readMetadata` stops. Across all five, the head of every entry — relative
+ * `readMetadata` stops. Across all seven, the head of every entry — relative
  * path, format byte, timestamps, then the hash — is byte-identical, as are the
  * group order, `AvailableParts`, the string-table count, the CON group's
  * `int32` type tag, and the three RBCON patch sections `readConMods` reads.
@@ -111,7 +111,13 @@ export interface CacheEntryLayout {
  * | `26_08_12_00` | `6e08bad1` "Add vocals censorship chart feature (#405)"  | — `CleanVocals`, one field after  |
  * | `26_08_21_00` | `180dc09f` "Add support for yarg_guid ini tag"           | **`YargGuid`, before `IsMaster`** |
  * | `26_09_04_00` | `b9be7bb1` "Parse 6f credit tags from ini and save …"    | — `Charter*` strings, in the tail |
+ * | `26_09_29_00` | `65e4fc99` "Parse Date Released and Vocalist Gender …"   | — `ReleaseDate`, in the tail      |
+ * | `26_10_14_00` | `4296134d` "Increase song cache version"                 | — none; a rescan for `yarg_guid`  |
  *
+ * `26_10_14_00` moved no bytes at all. `26_08_21_00` began writing `YargGuid`,
+ * but YARG's ini reader drops any key it has no outline for, so from a song.ini
+ * it was always empty. `4b886578` registered the key; the stamp only forces the
+ * rescan that fills it in.
  * `26_08_12_00` and `26_08_21_00` are worth reading together, because they are
  * the two outcomes this table exists to tell apart. `26_08_12_00` added a
  * `bool` immediately *after* `SongRating` and needed no code at all.
@@ -138,6 +144,8 @@ export const SUPPORTED_CACHE_VERSIONS: ReadonlyMap<number, CacheEntryLayout> = n
   [26_08_12_00, { yargGuid: false }],
   [26_08_21_00, { yargGuid: true }],
   [26_09_04_00, { yargGuid: true }],
+  [26_09_29_00, { yargGuid: true }],
+  [26_10_14_00, { yargGuid: true }],
 ])
 
 /** 20 bytes of SHA-1, written raw by `HashWrapper.Serialize`. */

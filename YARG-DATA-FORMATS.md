@@ -214,6 +214,7 @@ configured.
 | `ParsedYear` | string | Cleaned |
 | `YearAsNumber` | int | **`2147483647` (`int.MaxValue`) means unknown** — VERIFIED at `SongEntry.cs:80`. Guard against this or you will render the year 2147483647. |
 | `YearSecondary` | string | |
+| `ReleaseDate` | DateTime? | From the ini's `date_released` (`yyyy-MM-dd` or `yyyy-MM`); `null` when unset. Since YARG.Core `65e4fc99`; its JSON spelling is [DERIVED] |
 
 #### Timing
 
@@ -577,12 +578,14 @@ Enums serialize as **integers** (no `StringEnumConverter` is configured).
 | 2 | `ExCON` |
 | 3 | `CON` |
 
-**`VocalGender`** [VERIFIED — `SongEnums.cs:19-26`]
+**`VocalGender`** [VERIFIED — `SongEnums.cs:19-26`]. YARG.Core `65e4fc99` swapped the
+first two to match song.ini's documented numbering, so a value written before then has
+`0` and `1` the other way round.
 
 | Value | Name |
 |---|---|
-| 0 | `Male` |
-| 1 | `Female` |
+| 0 | `Female` |
+| 1 | `Male` |
 | 2 | `Nonbinary` |
 | 3 | `Other` |
 | 4 | `Unspecified` |
