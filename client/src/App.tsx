@@ -652,7 +652,7 @@ export function App() {
         connected={connected}
         settled={settled}
         onSelect={showPlaying}
-        trailing={<SetlistChip setlist={setlist} onOpen={openSetlist} opensDialog={!twoPane} />}
+        trailing={<SetlistChip setlist={setlist} mine={mine} onOpen={openSetlist} opensDialog={!twoPane} />}
       />
 
       {cleared !== null &&
