@@ -50,10 +50,12 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-import type { Song } from '@shared/types'
+import type { SetlistState, Song } from '@shared/types'
 import { EmptyState, SortArrow, cx } from '../../ui'
+import { addToSetlist } from '../../lib/setlist'
 import { SHORT_QUERY, useMediaQuery } from '../../lib/useMediaQuery'
 import {
   AlbumThumb,
@@ -80,6 +82,11 @@ import type { ListItem } from './grouping'
 import { IndexRail } from './IndexRail'
 import { buildIndex, indexLabel } from './indexing'
 import type { SortDirection, SortKey } from './filtering'
+import { SetlistIcon } from '../setlist/icons'
+import { addGate, markLabel, queuedMarks } from './queued'
+import type { QueuedMark } from './queued'
+import { handOffRefusal, swipeAxis, swipeCommits, swipeOffset } from './swipeAdd'
+import type { SwipeAxis } from './swipeAdd'
 
 /**
  * Row height, chosen by how much room the list actually has.
@@ -181,6 +188,15 @@ function indexOfSong(items: readonly ListItem[], id: string): number {
   return items.findIndex((item) => item.kind === 'song' && item.song.id === id)
 }
 
+/** A copy of `set` with `hash` in or out; the same set when nothing changes. */
+function withHash(set: ReadonlySet<string>, hash: string, present: boolean): ReadonlySet<string> {
+  if (set.has(hash) === present) return set
+  const next = new Set(set)
+  if (present) next.add(hash)
+  else next.delete(hash)
+  return next
+}
+
 interface SongListProps {
   songs: readonly Song[]
   sortKey: SortKey
@@ -198,7 +214,21 @@ interface SongListProps {
   queryKey: string
   /** True while a re-order is in flight. See the scroll container below. */
   isSorting: boolean
+  /** YARG's setlist, for the rows' marks and the swipe that adds to it. */
+  setlist: SetlistState
+  /** Entry IDs this browser added. Only read through `actionBar`. */
+  mine: ReadonlySet<number>
 }
+
+/**
+ * How long a swiped-in row wears its confirmation.
+ *
+ * Long enough to be seen with the finger lifting off the glass, short enough
+ * to be gone before the next swipe. The mark that stays is the real answer.
+ */
+const ADDED_FLASH_MS = 1_200
+
+const NO_HASHES: ReadonlySet<string> = new Set()
 
 export function SongList({
   songs,
@@ -213,8 +243,62 @@ export function SongList({
   onSelect,
   queryKey,
   isSorting,
+  setlist,
+  mine,
 }: SongListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const queued = useMemo(() => queuedMarks(setlist), [setlist])
+  const canAdd = useMemo(() => addGate(setlist, mine), [setlist, mine])
+
+  /*
+   * The setlist as it stands when an add *answers*, not when it was swiped:
+   * a refusal is remembered against the show's position at that moment, so it
+   * expires when the show moves on. See `LastTry`.
+   */
+  const setlistRef = useRef(setlist)
+  setlistRef.current = setlist
+
+  const [adding, setAdding] = useState<ReadonlySet<string>>(NO_HASHES)
+  const [justAdded, setJustAdded] = useState<ReadonlySet<string>>(NO_HASHES)
+
+  /**
+   * A row swiped far enough to add.
+   *
+   * Success is said by the row itself: a colour that comes and goes, then the
+   * mark, which arrives with the setlist event rather than with this answer —
+   * the list never claims a position YARG hasn't shown. A refusal opens the
+   * song, because a swipe has no caption and the action bar does; the answer is
+   * handed over so the bar starts from it instead of offering the add again.
+   */
+  const swipeAdd = useCallback(
+    async (song: Song) => {
+      const hash = song.hash
+      if (hash === null) return
+
+      setAdding((current) => withHash(current, hash, true))
+      const outcome = await addToSetlist(hash)
+      setAdding((current) => withHash(current, hash, false))
+
+      if (outcome.ok) {
+        setJustAdded((current) => withHash(current, hash, true))
+        window.setTimeout(
+          () => setJustAdded((current) => withHash(current, hash, false)),
+          ADDED_FLASH_MS,
+        )
+        return
+      }
+
+      handOffRefusal(hash, {
+        reason: outcome.reason,
+        entryId: outcome.entryId,
+        currentIndex: setlistRef.current.currentIndex,
+        at: Date.now(),
+      })
+      onSelect(song)
+    },
+    [onSelect],
+  )
 
   /**
    * Everything to the right of a row, reserved on the header so the two agree.
@@ -609,6 +693,8 @@ export function SongList({
                 )
               }
 
+              const hash = item.song.hash
+
               return (
                 <div
                   key={item.key}
@@ -626,8 +712,10 @@ export function SongList({
                    * row's cover, positioned rather than laid out because a
                    * `<button>` cannot legally contain one. Both went when the
                    * preview stopped being a verb — see `lib/usePreview.ts`. A
-                   * row has exactly one thing you can do to it again, which is
-                   * the right number for a row.
+                   * row has exactly one thing you can *see* to do to it again,
+                   * which is the right number for a row. The swipe that adds
+                   * lives inside `SongRow` and draws nothing until a finger
+                   * moves it.
                    */
                   className="absolute top-0 left-0 w-full"
                   style={placement}
@@ -641,6 +729,10 @@ export function SongList({
                     isPlaying={item.song.id === playingId}
                     isSelected={item.song.id === selection?.id}
                     onSelect={onSelect}
+                    mark={hash === null ? undefined : queued.get(hash)}
+                    canAdd={canAdd(hash) && !(hash !== null && adding.has(hash))}
+                    justAdded={hash !== null && justAdded.has(hash)}
+                    onSwipeAdd={swipeAdd}
                   />
                 </div>
               )
@@ -982,6 +1074,10 @@ const SongRow = memo(function SongRow({
   isPlaying,
   isSelected,
   onSelect,
+  mark,
+  canAdd,
+  justAdded,
+  onSwipeAdd,
 }: {
   song: Song
   lens: DifficultyLens
@@ -994,7 +1090,16 @@ const SongRow = memo(function SongRow({
   isPlaying: boolean
   isSelected: boolean
   onSelect: (song: Song) => void
+  /** Where the song is in a live setlist; absent otherwise. See `queued.ts`. */
+  mark: QueuedMark | undefined
+  /** Whether a swipe would add it right now. Otherwise the row only gives a little. */
+  canAdd: boolean
+  /** A swipe just added it. */
+  justAdded: boolean
+  onSwipeAdd: (song: Song) => void
 }) {
+  const swipe = useSwipeToAdd(canAdd, () => onSwipeAdd(song))
+
   /**
    * Two marks, and they say different things.
    *
@@ -1012,68 +1117,290 @@ const SongRow = memo(function SongRow({
   const playingBorder = isPlaying ? '#fff' : null
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(song)}
-      /*
-       * Not a tab stop. The list is one.
-       *
-       * Every row being tabbable made Tab a tunnel with 4,168 stops and no
-       * forward exit — reaching whatever follows the library meant holding the
-       * key down through the entire song list, and the only way out was
-       * backwards. The roving pattern instead: Tab reaches the scroll container
-       * once, arrows walk the selection from there, and Tab from a row skips
-       * the other 4,167 because `-1` takes them out of the sequence without
-       * taking them away from a pointer, a screen reader, or `focus()`.
-       */
-      tabIndex={-1}
-      // "The current item within a set" is exactly what a master-detail
-      // selection is, and unlike `aria-selected` it needs no listbox around it —
-      // which this cannot be, since a virtualized listbox has to manage its own
-      // roving focus across rows that do not exist yet.
-      aria-current={isSelected ? true : undefined}
-      className={cx(
-        'flex h-full w-full cursor-pointer items-center gap-[15px] px-[25px] text-left',
-        'transition-[background] duration-160',
-        isPlaying
-          ? 'yarg-wash-selected'
-          : isSelected
-            ? 'bg-surface-hover'
-            : 'bg-surface-card hover:bg-surface-hover',
-        // The wash has to point away from the text. The wide row's title sits
-        // ~40% across, clear of the bright edge; the narrow row stacks title
-        // and artist against the left edge, where white lands on #0082BA at
-        // 4.28:1. Flipping the angle puts the colour on the empty side and the
-        // text back on card black.
-        isPlaying && (narrow ? '[--yarg-wash-angle:270deg]' : '[--yarg-wash-angle:90deg]'),
-        // Inward, because the ring is drawn on the row's own edge and a row
-        // that pushed its focus outline outward would paint over its neighbour.
-        'yarg-focusable focus-visible:[outline-offset:-3px]',
-      )}
-      style={{
-        borderTop: playingBorder
-          ? `3px solid ${playingBorder}`
-          : '1px solid var(--color-border-row)',
-        borderBottom: playingBorder
-          ? `3px solid ${playingBorder}`
-          : '1px solid var(--color-border-row)',
-        borderLeft: `2px solid ${playingBorder ?? 'transparent'}`,
-        borderRight: `2px solid ${playingBorder ?? 'transparent'}`,
-        boxShadow: isSelected
-          ? 'inset 0 0 0 var(--stroke) var(--yarg-vivid-sky-blue)'
-          : undefined,
-      }}
-    >
-      {isPlaying ? <span className="sr-only">Now playing. </span> : null}
+    // The row's slot, which the row slides across. `overflow-clip` because the
+    // scroller's `overflow-y: auto` makes its x axis scrollable too, and a row
+    // pushed past the edge would grow a sideways scroll under the finger.
+    <div ref={swipe.slotRef} className="group/slot relative h-full overflow-clip">
+      {swipe.sliding ? <SwipeReveal canAdd={canAdd} /> : null}
+      <button
+        ref={swipe.rowRef}
+        type="button"
+        onClick={() => {
+          if (!swipe.swallowClick()) onSelect(song)
+        }}
+        onPointerDown={swipe.onPointerDown}
+        onPointerMove={swipe.onPointerMove}
+        onPointerUp={swipe.onPointerUp}
+        onPointerCancel={swipe.onPointerCancel}
+        /*
+         * Not a tab stop. The list is one.
+         *
+         * Every row being tabbable made Tab a tunnel with 4,168 stops and no
+         * forward exit — reaching whatever follows the library meant holding the
+         * key down through the entire song list, and the only way out was
+         * backwards. The roving pattern instead: Tab reaches the scroll container
+         * once, arrows walk the selection from there, and Tab from a row skips
+         * the other 4,167 because `-1` takes them out of the sequence without
+         * taking them away from a pointer, a screen reader, or `focus()`.
+         */
+        tabIndex={-1}
+        // "The current item within a set" is exactly what a master-detail
+        // selection is, and unlike `aria-selected` it needs no listbox around it —
+        // which this cannot be, since a virtualized listbox has to manage its own
+        // roving focus across rows that do not exist yet.
+        aria-current={isSelected ? true : undefined}
+        className={cx(
+          'relative isolate flex h-full w-full cursor-pointer items-center gap-[15px] px-[25px] text-left',
+          // The way back from a swipe is the one movement here nobody's finger
+          // is making, so it is the one reduced motion takes away.
+          'transition-[background,transform] duration-160 motion-reduce:transition-[background]',
+          // Vertical drags are the browser's, always; pinch stays too. What is
+          // left over — a drag to the side — is the only thing the swipe sees.
+          '[touch-action:pan-y_pinch-zoom]',
+          isPlaying
+            ? 'yarg-wash-selected'
+            : isSelected
+              ? 'bg-surface-hover'
+              : 'bg-surface-card hover:bg-surface-hover',
+          // The wash has to point away from the text. The wide row's title sits
+          // ~40% across, clear of the bright edge; the narrow row stacks title
+          // and artist against the left edge, where white lands on #0082BA at
+          // 4.28:1. Flipping the angle puts the colour on the empty side and the
+          // text back on card black.
+          isPlaying && (narrow ? '[--yarg-wash-angle:270deg]' : '[--yarg-wash-angle:90deg]'),
+          // Inward, because the ring is drawn on the row's own edge and a row
+          // that pushed its focus outline outward would paint over its neighbour.
+          'yarg-focusable focus-visible:[outline-offset:-3px]',
+        )}
+        style={{
+          borderTop: playingBorder
+            ? `3px solid ${playingBorder}`
+            : '1px solid var(--color-border-row)',
+          borderBottom: playingBorder
+            ? `3px solid ${playingBorder}`
+            : '1px solid var(--color-border-row)',
+          borderLeft: `2px solid ${playingBorder ?? 'transparent'}`,
+          borderRight: `2px solid ${playingBorder ?? 'transparent'}`,
+          boxShadow: isSelected
+            ? 'inset 0 0 0 var(--stroke) var(--yarg-vivid-sky-blue)'
+            : undefined,
+        }}
+      >
+        {justAdded ? <AddedFlash narrow={narrow} /> : null}
+        {isPlaying ? <span className="sr-only">Now playing. </span> : null}
 
-      {narrow ? (
-        <NarrowRow song={song} lens={lens} fields={fields} />
-      ) : (
-        <WideRow song={song} lens={lens} columns={columns} />
-      )}
-    </button>
+        {narrow ? (
+          <NarrowRow song={song} lens={lens} fields={fields} mark={mark} />
+        ) : (
+          <WideRow song={song} lens={lens} columns={columns} mark={mark} />
+        )}
+      </button>
+    </div>
   )
 })
+
+/**
+ * The drag that slides a row right to add it, on touch only.
+ *
+ * A mouse never starts one: the desktop's add is the detail pane's action bar,
+ * one click from any row, and a drag on a table is a text selection. Touch only,
+ * rather than `pointer: coarse`, so a laptop with a touchscreen gets the swipe
+ * under the finger and not under the trackpad.
+ *
+ * The row is moved by writing its `transform` directly rather than through
+ * state. Every row on screen is memoized against a list that already re-renders
+ * on each scroll frame; a drag re-rendering its row sixty times a second to move
+ * one number would spend that budget on nothing. State changes twice a gesture,
+ * when the row starts sliding and when it stops, to draw what it uncovers.
+ *
+ * The tap that opens the song still works because nothing happens until the
+ * finger has travelled `SLOP` to the right. Past that the release is the
+ * swipe's, and the `click` the browser may still send after it is swallowed.
+ */
+function useSwipeToAdd(canAdd: boolean, onCommit: () => void) {
+  const rowRef = useRef<HTMLButtonElement>(null)
+  const slotRef = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ pointer: number; x: number; y: number; axis: SwipeAxis; dx: number } | null>(
+    null,
+  )
+  const swallow = useRef(false)
+  const [sliding, setSliding] = useState(false)
+
+  // Read at release rather than captured at the start: the setlist can move
+  // under a finger that is still down.
+  const canAddRef = useRef(canAdd)
+  canAddRef.current = canAdd
+  const commitRef = useRef(onCommit)
+  commitRef.current = onCommit
+
+  const finish = (commit: boolean) => {
+    const gesture = drag.current
+    drag.current = null
+    if (gesture?.axis !== 'horizontal') return
+
+    const row = rowRef.current
+    if (row !== null) {
+      row.style.transition = ''
+      row.style.transform = ''
+    }
+    slotRef.current?.removeAttribute('data-armed')
+    setSliding(false)
+
+    if (commit && swipeCommits(gesture.dx, canAddRef.current)) commitRef.current()
+  }
+
+  return {
+    rowRef,
+    slotRef,
+    sliding,
+
+    /** True, once, when the click in hand is the tail of a swipe. */
+    swallowClick: () => {
+      const swallowed = swallow.current
+      swallow.current = false
+      return swallowed
+    },
+
+    onPointerDown: (event: PointerEvent<HTMLButtonElement>) => {
+      // Reset here as well, in case the last swipe's click never came.
+      swallow.current = false
+      if (event.pointerType !== 'touch' || !event.isPrimary) return
+      drag.current = {
+        pointer: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        axis: 'undecided',
+        dx: 0,
+      }
+    },
+
+    onPointerMove: (event: PointerEvent<HTMLButtonElement>) => {
+      const gesture = drag.current
+      const row = rowRef.current
+      if (gesture === null || row === null || gesture.pointer !== event.pointerId) return
+
+      const dx = event.clientX - gesture.x
+
+      if (gesture.axis === 'undecided') {
+        gesture.axis = swipeAxis(dx, event.clientY - gesture.y)
+        if (gesture.axis === 'undecided') return
+        if (gesture.axis === 'vertical') {
+          drag.current = null
+          return
+        }
+
+        row.setPointerCapture(event.pointerId)
+        swallow.current = true
+        // Following a finger has to be immediate; the transition is only for
+        // the way back.
+        row.style.transition = 'none'
+        setSliding(true)
+      }
+
+      gesture.dx = dx
+      row.style.transform = `translateX(${swipeOffset(dx, canAddRef.current)}px)`
+      slotRef.current?.toggleAttribute('data-armed', swipeCommits(dx, canAddRef.current))
+    },
+
+    onPointerUp: (event: PointerEvent<HTMLButtonElement>) => {
+      if (drag.current?.pointer === event.pointerId) finish(true)
+    },
+
+    // The browser took the drag for a scroll, or the system took the touch.
+    onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => {
+      if (drag.current?.pointer === event.pointerId) finish(false)
+    },
+  }
+}
+
+/**
+ * What a sliding row uncovers.
+ *
+ * Quiet until the row has gone far enough to add, then the accent's solid
+ * fill: the moment letting go would do something is the moment the strip goes
+ * live, which is the Live-Only Accent rule applied to a gesture. A row that
+ * can't be added uncovers an empty strip — it barely moves, and a label there
+ * would promise what the release won't do.
+ */
+function SwipeReveal({ canAdd }: { canAdd: boolean }) {
+  return (
+    <div
+      aria-hidden
+      className={cx(
+        'absolute inset-0 flex items-center gap-[10px] bg-surface-sunken px-[25px] text-content-muted',
+        'group-data-[armed]/slot:bg-[var(--accent-fill)] group-data-[armed]/slot:text-accent-content',
+      )}
+    >
+      {canAdd ? (
+        <>
+          <SetlistIcon size={20} />
+          <span className="yarg-label text-[13px]">add</span>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The confirmation a swiped-in row wears for a moment.
+ *
+ * Colour and nothing else: the text is the mark arriving beside it, and a
+ * second announcement would say "added" twice. Emerald, because this is the
+ * app's one confirm, washed in from the edge the text isn't on — the same
+ * angles the playing row uses, for the same reason.
+ *
+ * It fades out where motion is welcome; under reduced motion it simply holds
+ * and then goes, since a fade is movement nobody's hand made.
+ */
+function AddedFlash({ narrow }: { narrow: boolean }) {
+  const ref = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    ref.current?.animate(
+      [{ opacity: 1 }, { opacity: 1, offset: 0.35 }, { opacity: 0 }],
+      { duration: ADDED_FLASH_MS, easing: 'ease-out', fill: 'forwards' },
+    )
+  }, [])
+
+  return (
+    <span
+      ref={ref}
+      aria-hidden
+      // Under the row's text and over its fill: the button isolates its own
+      // stacking context, so `-z-10` lands between the two.
+      className="pointer-events-none absolute inset-0 -z-10"
+      style={{
+        background: `linear-gradient(${narrow ? 270 : 90}deg, color-mix(in srgb, var(--color-success) 50%, transparent), transparent 70%)`,
+      }}
+    />
+  )
+}
+
+/**
+ * The setlist glyph and the song's place, on a row that is in a live setlist.
+ *
+ * The glyph is the setlist chip's own icon in the accent, because the mark
+ * only exists while YARG is sharing the setlist — it is a live state, and it
+ * goes with the chip's tint the moment the setlist goes out of view. The number
+ * is set like the row's other numbers. A played song keeps its mark in the
+ * faint voice the setlist panel gives played rows: still in the list, done.
+ *
+ * Spoken as a sentence rather than as an icon and a digit, which said nothing.
+ */
+function QueuedMarkTag({ mark, narrow }: { mark: QueuedMark; narrow: boolean }) {
+  const played = mark.standing.kind === 'played'
+
+  return (
+    <span className={cx('flex shrink-0 items-center gap-[4px]', played ? 'text-content-faint' : 'text-count')}>
+      <span className="sr-only">{markLabel(mark)}. </span>
+      <SetlistIcon size={narrow ? 16 : 18} className={played ? undefined : 'text-accent'} />
+      <span aria-hidden className={cx('font-numeric font-semibold tabular-nums', narrow ? 'text-[14px]' : 'text-[16px]')}>
+        {mark.position}
+      </span>
+    </span>
+  )
+}
 
 /**
  * Wide layout: the cover, then whichever columns are on.
@@ -1087,10 +1414,12 @@ function WideRow({
   song,
   lens,
   columns,
+  mark,
 }: {
   song: Song
   lens: DifficultyLens
   columns: readonly Column[]
+  mark: QueuedMark | undefined
 }) {
   return (
     <div className="flex w-full items-center gap-[15px]">
@@ -1110,7 +1439,7 @@ function WideRow({
       </div>
 
       {columns.map((column) => (
-        <WideCell key={column.id} column={column} song={song} lens={lens} />
+        <WideCell key={column.id} column={column} song={song} lens={lens} mark={mark} />
       ))}
     </div>
   )
@@ -1128,13 +1457,36 @@ function WideCell({
   column,
   song,
   lens,
+  mark,
 }: {
   column: Column
   song: Song
   lens: DifficultyLens
+  mark: QueuedMark | undefined
 }) {
   switch (column.id) {
     case 'name':
+      /*
+       * The setlist mark rides at the end of the title, inside the title's own
+       * cell. Every other place in a table row is a column the sort header
+       * names, and a mark of its own would need a header slot reserved on four
+       * thousand rows for the handful that are queued. Here it costs the title
+       * a few characters on exactly those rows and moves no column — and the
+       * title is where the eye already is.
+       */
+      if (mark !== undefined) {
+        return (
+          <div className={cx(column.box, 'flex items-center gap-[10px]')}>
+            <div
+              dir="auto"
+              className="min-w-0 truncate-tight text-[22px] leading-none font-semibold text-white"
+            >
+              <SongTitle song={song} />
+            </div>
+            <QueuedMarkTag mark={mark} narrow={false} />
+          </div>
+        )
+      }
       return (
         <div
           dir="auto"
@@ -1241,10 +1593,12 @@ function NarrowRow({
   song,
   lens,
   fields,
+  mark,
 }: {
   song: Song
   lens: DifficultyLens
   fields: ReadonlySet<RowField>
+  mark: QueuedMark | undefined
 }) {
   return (
     <>
@@ -1262,9 +1616,15 @@ function NarrowRow({
       </div>
 
       {/* Nothing on, nothing drawn — an empty cluster would still take the
-          row's 15px gap and leave the title short of the edge it was given. */}
-      {fields.size === 0 ? null : (
+          row's 15px gap and leave the title short of the edge it was given.
+          The setlist mark is not a field and can't be switched off, so a
+          queued song draws the cluster for it alone. It leads the cluster
+          rather than closing it, so the fields hold their places against the
+          right-hand edge and a queued row's source badge still lines up with
+          the rows either side of it. */}
+      {fields.size === 0 && mark === undefined ? null : (
         <div className="flex shrink-0 items-center gap-[10px]">
+          {mark !== undefined ? <QueuedMarkTag mark={mark} narrow /> : null}
           {fields.has('length') ? (
             <span className="font-numeric text-[14px] tabular-nums text-count-muted">
               <span className="sr-only">Length </span>
