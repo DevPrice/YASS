@@ -307,7 +307,10 @@ light falling on the banner.
 ### Named Rules
 **The Lit, Not Lifted Rule.** Nothing rises on hover or selection. Controls brighten
 (`brightness(1.15)`), fill with the 20% tint, or light their inset stroke. No scale, no
-translate, no bounce.
+translate, no bounce. A row following a finger is direct manipulation, not a lift: it may
+translate exactly as far as the finger takes it — a drag by the grip, a swipe. The parts
+that move on their own (the spring back, the slide out, the brief emerald wash confirming
+a swiped add) are dropped under `prefers-reduced-motion`.
 
 **The Edge Wash Rule.** Colour emphasis enters from one edge and fades to card colour,
 angled away from the text it sits under. It never fills a shape flat.
@@ -316,9 +319,10 @@ angled away from the text it sits under. It never fills a shape flat.
 screen in the muted voice, stamped with when it was true. It is removed only when the
 source says so. Never claim a thing was cleared until the source shows it empty.
 
-**The Say-When Rule.** An action that can't work right now is still shown, and its caption
-names the condition under which it will work, in terms of what the host is doing.
-Unavailable is learned before the tap, never from it.
+**The Say-When Rule.** An action that can't work right now says when it will, in terms of
+what the host is doing, before anyone taps. While nobody can act at all, that is a single
+muted line in the action's place, not a dead control; a control stays drawn, inert, only
+where this one thing was refused and the guest is looking at it for the answer.
 
 **The Up-Now Rule.** A list's position marker ("up now") is not playback. Only the
 now-playing signal may say *playing*. Where the two agree, the row may wear both.
@@ -381,6 +385,12 @@ artist beneath, numbers in Inter, instrument glyphs lit or dim for "has this par
 **playing row** is Selected Blue washed out to Card Night from the side opposite the
 text, with a hard white border.
 
+**Queued mark.** While the setlist is live, a row whose song is in it carries the setlist
+glyph in Vivid Sky Blue and its position in Inter (Count Steel; Cool Gray once played),
+numbered as the setlist panel numbers it. It leads the narrow row's trailing cluster and
+follows the title inside the table's title cell, so no column moves. It is never shown on a
+stale setlist.
+
 ### Now-Playing Banner (signature)
 The currently playing song over the list, with the **venue wash**: YARG's live stage
 lighting, cross-faded at the song's tempo, `screen`-blended and masked off the right side
@@ -393,11 +403,24 @@ on the assumption that it isn't a real cover.
 
 ### Setlist Chip
 The banner's trailing control, and the setlist's only way in. A pill holding YARG's
-setlist icon (the show icon during a show) and a tabular count. It is a chip in both of a
-chip's states, and here they mean *live*: tinted with the accent edge while YARG is sharing
-the setlist, the plain Cool Gray stroke while it isn't. It sits in the banner's existing
-row, so the banner keeps its fixed height. It isn't rendered at all where the setlist has
-never been seen.
+setlist icon in every state, then a word and a tabular number: `setlist 12` for the count
+(or the last count, unlit, while out of view), `3 next` for what is left in a show, and
+`yours 4` once this browser has a song still to come — its place in the setlist outside a
+show, its place among the songs to come in one (up next is 1). `setlist –` when there is
+nothing honest to say. The word `setlist` shows on every width beside a bare count, and
+gives way below `sm` beside `next` and `yours`, so the song title keeps its room on a
+phone. It is a chip in both of a chip's states, and here they mean *live*: tinted with the
+accent edge while YARG is sharing the setlist, the plain Cool Gray stroke while it isn't.
+It sits in the banner's existing row, so the banner keeps its fixed height. It isn't
+rendered at all where the setlist has never been seen.
+
+### Setlist Panel
+Live needs no label; `show` is the only accent badge. Not sharing, for any reason, is
+`closed for now` with one line — "Adding opens when the host is back at YARG's song list."
+— and the `as of` time. Every empty or cleared state that can take a song offers `find a
+song`, which hands the guest to the library's search, and so does the last row of a list
+that can. "Cleared after the last show" is said once: it falls back to the plain empty
+state after the panel has shown it, or after three minutes.
 
 ### Setlist Row
 The narrow song row with a position number in front: Inter 14, Count Slate, right-aligned
@@ -405,14 +428,25 @@ in 26px. *Up now* takes the Selected Blue wash angled away from the text, and ga
 playing row's white borders only while the now-playing banner names the same song.
 *Played* and *stale* rows drop to Muted Lavender-Gray titles and Cool Gray artists. Rows
 are never removed in the same moment they change state. A show divides the list with the
-category header band: `played`, then the up-now row, then `up next`.
+category header band — `played`, then the up-now row, then `up next` — but only while the
+setlist is live: a stale snapshot draws no bands, since it can't know whether its up-now
+song was played, and its up-now row carries a neutral `was up now` badge. **Yours** wears a
+2px `accent-edge` bar on its start edge (Cool Gray once played or stale) instead of a
+badge, so it keeps its length. Your unplayed rows are moved by a grip and swipe left to
+remove (Imperial Red behind, the row following the finger), with an `×` beside the grip for
+pointer and keyboard; a removed row's place is taken by an undo strip for 8s.
 
 ### Action Bar
-The foot of the song detail in every housing: Bar Night with the bar lift, one control and
-one caption. A control that can't act right now stays drawn, in the neutral tone at 50% and
-`aria-disabled`, and the caption says when it will work. Every state and its copy is
-`actionBar` in `client/src/features/setlist/model.ts`. No red anywhere in it: a refused song
-is information at a party, not an alarm.
+The foot of the song detail in every housing: Bar Night with the bar lift. It holds a
+button with a caption under it, or a status line (setlist icon, white lead, muted position)
+with an optional trailing button. While nobody can add — setlist out of view, link lost,
+host switched guest edits off — it is one muted status line naming when adding opens, with
+no button. A refused song keeps its button in the neutral tone at 50%, `aria-disabled`,
+with the reason beneath. The bar states the song's position itself, so the detail's
+position badge appears only where there is no bar. Positions are counted as songs still to
+come before yours, with a rough wait (`after 3 more songs, about 14 min`). Every state and
+its copy is `actionBar` in `client/src/features/setlist/model.ts`. No red anywhere in it: a
+refused song is information at a party, not an alarm.
 
 ## Do's and Don'ts
 
@@ -443,4 +477,11 @@ is information at a party, not an alarm.
 - **Don't** animate anything decorative when reduced motion is requested.
 - **Don't** put configuration advice in the guest client. "Not available right now" is the
   whole of what a guest is told; the remedy belongs to the tray.
-- **Don't** give a song row a second action. Adding to the setlist happens in the detail.
+- **Don't** give a library song row a second *visible* action. Adding to the setlist is the
+  detail's action bar. The one exception is invisible: on touch, a row dragged right adds
+  the song (`client/src/features/library/swipeAdd.ts`). It draws nothing at rest, never
+  takes a vertical drag (`touch-action: pan-y`), and nothing moves until the finger is
+  clearly travelling right; the uncovered strip lights the accent fill only once letting go
+  would add. Whether it can add is `actionBar`'s `add` state; otherwise the row gives a
+  little and springs back. A refused swipe opens the song so the action bar can say why.
+  Mice get no swipe.

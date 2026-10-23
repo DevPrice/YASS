@@ -21,6 +21,7 @@ import {
   later,
   lostToClearing,
   ordinal,
+  restorePlacement,
   runTime,
   setlistMode,
   standingOf,
@@ -432,18 +433,8 @@ describe('the position badge', () => {
   })
 })
 
-// Imported here rather than above so this block merges apart from edits to the rest.
-import { restorePlacement, upcomingOfYours } from './model'
-
-describe('your songs in the panel', () => {
+describe('undoing a removal', () => {
   const four = [entry(1), entry(2), entry(3), entry(4)]
-
-  it('finds yours still to come, up now included and played left out', () => {
-    const mine = new Set([1, 3, 4])
-    assert.deepEqual(upcomingOfYours(state({ entries: four }), mine), [0, 2, 3])
-    assert.deepEqual(upcomingOfYours(show(2, { entries: four }), mine), [2, 3])
-    assert.deepEqual(upcomingOfYours(show(3, { entries: four }), new Set([1, 2])), [])
-  })
 
   it('puts an undone removal back after its old neighbour, or at the start', () => {
     assert.deepEqual(restorePlacement(state({ entries: four }), 0), { position: 'start' })

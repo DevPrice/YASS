@@ -496,22 +496,7 @@ function addCaption(state: SetlistState): string {
   return about === null ? `${after}.` : `${after}, ${about}.`
 }
 
-// --- Your songs in the panel --------------------------------------------------
-
-/**
- * Where this browser's songs still to come are, in setlist order: everything
- * not yet played, the up-now one included. The first is where the panel's
- * "yours" line jumps to.
- */
-export function upcomingOfYours(state: SetlistState, mine: ReadonlySet<number>): number[] {
-  const indexes: number[] = []
-  state.entries.forEach((entry, index) => {
-    if (entry.id !== null && mine.has(entry.id) && standingAt(state, index).kind !== 'played') {
-      indexes.push(index)
-    }
-  })
-  return indexes
-}
+// --- Undoing a removal ------------------------------------------------------------
 
 /**
  * Where the entry at `index` goes back to if its removal is undone: after the

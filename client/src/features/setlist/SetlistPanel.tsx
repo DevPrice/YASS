@@ -60,7 +60,7 @@ import {
   runTime,
   setlistMode,
   standingAt,
-  upcomingOfYours,
+  yourLine,
   type MovePlan,
   type SetlistMode,
 } from './model'
@@ -340,11 +340,11 @@ function YourLine({
   mine: ReadonlySet<number>
   onJump: (id: number) => void
 }) {
-  const next = upcomingOfYours(setlist, mine)[0]
-  const id = next === undefined ? null : (setlist.entries[next]?.id ?? null)
-  if (id === null) return null
+  const line = yourLine(setlist, mine)
+  const id = line === null ? null : (setlist.entries[line.index]?.id ?? null)
+  if (line === null || id === null) return null
 
-  const text = yourLineWords(setlist, mine)
+  const text = line.text
 
   return (
     <button
@@ -365,29 +365,6 @@ function YourLine({
       </span>
     </button>
   )
-}
-
-/** `Yours is 7th.`, `2 of yours to come · the next is up in 3 songs.` */
-function yourLineWords(setlist: SetlistState, mine: ReadonlySet<number>): string {
-  const upcoming = upcomingOfYours(setlist, mine)
-  const next = upcoming[0]
-  if (next === undefined) return ''
-
-  const standing = standingAt(setlist, next)
-  const where =
-    standing.kind === 'upNow'
-      ? 'up now'
-      : standing.kind === 'upNext'
-        ? 'up next'
-        : standing.kind === 'later'
-          ? `up in ${standing.songs} songs`
-          : ordinal(next + 1)
-
-  return upcoming.length === 1
-    ? `Yours is ${where}.`
-    : setlist.showInProgress
-      ? `${upcoming.length} of yours to come · the next is ${where}.`
-      : `${upcoming.length} of yours · the next is ${where}.`
 }
 
 /** Says each change of state once, never a change of songs. */
@@ -572,6 +549,9 @@ function refusalWords(outcome: EditOutcome): string {
       return "the host's game won't play this one."
     case 'full':
       return 'the setlist is full.'
+    case 'alreadyInSetlist':
+      // Someone else put it back first, which is the outcome the guest wanted.
+      return "it's already in the setlist."
     case 'inactive':
       return 'YARG stopped taking songs just then.'
     case 'locked':
