@@ -687,10 +687,16 @@ function SetlistRows({
     return outcome.ok
   }
 
+  const movable = (entry: SetlistEntry, index: number) =>
+    editable && entry.id !== null && mine.has(entry.id) && (current === null || index > current)
+  // Every row keeps the grip's column while any has one, so the numbers stay in one line.
+  // Not `busy`-gated: the grips step out for a request's few milliseconds, the column doesn't.
+  const gripColumn = setlist.entries.some(movable)
+
   const undoAt = removed === null ? null : undoIndex(setlist, removed)
   const undoRow =
     removed === null ? null : (
-      <UndoRow key={`undo-${removed.at}`} removed={removed} onDone={onRemovedDone} />
+      <UndoRow key={`undo-${removed.at}`} removed={removed} gripColumn={gripColumn} onDone={onRemovedDone} />
     )
 
   return (
@@ -706,7 +712,7 @@ function SetlistRows({
 
           const song = songsByHash.get(entry.hash) ?? null
           const isMine = entry.id !== null && mine.has(entry.id)
-          const changeable = editable && isMine && (current === null || index > current) && !busy
+          const changeable = movable(entry, index) && !busy
 
           return [
             undoAt === index ? undoRow : null,
@@ -724,6 +730,7 @@ function SetlistRows({
               flash={flashId !== null && flashId === entry.id}
               dragging={drag.state?.from === index ? drag.state.dy : null}
               dropLine={drag.lineAt(index)}
+              gripColumn={gripColumn}
               handle={
                 changeable
                   ? {
@@ -771,7 +778,7 @@ function SetlistRows({
         </p>
       ) : null}
 
-      {editable ? <FindSongRow onFindSong={onFindSong} /> : null}
+      {editable ? <FindSongRow gripColumn={gripColumn} onFindSong={onFindSong} /> : null}
     </>
   )
 }
@@ -788,13 +795,14 @@ function undoIndex(setlist: SetlistState, removed: Removed): number {
 }
 
 /** `find a song` as the list's last row, its glyph where the album art stands. */
-function FindSongRow({ onFindSong }: { onFindSong: () => void }) {
+function FindSongRow({ gripColumn, onFindSong }: { gripColumn: boolean; onFindSong: () => void }) {
   return (
     <button
       type="button"
       onClick={onFindSong}
       className={cx(
-        'yarg-focusable flex h-[60px] w-full shrink-0 cursor-pointer items-center gap-[15px] pr-[25px] pl-[56px] text-left',
+        'yarg-focusable flex h-[60px] w-full shrink-0 cursor-pointer items-center gap-[15px] pr-[25px] text-left',
+        gripColumn ? 'pl-[85px]' : 'pl-[56px]',
         'text-content-muted transition-[background,color] duration-160 hover:bg-surface-hover hover:text-white',
         'focus-visible:[outline-offset:-3px]',
       )}
@@ -826,7 +834,15 @@ function FindSongRow({ onFindSong }: { onFindSong: () => void }) {
  * If the move is refused (the neighbour left, the show moved past it) the song
  * stays at the end and the strip says so.
  */
-function UndoRow({ removed, onDone }: { removed: Removed; onDone: (at: number) => void }) {
+function UndoRow({
+  removed,
+  gripColumn,
+  onDone,
+}: {
+  removed: Removed
+  gripColumn: boolean
+  onDone: (at: number) => void
+}) {
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
   const [held, setHeld] = useState(false)
@@ -867,7 +883,10 @@ function UndoRow({ removed, onDone }: { removed: Removed; onDone: (at: number) =
       onPointerLeave={() => setHeld(false)}
       onFocus={() => setHeld(true)}
       onBlur={() => setHeld(false)}
-      className="flex h-[60px] items-center gap-[15px] bg-surface-sunken pr-[10px] pl-[56px]"
+      className={cx(
+        'flex h-[60px] items-center gap-[15px] bg-surface-sunken pr-[10px]',
+        gripColumn ? 'pl-[85px]' : 'pl-[56px]',
+      )}
       style={{ borderBottom: '1px solid var(--color-border-row)' }}
     >
       <p role="status" className="min-w-0 flex-1 truncate text-[15px] text-content-muted">
@@ -931,6 +950,7 @@ function SetlistRow({
   flash,
   dragging,
   dropLine,
+  gripColumn,
   handle,
   onRemove,
   onOpenSong,
@@ -949,6 +969,8 @@ function SetlistRow({
   dragging: number | null
   /** Where the drop line sits on this row, if it sits on it at all. */
   dropLine: 'above' | 'below' | null
+  /** Whether the row leads with the grip's column, empty when `handle` is null. */
+  gripColumn: boolean
   /** The grip, on this browser's own songs that can still move. */
   handle: Handle | null
   /** Remove, on the same rows as the grip. Resolves to whether it went. */
@@ -1046,18 +1068,29 @@ function SetlistRow({
         : 'var(--accent-edge)'
       : 'transparent'
 
+  // The × hides on a coarse pointer, and the row's end padding comes back with it.
   const rowClass = cx(
-    'flex h-[60px] w-full min-w-0 items-center gap-[15px] pl-[15px] text-left',
-    handle !== null ? 'pr-[10px]' : 'pr-[25px]',
-    upNow ? 'yarg-wash-selected [--yarg-wash-angle:270deg]' : 'bg-surface-card',
+    'flex h-full w-full min-w-0 items-center gap-[15px] text-left',
+    !gripColumn && 'pl-[15px]',
+    onRemove !== null ? 'pr-[10px] pointer-coarse:pr-[25px]' : 'pr-[25px]',
   )
-  const rowStyle = {
+
+  /*
+   * The frame — background, borders, the start-edge bar — is the swiping
+   * wrapper's, not the row button's, so the grip at the start and the × at the
+   * end sit inside it rather than beside it.
+   */
+  const frameStyle = {
     borderTop: lit ? '3px solid #fff' : '1px solid var(--color-border-row)',
     borderBottom: lit ? '3px solid #fff' : '1px solid var(--color-border-row)',
     borderLeft: `2px solid ${startEdge}`,
     borderRight: `2px solid ${lit ? '#fff' : 'transparent'}`,
-    // Colour only, and it fades back on the row's own background transition.
+    // Colour only, and it fades back on the frame's own background transition.
     ...(flash ? { background: 'var(--accent-tint)' } : {}),
+    // Lit, not lifted: the row under the finger takes the accent stroke rather
+    // than a shadow, and moves only because the finger does.
+    ...(dragging !== null ? { boxShadow: 'inset 0 0 0 var(--stroke) var(--accent-edge)' } : {}),
+    ...(swipe.offset === 0 ? {} : { transform: `translateX(${swipe.offset}px)` }),
   }
 
   return (
@@ -1068,17 +1101,7 @@ function SetlistRow({
       aria-setsize={setlist.totalCount}
       aria-posinset={index + 1}
       className="relative"
-      style={
-        dragging !== null
-          ? {
-              // Lit, not lifted: the row under the finger takes the accent
-              // stroke rather than a shadow, and moves only because the finger does.
-              transform: `translateY(${dragging}px)`,
-              zIndex: 10,
-              boxShadow: 'inset 0 0 0 var(--stroke) var(--accent-edge)',
-            }
-          : undefined
-      }
+      style={dragging !== null ? { transform: `translateY(${dragging}px)`, zIndex: 10 } : undefined}
     >
       {dropLine !== null ? (
         <span
@@ -1103,14 +1126,37 @@ function SetlistRow({
       <div
         {...swipe.handlers}
         className={cx(
-          'relative flex items-stretch',
+          'relative flex h-[60px] items-stretch',
+          upNow ? 'yarg-wash-selected [--yarg-wash-angle:270deg]' : 'bg-surface-card',
           // A mouse swipe would otherwise select the title it drags across.
           onRemove !== null && 'touch-pan-y select-none',
-          swipe.phase !== 'drag' &&
-            'transition-transform duration-160 ease-[var(--ease-standard)] motion-reduce:transition-none',
+          swipe.phase !== 'drag'
+            ? 'transition-[transform,background] duration-160 ease-[var(--ease-standard)] motion-reduce:transition-none'
+            : 'transition-[background] duration-160 motion-reduce:transition-none',
         )}
-        style={swipe.offset === 0 ? undefined : { transform: `translateX(${swipe.offset}px)` }}
+        style={frameStyle}
       >
+        {handle !== null ? (
+          <button
+            type="button"
+            data-no-swipe
+            onPointerDown={handle.onPointerDown}
+            onKeyDown={handle.onKeyDown}
+            aria-label={`Move ${entry.name}`}
+            aria-describedby="setlist-drag-hint"
+            className={cx(
+              'yarg-focusable flex w-[44px] shrink-0 cursor-grab touch-none items-center justify-center',
+              'transition-colors duration-160 select-none hover:text-white active:cursor-grabbing',
+              'focus-visible:[outline-offset:-3px]',
+              dragging !== null ? 'text-white' : 'text-content-muted',
+            )}
+          >
+            <GripIcon />
+          </button>
+        ) : gripColumn ? (
+          <span aria-hidden className="w-[44px] shrink-0" />
+        ) : null}
+
         {song !== null ? (
           <button
             type="button"
@@ -1121,20 +1167,19 @@ function SetlistRow({
               'yarg-focusable cursor-pointer transition-[background] duration-160 focus-visible:[outline-offset:-3px]',
               !upNow && 'hover:bg-surface-hover',
             )}
-            style={rowStyle}
           >
             {spoken ? <span className="sr-only">{spoken} </span> : null}
             {body}
           </button>
         ) : (
-          <div className={cx(rowClass, 'transition-[background] duration-160')} style={rowStyle}>
+          <div className={rowClass}>
             {spoken ? <span className="sr-only">{spoken} </span> : null}
             {body}
           </div>
         )}
 
         {/*
-         * Remove for a mouse and a keyboard, beside the grip. On a touch screen
+         * Remove for a mouse and a keyboard, at the row's end. On a touch screen
          * the row swipes away instead and this steps out of sight, kept for a
          * screen reader: 88px of controls on a 390px row would leave the title
          * a word. No confirm, because the undo strip that takes the row's place
@@ -1147,32 +1192,12 @@ function SetlistRow({
             onClick={() => void onRemove()}
             aria-label={`Remove ${entry.name}`}
             className={cx(
-              'yarg-focusable flex w-[44px] shrink-0 cursor-pointer items-center justify-center bg-surface-card',
+              'yarg-focusable flex w-[44px] shrink-0 cursor-pointer items-center justify-center',
               'text-content-muted transition-colors duration-160 hover:text-white',
-              'pointer-coarse:sr-only',
+              'focus-visible:[outline-offset:-3px] pointer-coarse:sr-only',
             )}
-            style={{ borderBottom: '1px solid var(--color-border-row)' }}
           >
             <CrossGlyph />
-          </button>
-        ) : null}
-
-        {handle !== null ? (
-          <button
-            type="button"
-            data-no-swipe
-            onPointerDown={handle.onPointerDown}
-            onKeyDown={handle.onKeyDown}
-            aria-label={`Move ${entry.name}`}
-            aria-describedby="setlist-drag-hint"
-            className={cx(
-              'yarg-focusable flex w-[44px] shrink-0 cursor-grab touch-none items-center justify-center bg-surface-card',
-              'transition-colors duration-160 select-none hover:text-white active:cursor-grabbing',
-              dragging !== null ? 'text-white' : 'text-content-muted',
-            )}
-            style={{ borderBottom: '1px solid var(--color-border-row)' }}
-          >
-            <GripIcon />
           </button>
         ) : null}
       </div>

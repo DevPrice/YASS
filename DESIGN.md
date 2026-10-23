@@ -432,9 +432,10 @@ category header band — `played`, then the up-now row, then `up next` — but o
 setlist is live: a stale snapshot draws no bands, since it can't know whether its up-now
 song was played, and its up-now row carries a neutral `was up now` badge. **Yours** wears a
 2px `accent-edge` bar on its start edge (Cool Gray once played or stale) instead of a
-badge, so it keeps its length. Your unplayed rows are moved by a grip and swipe left to
-remove (Imperial Red behind, the row following the finger), with an `×` beside the grip for
-pointer and keyboard; a removed row's place is taken by an undo strip for 8s. A dropped row
+badge, so it keeps its length. Your unplayed rows lead with a grip that moves them, and swipe
+left to remove (Imperial Red behind, the row following the finger), with an `×` at the end
+for pointer and keyboard; a removed row's place is taken by an undo strip for 8s. While any
+row has a grip, every row keeps its 44px column, so the numbers stay in one line. A dropped row
 stays where it was dropped while YARG answers, and goes back only if YARG refuses.
 
 ### Action Bar
