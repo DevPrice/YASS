@@ -95,6 +95,24 @@ function describeFailure(recent: string[], port: number): string {
   return lastLine ? `The server stopped: ${lastLine.trim()}` : 'The server stopped unexpectedly.'
 }
 
+/**
+ * What to tell someone whose server entry is not there.
+ *
+ * A packaged copy had the file when the exe unpacked, so something has deleted
+ * it since: another launch of the portable exe clears the shared unpack
+ * directory (`unpackDirName` in `electron-builder.yml`) before extracting and
+ * again on exit, and antivirus quarantines scripts out of `%TEMP%`. Whoever sees
+ * this downloaded an exe and has no build to run. Short because the tray
+ * tooltip repeats it, and Windows cuts a tooltip off at 127 characters.
+ */
+function missingBundleMessage(serverEntry: string): string {
+  if (app.isPackaged) {
+    return "YASS's files were deleted, by a second copy or antivirus. Quit YASS from the tray and open it again."
+  }
+
+  return `The server bundle is missing (${serverEntry}). Run \`npm run build\`.`
+}
+
 export class ServerChild {
   #child: UtilityProcess | null = null
   #status: ServerStatusName = 'stopped'
@@ -210,12 +228,16 @@ export class ServerChild {
     this.#stopping = false
     this.#set('starting')
 
+    await this.#openLog()
+
     if (!existsSync(serverEntry)) {
-      this.#set('failed', `The server bundle is missing (${serverEntry}). Run \`npm run build\`.`)
+      this.#append(`\n[tray] server bundle missing: ${serverEntry}\n`)
+      this.#log?.end()
+      this.#log = null
+      this.#set('failed', missingBundleMessage(serverEntry))
       return
     }
 
-    await this.#openLog()
     this.#append(`\n[tray] starting ${serverEntry}\n`)
 
     const child = utilityProcess.fork(serverEntry, [], {
