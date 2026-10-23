@@ -64,14 +64,14 @@ function bundledResources(): ResourcePaths {
  * Where to run the server and serve the client from, for the life of this
  * process.
  *
- * The portable exe unpacks into a fixed `%TEMP%\YASS` (`unpackDirName` in
- * `electron-builder.yml`), and every launch of it clears that directory before
- * extracting and again when its stub exits — including a second launch that
- * only lives long enough to lose the single-instance lock. Windows refuses to
- * delete the files this process holds open, and deletes the rest: the server
- * entry, which matters at the next restart, and the client, which the running
- * server reads per request and so 404s every guest at once. Copying both out
- * once, here, puts them where no launch of the exe reaches.
+ * The portable exe runs out of `%TEMP%\YASS`, and on a machine left hosting for
+ * days that is where Storage Sense, a temp cleaner or antivirus come looking.
+ * Windows refuses to delete the files this process holds open and lets them
+ * take the rest: the server entry, which matters at the next restart, and the
+ * client, which the running server reads per request and so 404s every guest
+ * at once. The stub's own wipe on a second launch did exactly that until
+ * `scripts/patch-portable-stub.mjs`. Copying both out once, here, puts them in
+ * the cache directory, which nothing treats as temporary.
  *
  * Copied fresh on every launch rather than kept by version, because a local
  * `npm run dist` rebuilds without changing the version. Only the copy that
@@ -143,8 +143,8 @@ function describeFailure(recent: string[], port: number): string {
 /**
  * A file the server cannot start without, if one has gone.
  *
- * Electron's own runtime sits beside the exe in the same wipe that
- * `locateResources` steps around, and it cannot be copied out: a utility
+ * Electron's own runtime sits beside the exe, open to whatever deletes from
+ * `%TEMP%` (see `locateResources`), and it cannot be copied out: a utility
  * process is handed its ICU data by this process, from there, and dies on
  * "Invalid file descriptor to ICU data received" without it. `icudtl.dat`
  * stands for the rest of that directory.
@@ -162,15 +162,13 @@ function missingFile(serverEntry: string): string | null {
  * What to tell someone whose server cannot start for a missing file.
  *
  * A packaged copy had every file when the exe unpacked, so something has
- * deleted them since: another launch of the portable exe (see
- * `locateResources`), or antivirus quarantining a script out of `%TEMP%`.
- * Whoever sees this downloaded an exe and has no build to run. Short because
- * the tray tooltip repeats it, and Windows cuts a tooltip off at 127
- * characters.
+ * deleted them since (see `locateResources`). Whoever sees this downloaded an
+ * exe and has no build to run. Short because the tray tooltip repeats it, and
+ * Windows cuts a tooltip off at 127 characters.
  */
 function missingFileMessage(path: string): string {
   if (app.isPackaged) {
-    return "YASS's files were deleted, by a second copy or antivirus. Quit YASS from the tray and open it again."
+    return "YASS's files were deleted, likely by antivirus or a temp cleaner. Quit YASS from the tray and open it again."
   }
 
   return `The server bundle is missing (${path}). Run \`npm run build\`.`

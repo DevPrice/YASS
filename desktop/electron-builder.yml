@@ -32,6 +32,10 @@ electronLanguages:
 # is packaged; see the script for what it takes and what it deliberately leaves.
 afterPack: scripts/prune-runtime.mjs
 
+# Stops a second launch of the portable exe wiping the running copy's files;
+# see `unpackDirName` below and the script for why it has to patch a template.
+beforePack: scripts/patch-portable-stub.mjs
+
 # Main, preload and the popover's built UI go inside the asar: only Electron
 # reads them, and its patched `fs` handles the archive transparently. The icon
 # rides along because the tray reads it at runtime through `nativeImage`, which
@@ -118,14 +122,12 @@ portable:
   # Naming it pins the path across rebuilds: allow it once, and the rule keeps
   # matching no matter how many times the exe underneath is replaced.
   #
-  # The cost is that every launch shares the directory, and the stub wipes it
-  # before extracting and again on exit — so a second launch, even one that
-  # just loses the single-instance lock, deletes every file the running copy
-  # does not hold open. That was already true of two launches of the same
-  # build; naming the directory extends it to two *different* builds. The tray
-  # copies the server and client out at startup (`locateResources` in
-  # `src/server.ts`), so guests keep their page, but Electron's own runtime goes
-  # too: until YASS is quit and reopened it cannot start a server again.
+  # The cost is that every launch shares the directory, and the stock stub
+  # wipes it before extracting — so a second launch, even one that just loses
+  # the single-instance lock, would delete every file the running copy does not
+  # hold open. `scripts/patch-portable-stub.mjs` makes a launch that finds a
+  # copy running out of this directory hand over to it instead, which covers
+  # two different builds as well as two launches of one.
   unpackDirName: YASS
 
 # AppImage is the Linux answer to the portable .exe: a single file carrying its

@@ -140,13 +140,15 @@ no UI left to kill it with. The server entry ships as `.mjs` because `server/pac
 reuses the server's own settings and path modules through `@server/*` rather than
 reimplementing them.
 
-**The portable exe never runs its server out of `%TEMP%\YASS`.** Every launch of the exe
-wipes that directory, including a second launch that only loses the single-instance lock,
-and Windows deletes whatever the running copy does not hold open: the server entry and the
-whole client. So the tray copies both to `runtimeDir()` once at startup and runs from
-there (`locateResources` in `desktop/src/server.ts`). Electron's own runtime files go in
-the same wipe and cannot be moved, so after one a restart fails until YASS is reopened;
-`missingFile` checks for that rather than letting the child die on an ICU error.
+**A second launch of the portable exe opens the running copy's popover and touches
+nothing.** The stock stub wipes `%TEMP%\YASS` before extracting, and Windows deletes
+whatever the running copy does not hold open: the server entry, the whole client and
+Electron's `icudtl.dat`, after which no server can start again. electron-builder offers no
+way to customise the portable stub, so `desktop/scripts/patch-portable-stub.mjs` patches
+its template in `node_modules` from a `beforePack` hook, and fails the build if the line it
+anchors on moves. Separately, the tray copies the server and client to `runtimeDir()` at
+startup (`locateResources` in `desktop/src/server.ts`), because temp cleaners and antivirus
+reach into `%TEMP%` too; `missingFile` reports what they took in words the host can act on.
 
 The popover is also the only place the app's own settings can be seen or changed — the web
 client deliberately has none. That is where the **release / nightly switch** lives: the
