@@ -36,6 +36,7 @@ import {
   useTransition,
 } from 'react'
 import type { Ref } from 'react'
+import { flushSync } from 'react-dom'
 
 import type { SetlistState, Song } from '@shared/types'
 import { EmptyState, HelperBar, cx } from './ui'
@@ -100,7 +101,7 @@ const COMPACT_CHROME_QUERY = `${SHORT_QUERY} and (pointer: coarse)`
 export function App() {
   const { library, loading, error } = useLibrary()
   const { nowPlaying, connected, settled } = useNowPlaying()
-  const { setlist, mine, cleared } = useSetlist()
+  const { setlist, mine, cleared, seenCleared, lostNotice, dismissLostNotice } = useSetlist()
   const setlistPresent = setlistMode(setlist) !== 'absent'
 
   /**
@@ -391,6 +392,19 @@ export function App() {
     setSetlistOpen(false)
   }, [])
 
+  /**
+   * The setlist's `find a song`: to the search field, out of the sheet if there is one.
+   *
+   * Synchronous, sheet and all. iOS raises the keyboard only for a `focus()`
+   * made inside the tap itself, and the field is inert for as long as the
+   * sheet's modal dialog is up — so `flushSync` takes the dialog out of the
+   * document before the focus, rather than a frame later when the tap is over.
+   */
+  const findSong = useCallback(() => {
+    if (!twoPane) flushSync(closeSheet)
+    searchRef.current?.focus()
+  }, [twoPane, closeSheet])
+
   /** The playing song, if the library knows it. Null disables both routes to it. */
   const showPlaying = useMemo(() => {
     if (playingId === null) return null
@@ -655,11 +669,13 @@ export function App() {
         trailing={<SetlistChip setlist={setlist} mine={mine} onOpen={openSetlist} opensDialog={!twoPane} />}
       />
 
-      {cleared !== null &&
-      cleared.lost.length > 0 &&
-      setlist.guestEdits === 'on' &&
-      !(twoPane ? selected === null : setlistOpen && selected === null) ? (
-        <ClearedToast key={cleared.at} lost={cleared.lost.length} onShow={openSetlist} />
+      {lostNotice !== null && setlist.guestEdits === 'on' ? (
+        <ClearedToast
+          key={lostNotice.at}
+          lost={lostNotice.lost}
+          covered={twoPane ? selected === null : setlistOpen && selected === null}
+          onDone={() => dismissLostNotice(lostNotice.at)}
+        />
       ) : null}
 
       {/*
@@ -756,9 +772,11 @@ export function App() {
                   setlist={setlist}
                   mine={mine}
                   cleared={cleared}
+                  onClearedSeen={seenCleared}
                   songsByHash={songsByHash}
                   playingHash={playingSong?.hash ?? null}
                   onOpenSong={openFromSetlist}
+                  onFindSong={findSong}
                   headingRef={setlistHeadingRef}
                   className="pt-[25px]"
                 />
@@ -883,9 +901,11 @@ export function App() {
               setlist={setlist}
               mine={mine}
               cleared={cleared}
+              onClearedSeen={seenCleared}
               songsByHash={songsByHash}
               playingHash={playingSong?.hash ?? null}
               onOpenSong={openFromSetlist}
+              onFindSong={findSong}
             />
           )}
         </SongDetailSheet>

@@ -495,3 +495,35 @@ function addCaption(state: SetlistState): string {
   const after = `Goes at the end, after ${songs(ahead, true)}`
   return about === null ? `${after}.` : `${after}, ${about}.`
 }
+
+// --- Your songs in the panel --------------------------------------------------
+
+/**
+ * Where this browser's songs still to come are, in setlist order: everything
+ * not yet played, the up-now one included. The first is where the panel's
+ * "yours" line jumps to.
+ */
+export function upcomingOfYours(state: SetlistState, mine: ReadonlySet<number>): number[] {
+  const indexes: number[] = []
+  state.entries.forEach((entry, index) => {
+    if (entry.id !== null && mine.has(entry.id) && standingAt(state, index).kind !== 'played') {
+      indexes.push(index)
+    }
+  })
+  return indexes
+}
+
+/**
+ * Where the entry at `index` goes back to if its removal is undone: after the
+ * entry that was above it, or the start if it was first.
+ *
+ * YARG has no insert-at. An add always appends, so undo is an add and then a
+ * move to this placement, taken from the setlist as it stood when the entry
+ * was removed. Anchoring on the neighbour rather than a position number is
+ * what keeps it right when other songs were added at the end in between.
+ */
+export function restorePlacement(state: SetlistState, index: number): MovePlan {
+  if (index <= 0) return { position: 'start' }
+  const above = state.entries[index - 1]
+  return above?.id == null ? null : { position: 'after', anchorId: above.id }
+}
