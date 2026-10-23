@@ -37,7 +37,7 @@ import {
 } from 'react'
 import type { Ref } from 'react'
 
-import type { Song } from '@shared/types'
+import type { SetlistState, Song } from '@shared/types'
 import { EmptyState, HelperBar, cx } from './ui'
 import type { DifficultyLens } from './lib/difficulty'
 import { formatTitleCredit } from './lib/format'
@@ -720,6 +720,8 @@ export function App() {
             selection={selection}
             onSelect={select}
             isSorting={isSorting}
+            setlist={setlist}
+            mine={mine}
           />
         </div>
 
@@ -920,6 +922,8 @@ function LibraryView({
   selection,
   onSelect,
   isSorting,
+  setlist,
+  mine,
 }: {
   error: string | null
   loading: boolean
@@ -946,6 +950,9 @@ function LibraryView({
   onSelect: (song: Song) => void
   /** True while a re-order is in flight; the list says so rather than freezing. */
   isSorting: boolean
+  /** For the rows' setlist marks and swipe-to-add. */
+  setlist: SetlistState
+  mine: ReadonlySet<number>
 }) {
   if (error) {
     return (
@@ -1016,6 +1023,8 @@ function LibraryView({
         onSelect={onSelect}
         queryKey={queryKey}
         isSorting={isSorting}
+        setlist={setlist}
+        mine={mine}
       />
     </>
   )
