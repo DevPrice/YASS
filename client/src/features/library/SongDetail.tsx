@@ -102,9 +102,14 @@ interface SongDetailProps {
    * inset under them left the artwork floating in the middle of nothing.
    */
   className?: string
+  /**
+   * Where the song is in YARG's setlist, beside `Now playing`: the other thing
+   * YARG is doing with this song. Null when it isn't in a live setlist.
+   */
+  setlistBadge?: ReactNode
 }
 
-export function SongDetail({ song, isPlaying, artHash, className }: SongDetailProps) {
+export function SongDetail({ song, isPlaying, artHash, className, setlistBadge }: SongDetailProps) {
   const genre = [song.genre, song.subgenre].filter(Boolean).join(' · ')
 
   return (
@@ -190,9 +195,10 @@ export function SongDetail({ song, isPlaying, artHash, className }: SongDetailPr
              */}
             {/* Wrapped, because a bare badge is a flex child here and would stretch
                 to the width of the pane rather than to its own two words. */}
-            {isPlaying ? (
-              <div className="mb-[5px]">
-                <Badge tone="accent">Now playing</Badge>
+            {isPlaying || setlistBadge ? (
+              <div className="mb-[5px] flex flex-wrap items-center gap-[8px]">
+                {isPlaying ? <Badge tone="accent">Now playing</Badge> : null}
+                {setlistBadge}
               </div>
             ) : null}
 

@@ -10,7 +10,9 @@
  * - `art.ts` draws a cover per song, since there are no chart files to read one
  *   from.
  * - `backend.ts` replaces `fetch` and `EventSource`, and runs the simulated
- *   now-playing feed.
+ *   show: the now-playing feed and the setlist it plays from.
+ * - `setlist.ts` is YARG's setlist and YASS's rules for editing it, so the
+ *   setlist routes answer as the real pair would.
  * - `notice.ts` says that this is a demo.
  *
  * **None of it reaches a normal build.** `vite.config.ts` defines

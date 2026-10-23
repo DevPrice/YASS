@@ -282,6 +282,10 @@ A single list owns the screen, and everything else earns its height against it.
   overlay, with one mark per division of the current sort.
 - **The helper bar** (52px) sits at the bottom on desktop only; a phone spends that height
   on its filter bar instead.
+- **The setlist panel lives where the detail lives.** Below `lg` it is the detail sheet's
+  other face (bottom sheet upright, side sheet on `short`), with `‹ setlist` in the header
+  to step back. From `lg` it is the detail pane's resting face, shown whenever no song is
+  open. It never gets a row, a tab or a column of its own.
 - Safe-area insets are respected; the list owns scrolling and the page never rubber-bands.
 
 ## Elevation & Depth
@@ -293,9 +297,9 @@ colour in from one edge, and the venue wash uses `screen` blending so it reads a
 light falling on the banner.
 
 ### Shadow Vocabulary
-- **Bar lift** (`box-shadow: 0 0 150px 0 rgb(0,0,0)`): the helper bar and the phone's
-  control bar, separating fixed chrome from the scrolling list. The only true shadow in the
-  app.
+- **Bar lift** (`box-shadow: 0 0 150px 0 rgb(0,0,0)`): fixed chrome over scrolling
+  content — the helper bar, the phone's control bar, the song detail's action bar and the
+  one toast. The only true shadow in the app.
 - **Card stroke** (`box-shadow: inset 0 0 0 2px #12152D`): every card. A stroke, not a lift.
 - **Control stroke** (`box-shadow: inset 0 0 0 2px` Cool Gray, or `accent-edge` when live):
   text fields, selects and chips.
@@ -307,6 +311,17 @@ translate, no bounce.
 
 **The Edge Wash Rule.** Colour emphasis enters from one edge and fades to card colour,
 angled away from the text it sits under. It never fills a shape flat.
+
+**The Stale, Not Gone Rule.** When a live source stops talking, what it last said stays on
+screen in the muted voice, stamped with when it was true. It is removed only when the
+source says so. Never claim a thing was cleared until the source shows it empty.
+
+**The Say-When Rule.** An action that can't work right now is still shown, and its caption
+names the condition under which it will work, in terms of what the host is doing.
+Unavailable is learned before the tap, never from it.
+
+**The Up-Now Rule.** A list's position marker ("up now") is not playback. Only the
+now-playing signal may say *playing*. Where the two agree, the row may wear both.
 
 ## Shapes
 
@@ -376,6 +391,29 @@ A square slot on Sunken Night with a Selected Blue wash from the top corner. Unt
 arrives it carries the song's own title as Display type. Nothing around it may be arranged
 on the assumption that it isn't a real cover.
 
+### Setlist Chip
+The banner's trailing control, and the setlist's only way in. A pill holding YARG's
+setlist icon (the show icon during a show) and a tabular count. It is a chip in both of a
+chip's states, and here they mean *live*: tinted with the accent edge while YARG is sharing
+the setlist, the plain Cool Gray stroke while it isn't. It sits in the banner's existing
+row, so the banner keeps its fixed height. It isn't rendered at all where the setlist has
+never been seen.
+
+### Setlist Row
+The narrow song row with a position number in front: Inter 14, Count Slate, right-aligned
+in 26px. *Up now* takes the Selected Blue wash angled away from the text, and gains the
+playing row's white borders only while the now-playing banner names the same song.
+*Played* and *stale* rows drop to Muted Lavender-Gray titles and Cool Gray artists. Rows
+are never removed in the same moment they change state. A show divides the list with the
+category header band: `played`, then the up-now row, then `up next`.
+
+### Action Bar
+The foot of the song detail in every housing: Bar Night with the bar lift, one control and
+one caption. A control that can't act right now stays drawn, in the neutral tone at 50% and
+`aria-disabled`, and the caption says when it will work. Every state and its copy is
+`actionBar` in `client/src/features/setlist/model.ts`. No red anywhere in it: a refused song
+is information at a party, not an alarm.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -403,3 +441,6 @@ on the assumption that it isn't a real cover.
   the 500px instrument glyph generation with the 512px one.
 - **Don't** show score data (stars, medals, stats).
 - **Don't** animate anything decorative when reduced motion is requested.
+- **Don't** put configuration advice in the guest client. "Not available right now" is the
+  whole of what a guest is told; the remedy belongs to the tray.
+- **Don't** give a song row a second action. Adding to the setlist happens in the detail.

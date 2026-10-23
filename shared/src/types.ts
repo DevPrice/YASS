@@ -314,6 +314,14 @@ export interface Settings {
    * because of it, and has no way to check that it leads anywhere.
    */
   publicUrl: string
+  /**
+   * Whether phones may add to YARG's setlist, and remove or move their own adds.
+   *
+   * The host's only setlist control in YASS. Everything else about the setlist
+   * the host does in YARG itself, which YASS can't tell apart from a guest's
+   * phone anyway — see `api/local.ts` for why a phone is never the host.
+   */
+  guestSetlistEdits: boolean
 }
 
 /**
@@ -333,6 +341,11 @@ export interface ServerStatus {
   restartRequired: boolean
   /** Album art and previews: whether they work, and how far along they are. */
   media: MediaSummary
+  /**
+   * YARG's setlist, without its songs — the tray says whether YASS is
+   * following it and how long it is, and has no use for four hundred titles.
+   */
+  setlist: Omit<SetlistState, 'entries'>
 }
 
 /**
@@ -379,6 +392,7 @@ export const ENV_VARS: Record<keyof Settings, string> = {
   host: 'YASS_HOST',
   port: 'YASS_PORT',
   publicUrl: 'YASS_PUBLIC_URL',
+  guestSetlistEdits: 'YASS_GUEST_SETLIST_EDITS',
 }
 
 export interface SettingsView {
@@ -532,3 +546,144 @@ export interface VenueState {
    */
   bpm: number | null
 }
+
+// --- Setlist ----------------------------------------------------------------
+
+/**
+ * How things stand between YASS and YARG's setlist socket.
+ *
+ * `unsupported`  YARG's `settings.json` has been saved without the setting,
+ *                so this build of YARG has no setlist socket at all.
+ * `off`          The setting is saved off.
+ * `unreachable`  Nothing answered. YARG is closed, the setting is on but not
+ *                saved yet, or YARG couldn't bind the port.
+ * `connected`    YARG is pushing the setlist.
+ *
+ * The first three only ever explain *why* there is nothing to show, and the
+ * file can lag what YARG is actually doing — YARG saves its settings when the
+ * settings menu closes, not when a toggle moves — so `connected` wins over
+ * whatever the file says.
+ */
+export type SetlistLink = 'unsupported' | 'off' | 'unreachable' | 'connected'
+
+/** One song in the setlist. */
+export interface SetlistEntry {
+  /**
+   * YARG's ID for this entry, stable while YARG runs — moves, sorts and other
+   * people's edits leave it alone. Null from a YARG too old to edit through.
+   *
+   * IDs start again at 1 when YARG restarts, so anything remembering one keeps
+   * the hash beside it and trusts the pair, not the number.
+   */
+  id: number | null
+  /** Canonical uppercase hex. Joins to `Song.hash`, not to `Song.id`. */
+  hash: string
+  /**
+   * As YARG sent them, rich text stripped: the fallback for a song this
+   * library doesn't have, which is rare but not impossible across a rescan.
+   */
+  name: string
+  artist: string
+  album: string
+  lengthSeconds: number | null
+}
+
+/**
+ * YARG's live setlist, relayed.
+ *
+ * **Inactive does not mean empty, and it does not mean cleared.** YARG shows
+ * the setlist to outside apps only while the music library is the open menu or
+ * a show is running, and sends no songs the rest of the time. Opening
+ * Difficulty Select for a single song makes it inactive; backing out brings the
+ * same songs back, while playing the song wipes them. Nothing on the wire says
+ * which of the two is coming.
+ *
+ * So while it is inactive, or YARG is unreachable, the server keeps sending
+ * the last setlist it saw active — `showInProgress`, `currentIndex`,
+ * `totalCount` and `entries` all describe that one, stamped by `seenAt` — and
+ * the client draws it as stale. A phone that reloads in the meantime sees what
+ * the phone beside it sees. Only an active setlist arriving empty says cleared.
+ */
+export interface SetlistState {
+  link: SetlistLink
+  /**
+   * Whether a phone may add to the setlist, and remove or move what it added.
+   *
+   * `unsupported` is a YARG that can only be followed, not edited; `off` is
+   * the host switching it off in the tray. Neither says anything about
+   * `active`, which still decides whether YARG will take the edit right now.
+   */
+  guestEdits: 'unsupported' | 'off' | 'on'
+  /** True while the host is in the music library, or through a whole show. */
+  active: boolean
+  showInProgress: boolean
+  /**
+   * The entry the show is on, or null outside a show.
+   *
+   * YARG moves it when a song is *started* and at the score screen's Continue,
+   * which is not when `currentSong.json` changes — so for a moment this and
+   * the now-playing banner name different songs. It can also point past the
+   * end of `entries` when the setlist was too long to send whole.
+   */
+  currentIndex: number | null
+  /** Songs in the setlist, including any that didn't fit in `entries`. */
+  totalCount: number
+  /** In setlist order. Shorter than `totalCount` past roughly 800 songs. */
+  entries: SetlistEntry[]
+  /**
+   * Epoch ms the setlist was last seen active, or null if it hasn't been since
+   * YASS started — in which case there is nothing to show at all.
+   */
+  seenAt: number | null
+  /** Epoch ms this state was observed. */
+  updatedAt: number
+}
+
+/**
+ * Why a phone's add, remove or move didn't happen.
+ *
+ * YASS's own refusals:
+ * - `unavailable`: no connection to YARG, or a YARG that can't be edited through.
+ * - `editsOff`: the host switched guest edits off in the tray.
+ * - `notYours`: the entry was added from another browser.
+ * - `connectionLost`: the connection dropped with the command unanswered. YARG
+ *   may have applied it anyway, and the next setlist update will say.
+ * - `failed`: anything YARG answered that YASS can't put into words.
+ *
+ * YARG's, passed through:
+ * - `inactive`: the host isn't in the music library and no show is running.
+ * - `entryNotFound`: the entry has gone, e.g. the setlist was wiped.
+ * - `anchorNotFound`: same, for the entry a move was placing it after.
+ * - `songNotFound`: YARG can't see the song. Usually it's above the host's Max
+ *   Song Rating, which YARG hides and YASS doesn't.
+ * - `alreadyInSetlist`: the setlist holds each song once. `entryId` names the copy.
+ * - `locked`: the entry has been played or is playing, or players are picking
+ *   their parts before a show's first song, when every edit waits.
+ * - `full`: YARG takes no more remote adds past 500 songs.
+ * - `incompatible`: mid-show, the song lacks a part somebody is playing.
+ */
+export type SetlistRefusal =
+  | 'unavailable'
+  | 'editsOff'
+  | 'notYours'
+  | 'connectionLost'
+  | 'failed'
+  | 'inactive'
+  | 'entryNotFound'
+  | 'anchorNotFound'
+  | 'songNotFound'
+  | 'alreadyInSetlist'
+  | 'locked'
+  | 'full'
+  | 'incompatible'
+
+/** What a setlist edit answers with. The setlist itself arrives as an event. */
+export type SetlistEditResult =
+  | { ok: true; entryId: number }
+  | { ok: false; reason: SetlistRefusal; entryId: number | null }
+
+/** Where a move puts an entry. `after` takes the ID of the entry to follow. */
+export type SetlistPlacement =
+  | { position: 'start' }
+  | { position: 'end' }
+  | { position: 'after'; anchorId: number }

@@ -10,11 +10,15 @@ import type { LibraryMeta, Settings, SettingsView, SongLibrary } from '@shared/t
 import { FileWatcher } from './core/fileWatcher.js'
 import { emptyLibrary, loadLibraryFromCache, type LoadedLibrary } from './core/library.js'
 import { NowPlayingWatcher } from './core/nowPlaying.js'
+import { Setlist } from './core/setlist.js'
+import { SetlistClient } from './core/setlistClient.js'
 import { VenueStream } from './core/venueStream.js'
 import {
   DEFAULT_YARG_SETTINGS,
+  readSetlistSocketSettings,
   readYargSettings,
   sameYargSettings,
+  type SetlistSocketSettings,
   type YargSettings,
 } from './core/yargSettings.js'
 import { fetchFfmpeg } from './media/ffmpeg.js'
@@ -90,12 +94,25 @@ export class AppState {
    * the app behaves exactly as it did before this existed.
    */
   #venue = new VenueStream()
+  /**
+   * YARG's live setlist, when its setlist socket is on.
+   *
+   * Like the venue stream, optional: with the socket off or YARG closed it
+   * reports why and keeps trying, and nothing else waits on it.
+   */
+  #setlistClient = new SetlistClient()
+  /** The same setlist, with the rules for editing it from a phone. */
+  #setlist: Setlist
+  /** The last reading of the socket's settings, and the directory it came from. */
+  #setlistSettings: SetlistSocketSettings | null = null
+  #setlistSettingsDir: string | null = null
   #librarySubscribers = new Set<(meta: LibraryMeta) => void>()
   #reloadSubscribers = new Set<() => void>()
 
   private constructor(stored: Settings) {
     this.#stored = stored
     this.#effective = applyEnvOverrides(stored)
+    this.#setlist = new Setlist(this.#setlistClient, () => this.#effective.guestSetlistEdits)
 
     this.#watcher = new NowPlayingWatcher({
       getDataDir: () => this.#effective.yargDataDir,
@@ -121,14 +138,18 @@ export class AppState {
 
     // YARG saves this file for every setting it has — volume, calibration —
     // so most writes change nothing here, and a reload is only worth its
-    // library event when one of the two values this app reads has moved.
+    // library event when one of the two values this app reads has moved. The
+    // setlist socket's settings ride the same file but never reload anything.
     this.#yargSettingsWatcher = new FileWatcher({
       getPath: () => {
         const dir = this.#effective.yargDataDir
         return dir ? yargSettingsPath(dir) : ''
       },
       onChange: async () => {
-        const next = await this.#readYargSettings(this.#effective.yargDataDir)
+        const dir = this.#effective.yargDataDir
+        this.#setlistClient.configure(await this.#readSetlistSettings(dir))
+
+        const next = await this.#readYargSettings(dir)
         if (!sameYargSettings(next, this.#yarg)) await this.reloadLibrary()
       },
       onError: (error) => {
@@ -144,6 +165,7 @@ export class AppState {
     await state.#cacheWatcher.start()
     await state.#yargSettingsWatcher.start()
     state.#venue.start()
+    state.#setlistClient.start(await state.#readSetlistSettings(state.#effective.yargDataDir))
 
     /*
      * The index is built after the server is otherwise ready, and not awaited.
@@ -280,6 +302,10 @@ export class AppState {
     return this.#venue
   }
 
+  get setlist(): Setlist {
+    return this.#setlist
+  }
+
   /**
    * Re-read the song list from disk and rebuild the hash join index.
    *
@@ -312,6 +338,15 @@ export class AppState {
    */
   #readYargSettings(dir: string): Promise<YargSettings> {
     return readYargSettings(dir, this.#libraryDir === dir ? this.#yarg : null)
+  }
+
+  /** The same rule for the setlist socket's settings, which are read on their own. */
+  async #readSetlistSettings(dir: string): Promise<SetlistSocketSettings> {
+    const previous = this.#setlistSettingsDir === dir ? this.#setlistSettings : null
+    const settings = await readSetlistSocketSettings(dir, previous)
+    this.#setlistSettings = settings
+    this.#setlistSettingsDir = dir
+    return settings
   }
 
   #applyLibrary(loaded: LoadedLibrary, dir: string): void {
@@ -422,9 +457,12 @@ export class AppState {
    */
   async updateSettings(patch: Partial<Settings>): Promise<SettingsView> {
     const previousDataDir = this.#effective.yargDataDir
+    const previousGuestEdits = this.#effective.guestSetlistEdits
 
     this.#stored = await saveStoredSettings({ ...this.#stored, ...patch })
     this.#effective = applyEnvOverrides(this.#stored)
+
+    if (this.#effective.guestSetlistEdits !== previousGuestEdits) this.#setlist.republish()
 
     // A new data directory is a different YARG install, and so a different
     // `songcache.bin` — a different song list and a different set of files
@@ -437,6 +475,7 @@ export class AppState {
       await this.#cacheWatcher.start()
       await this.#yargSettingsWatcher.start()
       await this.#watcher.rearm()
+      this.#setlistClient.configure(await this.#readSetlistSettings(this.#effective.yargDataDir))
       // Not forced: the persisted index is keyed to the directory it was built
       // from, so this cannot pick up the old install's paths, and flipping back
       // to a build already indexed costs a file read rather than a rescan.
@@ -457,5 +496,6 @@ export class AppState {
     this.#yargSettingsWatcher.stop()
     this.#media.stopPrecompute()
     this.#venue.stop()
+    this.#setlistClient.stop()
   }
 }

@@ -117,6 +117,7 @@ async function buildState(): Promise<DesktopState> {
     server: serverState,
     songs: status?.songs ?? null,
     media: status?.media ?? null,
+    setlist: status?.setlist ?? null,
     fetchingFfmpeg,
     // Only worth showing when the server can actually be reached at them.
     lan: running && server.isLanBound && boundPort ? lanAddresses(boundPort) : [],

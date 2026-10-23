@@ -101,7 +101,7 @@ function open(): void {
 
   // Every event type the server sends has to be registered explicitly;
   // `EventSource` only fires `message` for frames with no `event:` line.
-  for (const event of ['now-playing', 'library', 'venue'] as const) {
+  for (const event of ['now-playing', 'library', 'venue', 'setlist'] as const) {
     stream.addEventListener(event, (raw) => {
       heard()
       dispatch(event, (raw as MessageEvent<string>).data)

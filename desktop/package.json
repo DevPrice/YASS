@@ -16,7 +16,7 @@
     "dist": "electron-builder --config electron-builder.yml",
     "start": "electron dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test \"src/**/*.test.ts\""
+    "test": "node --import tsx --test \"src/**/*.test.ts\" \"ui/**/*.test.ts\""
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

@@ -50,11 +50,18 @@ export function NowPlayingBar({
   connected,
   settled,
   onSelect,
+  trailing,
 }: {
   nowPlaying: NowPlaying
   connected: boolean
   /** False until the server has answered once, either way. */
   settled: boolean
+  /**
+   * The far end of the row, in every state: the setlist chip. Inside the
+   * banner's existing row rather than a row of its own, so the banner keeps its
+   * fixed height whatever the setlist is doing.
+   */
+  trailing?: ReactNode
   /**
    * Opens this song's details, or null when it can't be opened.
    *
@@ -231,6 +238,7 @@ export function NowPlayingBar({
           </div>
         </>
       )}
+      {trailing}
     </Shell>
   )
 }

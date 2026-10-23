@@ -20,6 +20,7 @@ import { ENV_VARS, type BuildChannel, type Settings, type YargInstall } from '@s
 import type { DesktopApi, DesktopState } from '../src/ipc.js'
 
 import { QrCode } from './qr.js'
+import { canOfferGuestEdits, setlistLine, type Segment } from './setlistLine.js'
 
 import './index.css'
 
@@ -577,6 +578,75 @@ function MediaLine({ state, busy }: { state: DesktopState; busy: boolean }) {
   )
 }
 
+const SEGMENT_TONES: Record<Segment['tone'], string | undefined> = {
+  plain: undefined,
+  faint: 'text-content-faint',
+  value: 'text-content',
+  number: 'font-numeric text-content',
+}
+
+/**
+ * YARG's setlist, and the one switch the host has over it.
+ *
+ * Under the covers line because it is the same kind of fact: what the guests
+ * are going to see. The switch lives on the card rather than in the settings
+ * fold because it is a mid-party decision, not configuration — and so, like
+ * "start when I sign in", it applies on click instead of joining the draft.
+ */
+function SetlistLine({
+  state,
+  onGuestEdits,
+}: {
+  state: DesktopState
+  onGuestEdits: (enabled: boolean) => void
+}) {
+  const hintId = useId()
+  const setlist = state.setlist
+  if (!setlist) return null
+
+  const env = state.view.envOverrides.includes('guestSetlistEdits')
+    ? ENV_VARS.guestSetlistEdits
+    : undefined
+
+  return (
+    <div className="mt-2.5 border-t border-border pt-2.5">
+      <p aria-live="polite" className="text-body text-content-muted">
+        {setlistLine(setlist).map((segment, index) => (
+          <span key={index} className={SEGMENT_TONES[segment.tone]}>
+            {segment.text}
+          </span>
+        ))}
+      </p>
+
+      {canOfferGuestEdits(setlist) ? (
+        <>
+          <label className="mt-1.5 flex min-h-6 items-center gap-2.5">
+            <input
+              type="checkbox"
+              className={cx('size-4 accent-[var(--yarg-vivid-sky-blue)]', FOCUS)}
+              checked={state.view.settings.guestSetlistEdits}
+              disabled={env !== undefined}
+              aria-describedby={env ? hintId : undefined}
+              onChange={(event) => onGuestEdits(event.target.checked)}
+            />
+            <span className="text-body text-content-muted">Guests can add and move songs</span>
+          </label>
+          {/* Under the label, indented to its text: beside it, the variable's
+              name squeezes the label onto three lines. */}
+          {env ? (
+            <code
+              id={hintId}
+              className="selectable ml-[26px] block font-numeric text-label text-warning"
+            >
+              set by {env}
+            </code>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 /**
  * The version, and the one question anybody ever has about it.
  *
@@ -678,12 +748,14 @@ function StatusBlock({
   onRestart,
   onTryPort,
   onSwitch,
+  onGuestEdits,
 }: {
   state: DesktopState
   busy: boolean
   onRestart: () => void
   onTryPort: (port: number) => void
   onSwitch: (install: YargInstall) => void
+  onGuestEdits: (enabled: boolean) => void
 }) {
   const songs = state.songs
   const kind = health(state)
@@ -792,6 +864,7 @@ function StatusBlock({
       ) : null}
 
       {kind === 'ready' ? <MediaLine state={state} busy={busy} /> : null}
+      {kind === 'ready' ? <SetlistLine state={state} onGuestEdits={onGuestEdits} /> : null}
 
       {songs && songs.warnings.length > 0 ? (
         <ul className="mt-1.5 space-y-0.5">
@@ -1125,6 +1198,17 @@ function App() {
       return outcome.state
     })
 
+  /**
+   * Silent when the server took it, because the box is its own confirmation;
+   * said aloud only when it reached the file and not the guests.
+   */
+  const setGuestEdits = (enabled: boolean) =>
+    run(async () => {
+      const outcome = await window.yass.saveSettings({ guestSetlistEdits: enabled })
+      setSaved(outcome.applied ? null : 'saved to the settings file')
+      return outcome.state
+    })
+
   /** The remedy for a taken port: move one along, then go there. */
   const tryPort = (port: number) =>
     run(async () => {
@@ -1154,6 +1238,7 @@ function App() {
           onRestart={() => void run(() => window.yass.restartServer())}
           onTryPort={(port) => void tryPort(port)}
           onSwitch={(install) => void switchInstall(install)}
+          onGuestEdits={(enabled) => void setGuestEdits(enabled)}
         />
 
         {failure ? (

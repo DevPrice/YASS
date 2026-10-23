@@ -16,6 +16,7 @@ describe('sanitizePatch', () => {
       host: '127.0.0.1',
       port: 4321,
       publicUrl: 'https://songs.example.com',
+      guestSetlistEdits: false,
     })
 
     assert.deepEqual(patch, {
@@ -24,6 +25,7 @@ describe('sanitizePatch', () => {
       host: '127.0.0.1',
       port: 4321,
       publicUrl: 'https://songs.example.com',
+      guestSetlistEdits: false,
     })
   })
 

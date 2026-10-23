@@ -94,11 +94,43 @@ than falling back to defaults, which would briefly switch censorship off.
 
 ### Push, don't poll
 
-`/api/events` is SSE: now-playing, venue lighting, library changes, and a host-triggered
+`/api/events` is SSE: now-playing, venue lighting, the setlist, library changes, and a host-triggered
 `reload` whose entire payload is the instruction. The client fetches
 the whole song index once and filters client-side (~4,000 songs is a few MB, and that makes
 search and sort instant). The library event carries only metadata — the message says "it
 moved" and the browser's conditional GET decides whether to spend the bandwidth.
+
+### The queue is YARG's own setlist
+
+There is no YASS queue. `core/setlistClient.ts` holds **one** connection to YARG's loopback
+setlist socket (protocol in `core/setlistProtocol.ts`; the spec is the "YARG Setlist Socket
+Protocol" doc) and relays every snapshot as the `setlist` SSE event. YARG serves four
+clients at most, which is why this is one socket for the server and not one per phone.
+It speaks version 1 (follow only) and version 2 (entry IDs and add/remove/move commands).
+
+**Every phone edit goes through `core/setlist.ts`**, the single place the rules live: anyone
+adds, a browser removes or moves only what it added (by entry ID *and* hash, since IDs restart
+when YARG does), and the tray's `guestSetlistEdits` switches it all off. The host has no
+YASS powers: they edit in YARG. Per-guest limits and fair ordering belong in that file too,
+and `#placeAdd` is where ordering plugs in. A browser's token travels in `X-YASS-Guest`,
+never a cookie, which also makes the edit routes unreachable cross-site, and never goes out
+on the SSE stream.
+
+- **Discovery follows YARG's `settings.json`** (`SetlistServerEnable`, `SetlistServerPort`),
+  read apart from `YargSettings` so toggling the socket reconnects rather than reloading
+  the library. The file is only a hint: YARG opens the socket when the toggle moves but
+  saves the file when the settings menu closes. So the client keeps retrying and uses the
+  file to *explain* a failure (`SetlistLink`), never to decide whether to try.
+- **Every snapshot is acked, and only the latest ack counts**, so a snapshot that won't
+  decode ends the connection: reconnecting is the only way to get a fresh one.
+- **Inactive is not cleared.** YARG hides the setlist whenever the library isn't the open
+  menu and no show is running, and wipes it on every menu-scene load. Nothing on the wire
+  says which one is coming. `SetlistState`'s comment has the details.
+- Entry hashes are the raw `HashWrapper` bytes, so they join `Song.hash` directly. Join
+  on the hash rather than `Song.id`, which gains `#2` suffixes for duplicate charts.
+- **Client:** every rule the UI applies (mode, standing, cleared, the action bar's states
+  and copy) is a pure function in `client/src/features/setlist/model.ts`, tested there; the
+  components only draw. `DESIGN.md`'s Stale-Not-Gone, Say-When and Up-Now rules are why.
 
 ### Host-only endpoints fail closed
 

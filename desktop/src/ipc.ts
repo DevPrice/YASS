@@ -10,6 +10,7 @@ import type {
   LanAddress,
   LibraryMeta,
   MediaSummary,
+  SetlistState,
   Settings,
   SettingsView,
 } from '@shared/types.js'
@@ -59,6 +60,8 @@ export interface DesktopState {
    * button that fixes the wrong problem.
    */
   media: MediaSummary | null
+  /** YARG's setlist link and length, or null when there is no server to ask. */
+  setlist: Omit<SetlistState, 'entries'> | null
   /** True while an ffmpeg download this process started is still running. */
   fetchingFfmpeg: boolean
   /**

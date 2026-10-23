@@ -55,6 +55,7 @@ export function defaultSettings(): Settings {
     host: '0.0.0.0',
     port: DEFAULT_PORT,
     publicUrl: '',
+    guestSetlistEdits: true,
   }
 }
 
@@ -95,6 +96,22 @@ function asString(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
 }
 
+/**
+ * A boolean, or the spelling of one an environment variable can carry.
+ *
+ * Spelled out because `Boolean('false')` is true: a host who sets
+ * `YASS_GUEST_SETLIST_EDITS=false` must get false.
+ */
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value !== 'string') return fallback
+
+  const spelled = value.trim().toLowerCase()
+  if (['true', '1', 'yes', 'on'].includes(spelled)) return true
+  if (['false', '0', 'no', 'off'].includes(spelled)) return false
+  return fallback
+}
+
 /** Merge a raw parsed object over defaults, coercing and clamping as we go. */
 export function normalizeSettings(raw: unknown): Settings {
   const defaults = defaultSettings()
@@ -108,6 +125,10 @@ export function normalizeSettings(raw: unknown): Settings {
     host: asString(input.host, defaults.host),
     port: clampPort(input.port, defaults.port),
     publicUrl: asPublicUrl(input.publicUrl, defaults.publicUrl),
+    guestSetlistEdits:
+      typeof input.guestSetlistEdits === 'boolean'
+        ? input.guestSetlistEdits
+        : defaults.guestSetlistEdits,
   }
 }
 
@@ -132,6 +153,7 @@ export function applyEnvOverrides(settings: Settings): Settings {
     publicUrl: env.YASS_PUBLIC_URL
       ? asPublicUrl(env.YASS_PUBLIC_URL, settings.publicUrl)
       : settings.publicUrl,
+    guestSetlistEdits: asBoolean(env.YASS_GUEST_SETLIST_EDITS, settings.guestSetlistEdits),
   }
 }
 

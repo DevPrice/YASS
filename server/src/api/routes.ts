@@ -6,10 +6,17 @@
  * behind a reverse proxy on a custom domain.
  */
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 
-import type { ServerStatus, Settings } from '@shared/types.js'
+import type {
+  ServerStatus,
+  SetlistEditResult,
+  SetlistPlacement,
+  Settings,
+} from '@shared/types.js'
+import { normalizeHash } from '../core/hash.js'
+import { isGuestToken } from '../core/setlist.js'
 import type { AppState } from '../state.js'
 import { canFetchFfmpeg, FFMPEG_INSTALL_HINT } from '../media/ffmpeg.js'
 import { isArtSize } from '../media/store.js'
@@ -56,6 +63,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
     c.header('Cache-Control', 'no-store')
 
     const media = state.media.status
+    const { entries: _entries, ...setlist } = state.setlist.current
 
     const status: ServerStatus = {
       songs: state.library.meta,
@@ -73,6 +81,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
         precomputed: media.precomputed,
         precomputeTotal: media.precomputeTotal,
       },
+      setlist,
     }
 
     return c.json(status)
@@ -191,6 +200,67 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
   })
 
   /**
+   * YARG's live setlist.
+   *
+   * Open to everyone, unlike the settings: it carries song hashes and titles,
+   * which every phone already has, and `link`, which names a state rather than
+   * a path.
+   */
+  api.get('/setlist', (c) => {
+    c.header('Cache-Control', 'no-store')
+    return c.json(state.setlist.current)
+  })
+
+  /*
+   * Editing it, from a phone.
+   *
+   * Each answers with a `SetlistEditResult` only after the setlist event that
+   * shows the change has gone out, so a phone never hears "added" ahead of the
+   * list it was added to. Who may do what is `core/setlist.ts`'s business.
+   *
+   * **The guest header is also the CSRF guard.** A page on another origin can't
+   * send a custom header without a CORS preflight, and nothing here answers
+   * one, so a hostile site open on a guest's phone can't queue songs through
+   * it. That is why the token rides a header and never a cookie.
+   */
+
+  api.post('/setlist/entries', async (c) => {
+    const guest = c.req.header(GUEST_HEADER)
+    if (!isGuestToken(guest)) return c.json({ error: GUEST_HEADER_HINT }, 400)
+
+    const body = await readJson(c)
+    const hash = normalizeHash(typeof body?.hash === 'string' ? body.hash : null)
+    if (hash === null) return c.json({ error: 'Body must name a song hash.' }, 400)
+
+    return editResponse(c, await state.setlist.add(guest, hash))
+  })
+
+  api.delete('/setlist/entries/:id', async (c) => {
+    const guest = c.req.header(GUEST_HEADER)
+    if (!isGuestToken(guest)) return c.json({ error: GUEST_HEADER_HINT }, 400)
+
+    const entryId = parseEntryId(c.req.param('id'))
+    if (entryId === null) return c.json({ error: 'Not an entry ID.' }, 400)
+
+    return editResponse(c, await state.setlist.remove(guest, entryId))
+  })
+
+  api.post('/setlist/entries/:id/move', async (c) => {
+    const guest = c.req.header(GUEST_HEADER)
+    if (!isGuestToken(guest)) return c.json({ error: GUEST_HEADER_HINT }, 400)
+
+    const entryId = parseEntryId(c.req.param('id'))
+    if (entryId === null) return c.json({ error: 'Not an entry ID.' }, 400)
+
+    const placement = parsePlacement(await readJson(c))
+    if (placement === null) {
+      return c.json({ error: 'Body must be {position: start|end} or {position: after, anchorId}.' }, 400)
+    }
+
+    return editResponse(c, await state.setlist.move(guest, entryId, placement))
+  })
+
+  /**
    * The live channel.
    *
    * SSE rather than WebSockets: the data flows one way, it survives reverse
@@ -204,6 +274,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
    *   `library`      just the metadata, when YARG rescans; the
    *                  client refetches `/api/songs` conditionally
    *   `venue`        YARG's stage lighting, at most twice a second
+   *   `setlist`      YARG's whole setlist, on every change; never a diff
    *   `reload`       the host, via the tray, asking this page to reload
    *   `ping`         keepalive, so idle proxies don't hang up
    */
@@ -227,6 +298,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
       // next song change.
       await send('now-playing', state.watcher.current)
       await send('venue', state.venue.current)
+      await send('setlist', state.setlist.current)
 
       const unsubscribeNowPlaying = state.watcher.subscribe((next) => {
         void send('now-playing', next)
@@ -238,6 +310,10 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
 
       const unsubscribeVenue = state.venue.subscribe((next) => {
         void send('venue', next)
+      })
+
+      const unsubscribeSetlist = state.setlist.subscribe((next) => {
+        void send('setlist', next)
       })
 
       // The instruction is the whole message, but SSE frames still need a body
@@ -256,6 +332,7 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
         unsubscribeNowPlaying()
         unsubscribeLibrary()
         unsubscribeVenue()
+        unsubscribeSetlist()
         unsubscribeReload()
       }
     })
@@ -387,4 +464,60 @@ export function createApiRoutes(state: AppState, binding: Binding): Hono {
   })
 
   return api
+}
+
+const GUEST_HEADER = 'x-yass-guest'
+const GUEST_HEADER_HINT = 'Send X-YASS-Guest: a random token this browser keeps.'
+
+async function readJson(c: Context): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await c.req.json()
+    return body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+/** YARG's IDs are u32 and start at 1. */
+function parseEntryId(raw: string): number | null {
+  if (!/^\d{1,10}$/.test(raw)) return null
+  const id = Number(raw)
+  return id >= 1 && id <= 0xffffffff ? id : null
+}
+
+function parsePlacement(body: Record<string, unknown> | null): SetlistPlacement | null {
+  if (body?.position === 'start' || body?.position === 'end') return { position: body.position }
+
+  if (body?.position === 'after' && typeof body.anchorId === 'number') {
+    const anchorId = parseEntryId(String(body.anchorId))
+    return anchorId === null ? null : { position: 'after', anchorId }
+  }
+
+  return null
+}
+
+/**
+ * The HTTP status for an edit's outcome.
+ *
+ * The body says what happened either way; the status is for anything between
+ * here and the phone that only reads that. 409 for YARG declining on the
+ * setlist's own terms, 403 for YASS declining on the host's, 503 for no YARG
+ * to ask.
+ */
+function editResponse(c: Context, result: SetlistEditResult): Response {
+  c.header('Cache-Control', 'no-store')
+  if (result.ok) return c.json(result, 200)
+
+  switch (result.reason) {
+    case 'editsOff':
+    case 'notYours':
+      return c.json(result, 403)
+    case 'unavailable':
+    case 'connectionLost':
+      return c.json(result, 503)
+    case 'failed':
+      return c.json(result, 502)
+    default:
+      return c.json(result, 409)
+  }
 }

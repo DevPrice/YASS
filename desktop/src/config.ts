@@ -51,6 +51,7 @@ const EDITABLE: ReadonlyArray<keyof Settings> = [
   'host',
   'port',
   'publicUrl',
+  'guestSetlistEdits',
 ]
 
 export function sanitizePatch(raw: unknown): Partial<Settings> {

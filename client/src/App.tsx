@@ -65,6 +65,12 @@ import {
 import type { Filters, SortDirection, SortKey } from './features/library/filtering'
 import { NowPlayingBar } from './features/nowPlaying/NowPlayingBar'
 import { PreviewSoundButton, PreviewVolume } from './features/preview/PreviewSound'
+import { ClearedToast } from './features/setlist/ClearedToast'
+import { setlistMode } from './features/setlist/model'
+import { SetlistChip } from './features/setlist/SetlistChip'
+import { SetlistActionBar, SetlistStanding } from './features/setlist/SetlistInDetail'
+import { SetlistPanel } from './features/setlist/SetlistPanel'
+import { useSetlist } from './lib/useSetlist'
 
 /**
  * Where the detail stops being a sheet and becomes a pane.
@@ -94,6 +100,19 @@ const COMPACT_CHROME_QUERY = `${SHORT_QUERY} and (pointer: coarse)`
 export function App() {
   const { library, loading, error } = useLibrary()
   const { nowPlaying, connected, settled } = useNowPlaying()
+  const { setlist, mine, cleared } = useSetlist()
+  const setlistPresent = setlistMode(setlist) !== 'absent'
+
+  /**
+   * Whether the sheet's setlist face is open, below two panes.
+   *
+   * Separate from the selection because the two stack: a song opened from the
+   * setlist sits on top of it, and backing out of the song lands on the
+   * setlist rather than closing the sheet. From `lg` the pane needs none of
+   * this — no song open *is* the setlist showing.
+   */
+  const [setlistOpen, setSetlistOpen] = useState(false)
+  const setlistHeadingRef = useRef<HTMLHeadingElement>(null)
 
   /**
    * The view, read out of the address bar on the way in.
@@ -175,6 +194,15 @@ export function App() {
   const compactChrome = useMediaQuery(COMPACT_CHROME_QUERY)
 
   const songs = library?.songs ?? []
+
+  /** Setlist entries join the library by hash; the first of duplicate charts wins, as on the server. */
+  const songsByHash = useMemo(() => {
+    const byHash = new Map<string, Song>()
+    for (const song of songs) {
+      if (song.hash !== null && !byHash.has(song.hash)) byHash.set(song.hash, song)
+    }
+    return byHash
+  }, [songs])
 
   /**
    * The filters the *list* is showing, which are allowed to lag the box.
@@ -339,6 +367,30 @@ export function App() {
     setOpenPanel('none')
   }, [])
 
+  /**
+   * The chip's way in. The pane is the setlist whenever no song is open, so on
+   * two panes opening it is closing the song; below that it is the sheet's
+   * setlist face, which takes the bottom edge from any filter panel.
+   */
+  const openSetlist = useCallback(() => {
+    if (twoPane) {
+      setSelection(null)
+      requestAnimationFrame(() => setlistHeadingRef.current?.focus())
+    } else {
+      setSetlistOpen(true)
+      setOpenPanel('none')
+    }
+  }, [twoPane])
+
+  const openFromSetlist = useCallback((song: Song) => {
+    setSelection({ id: song.id, align: 'center' })
+  }, [])
+
+  const closeSheet = useCallback(() => {
+    setSelection(null)
+    setSetlistOpen(false)
+  }, [])
+
   /** The playing song, if the library knows it. Null disables both routes to it. */
   const showPlaying = useMemo(() => {
     if (playingId === null) return null
@@ -421,7 +473,9 @@ export function App() {
     openPanel !== 'none'
       ? `close ${openPanel}`
       : selection !== null
-        ? 'close song'
+        ? setlistPresent && twoPane
+          ? 'back to setlist'
+          : 'close song'
         : hasActiveView(filters, lens)
           ? 'clear filters'
           : null
@@ -575,7 +629,7 @@ export function App() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-surface">
+    <div className="relative flex h-full flex-col bg-surface">
       {/*
        * The heading is real but not drawn.
        *
@@ -598,7 +652,15 @@ export function App() {
         connected={connected}
         settled={settled}
         onSelect={showPlaying}
+        trailing={<SetlistChip setlist={setlist} onOpen={openSetlist} opensDialog={!twoPane} />}
       />
+
+      {cleared !== null &&
+      cleared.lost.length > 0 &&
+      setlist.guestEdits === 'on' &&
+      !(twoPane ? selected === null : setlistOpen && selected === null) ? (
+        <ClearedToast key={cleared.at} lost={cleared.lost.length} onShow={openSetlist} />
+      ) : null}
 
       {/*
        * The display cutout, cleared once for everything underneath.
@@ -663,26 +725,46 @@ export function App() {
 
         {twoPane ? (
           <aside
-            aria-label="Song details"
-            className={cx(
-              'scrollbar-slim flex w-[clamp(320px,32%,460px)] shrink-0 flex-col',
-              'overflow-y-auto bg-surface-card',
-            )}
+            aria-label={selected === null && setlistPresent ? 'Setlist' : 'Song details'}
+            className="flex w-[clamp(320px,32%,460px)] shrink-0 flex-col bg-surface-card"
             // Every surface in this palette sits within 1.15:1 of every other,
             // so the seam between the panes has to be drawn rather than implied
             // by the fill. Same rule the song rows are separated with.
             style={{ borderLeft: '1px solid var(--color-border-row)' }}
           >
+            {/* Its own scroller, so the action bar below holds still at the foot. */}
+            <div className="scrollbar-slim flex min-h-0 flex-1 flex-col overflow-y-auto">
+              {selected ? (
+                <SongDetail
+                  song={selected}
+                  isPlaying={selected.id === playingId}
+                  artHash={detailArtHash}
+                  className="p-[25px]"
+                  setlistBadge={<SetlistStanding setlist={setlist} hash={selected.hash} />}
+                />
+              ) : setlistPresent ? (
+                /*
+                 * The pane's resting face is the setlist whenever there is one.
+                 * The pane is empty exactly when nobody is reading a song, and
+                 * "Pick a song" told a desktop nothing the list beside it didn't.
+                 */
+                <SetlistPanel
+                  setlist={setlist}
+                  mine={mine}
+                  cleared={cleared}
+                  songsByHash={songsByHash}
+                  playingHash={playingSong?.hash ?? null}
+                  onOpenSong={openFromSetlist}
+                  headingRef={setlistHeadingRef}
+                  className="pt-[25px]"
+                />
+              ) : (
+                <SongDetailEmpty onShowPlaying={showPlaying} />
+              )}
+            </div>
             {selected ? (
-              <SongDetail
-                song={selected}
-                isPlaying={selected.id === playingId}
-                artHash={detailArtHash}
-                className="p-[25px]"
-              />
-            ) : (
-              <SongDetailEmpty onShowPlaying={showPlaying} />
-            )}
+              <SetlistActionBar key={selected.id} setlist={setlist} hash={selected.hash} mine={mine} />
+            ) : null}
           </aside>
         ) : null}
       </main>
@@ -745,25 +827,49 @@ export function App() {
        * the pane, never alongside it: a `<dialog>` hidden with `display:none`
        * is still a dialog waiting to trap focus.
        */}
-      {!twoPane && selected ? (
+      {/*
+       * One sheet, two faces: a song, or the setlist. A song opened from the
+       * setlist sits on top of it and steps back to it; the same dialog stays
+       * open throughout, so there is one focus trap and one exit.
+       */}
+      {!twoPane && (selected || (setlistOpen && setlistPresent)) ? (
         <SongDetailSheet
-          label={formatTitleCredit(selected)}
-          onClose={() => setSelection(null)}
+          label={selected ? formatTitleCredit(selected) : 'Setlist'}
+          closeLabel={selected ? 'Close song details' : 'Close setlist'}
+          onClose={closeSheet}
+          onBack={selected && setlistOpen ? () => setSelection(null) : undefined}
           // The sheet only exists below two panes, which is exactly where the
           // helper bar's copy of this control does not — see the note there.
           leading={showSound ? <PreviewSoundButton /> : null}
+          footer={
+            selected ? (
+              <SetlistActionBar key={selected.id} setlist={setlist} hash={selected.hash} mine={mine} />
+            ) : null
+          }
         >
-          <SongDetail
-            song={selected}
-            isPlaying={selected.id === playingId}
-            artHash={detailArtHash}
-            // Less of the sheet spent on the plate than the pane spends, so a
-            // phone shows the title, the album and the whole parts grid without
-            // anyone scrolling for them. `--plate-cap` is the bottom sheet's
-            // knob only: the side sheet has no column to cap and turns the
-            // cover through ninety degrees instead — see `SongDetail`.
-            className="px-[25px] pt-[5px] [--plate-cap:30svh] short:px-[15px] short:pt-0"
-          />
+          {selected ? (
+            <SongDetail
+              song={selected}
+              isPlaying={selected.id === playingId}
+              artHash={detailArtHash}
+              setlistBadge={<SetlistStanding setlist={setlist} hash={selected.hash} />}
+              // Less of the sheet spent on the plate than the pane spends, so a
+              // phone shows the title, the album and the whole parts grid without
+              // anyone scrolling for them. `--plate-cap` is the bottom sheet's
+              // knob only: the side sheet has no column to cap and turns the
+              // cover through ninety degrees instead — see `SongDetail`.
+              className="px-[25px] pt-[5px] [--plate-cap:30svh] short:px-[15px] short:pt-0"
+            />
+          ) : (
+            <SetlistPanel
+              setlist={setlist}
+              mine={mine}
+              cleared={cleared}
+              songsByHash={songsByHash}
+              playingHash={playingSong?.hash ?? null}
+              onOpenSong={openFromSetlist}
+            />
+          )}
         </SongDetailSheet>
       ) : null}
     </div>

@@ -41,7 +41,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 
-import { cx } from '../../ui'
+import { ChevronRight, cx } from '../../ui'
 import { SHORT_QUERY, useMediaQuery } from '../../lib/useMediaQuery'
 
 /** How far the sheet has to be thrown before letting go dismisses it. */
@@ -52,12 +52,29 @@ const EXIT_MS = 200
 
 export function SongDetailSheet({
   label,
+  closeLabel = 'Close song details',
   leading,
+  onBack,
+  footer,
   onClose,
   children,
 }: {
-  /** Names the dialog. The song's title, so a screen reader says what opened. */
+  /** Names the dialog: the song's title, or `Setlist` on the setlist face. */
   label: string
+  closeLabel?: string
+  /**
+   * Steps back to the setlist, when this song was opened from it.
+   *
+   * The sheet has two faces — a song, and the setlist — and a song reached from
+   * the setlist unwinds to it rather than closing: the `‹ setlist` control, and
+   * Escape, go one layer back. The close button still closes everything.
+   */
+  onBack?: () => void
+  /**
+   * Fixed under the scroller, so it stays put however far the content scrolls:
+   * the setlist's action bar, which is where a thumb already is.
+   */
+  footer?: ReactNode
   /**
    * The left end of the header, opposite the close button.
    *
@@ -183,7 +200,8 @@ export function SongDetailSheet({
       // snapping the sheet out of existence.
       onCancel={(event) => {
         event.preventDefault()
-        dismiss()
+        if (onBack) onBack()
+        else dismiss()
       }}
       // `::backdrop` cannot be clicked, but a click that lands on the dialog
       // box itself did not land on its contents — the contents fill it.
@@ -320,12 +338,32 @@ export function SongDetailSheet({
            * the job over, and a header justifying between one remaining child and
            * nothing would walk the close button to the left edge.
            */}
-          {leading ? <span className="mr-auto">{leading}</span> : null}
+          {onBack || leading ? (
+            <span className="mr-auto flex items-center gap-[10px]">
+              {onBack ? (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  aria-label="Back to the setlist"
+                  className={cx(
+                    'yarg-focusable yarg-label flex h-[44px] cursor-pointer items-center gap-[6px] px-[10px]',
+                    'text-[12px] text-content-muted transition-colors duration-160 hover:text-white',
+                  )}
+                >
+                  <span className="rotate-180">
+                    <ChevronRight />
+                  </span>
+                  setlist
+                </button>
+              ) : null}
+              {leading}
+            </span>
+          ) : null}
           <button
             type="button"
             onClick={dismiss}
             ref={closeRef}
-            aria-label="Close song details"
+            aria-label={closeLabel}
             className="yarg-focusable flex size-[44px] cursor-pointer items-center justify-center text-content-muted transition-colors duration-160 hover:text-white"
           >
             <CloseIcon />
@@ -345,6 +383,7 @@ export function SongDetailSheet({
         >
           {children}
         </div>
+        {footer}
       </div>
     </dialog>
   )
