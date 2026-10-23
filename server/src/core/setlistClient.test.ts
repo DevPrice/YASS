@@ -103,8 +103,18 @@ async function until(condition: () => boolean): Promise<void> {
   }
 }
 
-const ACK_V1 = (revision: number): number[] => [4, 0, 0, 0, 2, revision, 0, 0, 0]
-const ACK_V2 = (bytes: number): number[] => [8, 0, 0, 0, 2, bytes & 0xff, bytes >> 8, 0, 0, 0, 0, 0, 0]
+const ACK = (token: number): number[] => [
+  4,
+  0,
+  0,
+  0,
+  2,
+  token & 0xff,
+  (token >>> 8) & 0xff,
+  (token >>> 16) & 0xff,
+  token >>> 24,
+]
+const ACK_BYTES = 9
 const HELLO = [0x59, 0x53, 0x45, 0x54, 1, 0, 2, 0]
 
 const settings = (port: number, enabled: SetlistSocketSettings['enabled'] = 'on') => ({
@@ -125,7 +135,7 @@ async function setup(): Promise<{ yarg: FakeYarg; client: SetlistClient }> {
 }
 
 describe('the setlist client', () => {
-  it('offers both versions, and acks a version 1 snapshot by revision', async () => {
+  it("offers both versions, and acks a version 1 snapshot by echoing its token", async () => {
     const { yarg, client } = await setup()
     client.start(settings(yarg.port))
 
@@ -137,6 +147,7 @@ describe('the setlist client', () => {
     socket.write(
       snapshotFrame({
         revision: 3,
+        token: 0x11223344,
         showInProgress: true,
         currentIndex: 0,
         entries: [{ title: 'Everlong', lengthMs: 250_000 }],
@@ -150,29 +161,39 @@ describe('the setlist client', () => {
     assert.equal(state.entries[0]?.name, 'Everlong')
     assert.equal(state.entries[0]?.lengthSeconds, 250)
 
-    await until(() => received().length >= 17)
-    assert.deepEqual([...received().subarray(8)], ACK_V1(3))
+    await until(() => received().length >= 8 + ACK_BYTES)
+    assert.deepEqual([...received().subarray(8)], ACK(0x11223344))
   })
 
-  it('acks version 2 by every byte read, results included', async () => {
+  it('acks version 2 results as well as snapshots, once per chunk', async () => {
     const { yarg, client } = await setup()
     client.start(settings(yarg.port))
 
     const { socket, received } = await yarg.next()
-    const snapshot = snapshotFrame({ entries: [{ id: 4 }] }, 2)
-    socket.write(Buffer.concat([serverHello(0, 2), snapshot]))
+    socket.write(Buffer.concat([serverHello(0, 2), snapshotFrame({ entries: [{ id: 4 }], token: 0x0a0b0c0d }, 2)]))
 
     const state = await stateWhere(client, (s) => s.entries.length === 1)
     assert.equal(state.version, 2)
     assert.equal(state.entries[0]?.id, 4)
 
-    await until(() => received().length >= 8 + 13)
-    assert.deepEqual([...received().subarray(8, 21)], ACK_V2(snapshot.length))
+    await until(() => received().length >= 8 + ACK_BYTES)
+    assert.deepEqual([...received().subarray(8)], ACK(0x0a0b0c0d))
 
     // A result is acked too: YARG drops a client 192 KB behind.
-    socket.write(resultFrame(999, 0, 0, 1))
-    await until(() => received().length >= 8 + 26)
-    assert.deepEqual([...received().subarray(21, 34)], ACK_V2(snapshot.length + 18))
+    socket.write(resultFrame(999, 0, 0, 1, 0x01020304))
+    await until(() => received().length >= 8 + 2 * ACK_BYTES)
+    assert.deepEqual([...received().subarray(8 + ACK_BYTES)], ACK(0x01020304))
+
+    // Two frames in one chunk: the last one's token covers both.
+    socket.write(
+      Buffer.concat([
+        snapshotFrame({ revision: 2, token: 0x55555555 }, 2),
+        resultFrame(1000, 0, 0, 2, 0x66666666),
+      ]),
+    )
+    await until(() => received().length >= 8 + 3 * ACK_BYTES)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.deepEqual([...received().subarray(8 + 2 * ACK_BYTES)], ACK(0x66666666))
   })
 
   it("answers a command once the snapshot showing it is out", async () => {
@@ -186,8 +207,8 @@ describe('the setlist client', () => {
     const answer = client.send({ op: 'add', hash: FIXTURE_HASH, position: Position.End, anchorId: 0 })
 
     // Hello, then the ack for revision 1, then the command.
-    await until(() => received().length >= 8 + 13 + 35)
-    const command = received().subarray(8 + 13)
+    await until(() => received().length >= 8 + ACK_BYTES + 35)
+    const command = received().subarray(8 + ACK_BYTES)
     assert.equal(command.readUInt8(4), 0x10)
     const requestId = command.readUInt32LE(5)
 
@@ -200,7 +221,7 @@ describe('the setlist client', () => {
 
     socket.write(snapshotFrame({ revision: 2, entries: [{ id: 12 }] }, 2))
     const result = await answer
-    assert.deepEqual(result, { requestId, status: 'ok', entryId: 12, revision: 2 })
+    assert.deepEqual(result, { requestId, status: 'ok', entryId: 12, revision: 2, token: 0xb0000000 + requestId })
     assert.equal(client.current.entries[0]?.id, 12)
   })
 
@@ -213,7 +234,7 @@ describe('the setlist client', () => {
     await stateWhere(client, (s) => s.version === 2)
 
     const answer = client.send({ op: 'remove', entryId: 3 })
-    await until(() => received().length >= 8 + 13 + 14)
+    await until(() => received().length >= 8 + ACK_BYTES + 14)
     socket.destroy()
 
     await assert.rejects(answer, SetlistConnectionLostError)
@@ -242,8 +263,8 @@ describe('the setlist client', () => {
   })
 
   it('reconnects rather than sit on a snapshot it cannot read', async () => {
-    // YARG sends nothing more until the last snapshot is acked, and there is
-    // no correct revision to ack for one that didn't decode.
+    // YARG sends nothing more until the last snapshot is acked, and acking
+    // one that didn't decode would claim it was read.
     const { yarg, client } = await setup()
     client.start(settings(yarg.port))
 

@@ -15,14 +15,14 @@
  *     file can be behind the toggle for as long as the settings menu stays open.
  *
  *  2. **YARG sends no snapshot until the last one is acked.** A snapshot this
- *     cannot decode therefore can't be skipped — in version 1 there is no right
- *     revision to ack, and in version 2 acking its bytes would claim it was
- *     read — so the only way to get the setlist moving again is to drop the
- *     connection and take the fresh snapshot a reconnect always starts with.
+ *     cannot decode therefore can't be skipped — acking its token would claim
+ *     it was read — so the only way to get the setlist moving again is to drop
+ *     the connection and take the fresh snapshot a reconnect always starts with.
  *
- *  3. **A version 2 ack counts bytes**, and YARG drops a client that claims
- *     more than it was sent or falls 192 KB behind. So every chunk that
- *     completes a frame is acked with the running total of whole frames read.
+ *  3. **An ack echoes the token of the last frame read**, and YARG drops a
+ *     client that falls 192 KB behind or leaves a snapshot unacked for ten
+ *     seconds. So every chunk that completes a frame is acked with the token of
+ *     the last one; the frames before it are acknowledged along with it.
  *
  *  4. **Accepts are rate-limited on YARG's side**, four a second shared by
  *     every app, so the retry floor is a second and carries jitter.
@@ -39,8 +39,7 @@ import {
   decodeResult,
   decodeServerHello,
   decodeSnapshot,
-  encodeAckV1,
-  encodeAckV2,
+  encodeAck,
   encodeClientHello,
   encodeCommand,
   FrameType,
@@ -280,8 +279,6 @@ export class SetlistClient {
 
     let received = Buffer.alloc(0)
     let connection: Connection | null = null
-    /** Whole frames read since the server hello: what a version 2 ack counts. */
-    let bytesRead = 0
     let failure: Failure = 'dropped'
 
     const helloTimer = setTimeout(() => {
@@ -343,15 +340,13 @@ export class SetlistClient {
           )
         }
 
-        let readAny = false
+        let lastToken: number | null = null
         for (let frame = readFrame(received); frame !== null; frame = readFrame(received)) {
           received = received.subarray(frame.size)
-          bytesRead += frame.size
-          readAny = true
-          this.#handleFrame(connection, frame.type, frame.payload)
+          lastToken = this.#handleFrame(connection, frame.type, frame.payload) ?? lastToken
         }
 
-        if (readAny && connection.version >= 2) socket.write(encodeAckV2(bytesRead))
+        if (lastToken !== null) socket.write(encodeAck(lastToken))
       } catch (error) {
         // See the header: an unreadable frame can't be acked, so the
         // connection is stuck until it is replaced.
@@ -382,11 +377,10 @@ export class SetlistClient {
     })
   }
 
-  #handleFrame(connection: Connection, type: number, payload: Buffer): void {
+  /** Returns the frame's ack token, or null for a frame type this version doesn't read. */
+  #handleFrame(connection: Connection, type: number, payload: Buffer): number | null {
     if (type === FrameType.Snapshot) {
       const snapshot = decodeSnapshot(payload, connection.version)
-      if (connection.version < 2) connection.socket.write(encodeAckV1(snapshot.revision))
-
       connection.revision = snapshot.revision
       this.#setFeed(feedFromSnapshot(snapshot, connection.version))
 
@@ -400,13 +394,13 @@ export class SetlistClient {
         clearTimeout(pending.timer)
         pending.resolve(result)
       }
-      return
+      return snapshot.token
     }
 
     if (type === FrameType.Result) {
       const result = decodeResult(payload)
       const pending = connection.pending.get(result.requestId)
-      if (pending === undefined) return
+      if (pending === undefined) return result.token
       connection.pending.delete(result.requestId)
 
       // Snapshots and results share one ordered stream, so a revision already
@@ -417,9 +411,10 @@ export class SetlistClient {
       } else {
         connection.awaitingSnapshot.push({ result, pending })
       }
+      return result.token
     }
 
-    // Anything else is a frame type this version doesn't read.
+    return null
   }
 
   /** Fail every command still waiting on a connection that has gone. */

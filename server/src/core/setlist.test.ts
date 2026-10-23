@@ -66,7 +66,7 @@ function stubConnection(initial: SetlistFeed) {
       sent.push(command)
       const next = answers.shift() ?? {}
       if (next instanceof Error) throw next
-      return { requestId: 1, status: 'ok', entryId: 0, revision: 1, ...next }
+      return { requestId: 1, status: 'ok', entryId: 0, revision: 1, token: 0, ...next }
     },
     set(next) {
       current = next

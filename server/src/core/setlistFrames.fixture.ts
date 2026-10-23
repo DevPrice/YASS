@@ -33,6 +33,8 @@ export interface SnapshotFields {
   currentIndex?: number
   totalCount?: number
   entries?: EntryFields[]
+  /** Defaults to one that matches no revision, so an ack of the wrong field shows. */
+  token?: number
 }
 
 function string(value: string): Buffer {
@@ -61,7 +63,7 @@ export function snapshotFrame(fields: SnapshotFields = {}, version = 1): Buffer 
     ])
   })
 
-  const headerBytes = version >= 2 ? 22 : 18
+  const headerBytes = version >= 2 ? 26 : 22
   const header = Buffer.alloc(5 + headerBytes)
   const payloadLength = headerBytes + entries.reduce((sum, entry) => sum + entry.length, 0)
   header.writeUInt32LE(payloadLength, 0)
@@ -72,21 +74,29 @@ export function snapshotFrame(fields: SnapshotFields = {}, version = 1): Buffer 
   header.writeInt32LE(fields.currentIndex ?? -1, 11)
   header.writeUInt32LE(fields.totalCount ?? entries.length, 15)
   header.writeUInt32LE(entries.length, 19)
+  header.writeUInt32LE(fields.token ?? 0xa0000000 + (fields.revision ?? 1), 23)
   // `currentEntryId`, which YASS doesn't read: `currentIndex` says the same.
-  if (version >= 2) header.writeUInt32LE(0, 23)
+  if (version >= 2) header.writeUInt32LE(0, 27)
 
   return Buffer.concat([header, ...entries])
 }
 
 /** A version 2 Result frame. Statuses by wire number — see `RESULT_STATUSES`. */
-export function resultFrame(requestId: number, status: number, entryId: number, revision: number): Buffer {
-  const frame = Buffer.alloc(5 + 13)
-  frame.writeUInt32LE(13, 0)
+export function resultFrame(
+  requestId: number,
+  status: number,
+  entryId: number,
+  revision: number,
+  token = 0xb0000000 + requestId,
+): Buffer {
+  const frame = Buffer.alloc(5 + 17)
+  frame.writeUInt32LE(17, 0)
   frame.writeUInt8(FrameType.Result, 4)
   frame.writeUInt32LE(requestId, 5)
   frame.writeUInt8(status, 9)
   frame.writeUInt32LE(entryId, 10)
   frame.writeUInt32LE(revision, 14)
+  frame.writeUInt32LE(token, 18)
   return frame
 }
 

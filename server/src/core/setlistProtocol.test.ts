@@ -16,8 +16,7 @@ import {
   decodeResult,
   decodeServerHello,
   decodeSnapshot,
-  encodeAckV1,
-  encodeAckV2,
+  encodeAck,
   encodeClientHello,
   encodeCommand,
   FrameType,
@@ -48,16 +47,9 @@ describe('setlist socket framing', () => {
     assert.throws(() => decodeServerHello(http), ProtocolError)
   })
 
-  it('writes a version 1 ack as the revision read', () => {
+  it('writes an ack as the token it echoes', () => {
     // The length counts the payload, not the type byte.
-    assert.deepEqual([...encodeAckV1(0x01020304)], [4, 0, 0, 0, 0x02, 4, 3, 2, 1])
-  })
-
-  it('writes a version 2 ack as a u64 count of bytes read', () => {
-    assert.deepEqual(
-      [...encodeAckV2(0x0102030405)],
-      [8, 0, 0, 0, 0x02, 5, 4, 3, 2, 1, 0, 0, 0],
-    )
+    assert.deepEqual([...encodeAck(0x01020304)], [4, 0, 0, 0, 0x02, 4, 3, 2, 1])
   })
 
   it('decodes a version 1 snapshot in setlist order', () => {
@@ -65,6 +57,7 @@ describe('setlist socket framing', () => {
       payloadOf(
         snapshotFrame({
           revision: 7,
+          token: 0xdeadbeef,
           showInProgress: true,
           currentIndex: 1,
           entries: [
@@ -77,6 +70,7 @@ describe('setlist socket framing', () => {
     )
 
     assert.equal(snapshot.revision, 7)
+    assert.equal(snapshot.token, 0xdeadbeef)
     assert.equal(snapshot.active, true)
     assert.equal(snapshot.showInProgress, true)
     assert.equal(snapshot.currentIndex, 1)
@@ -96,11 +90,14 @@ describe('setlist socket framing', () => {
 
   it('reads the entry IDs and the longer header of version 2', () => {
     const snapshot = decodeSnapshot(
-      payloadOf(snapshotFrame({ revision: 4, entries: [{ id: 17 }, { id: 3, title: 'B' }] }, 2)),
+      payloadOf(
+        snapshotFrame({ revision: 4, token: 0x0badf00d, entries: [{ id: 17 }, { id: 3, title: 'B' }] }, 2),
+      ),
       2,
     )
 
     assert.equal(snapshot.revision, 4)
+    assert.equal(snapshot.token, 0x0badf00d)
     assert.deepEqual(
       snapshot.entries.map((entry) => [entry.id, entry.hash, entry.title]),
       [
@@ -196,11 +193,12 @@ describe('setlist socket framing', () => {
   })
 
   it('reads a result, naming the statuses it knows', () => {
-    assert.deepEqual(decodeResult(payloadOf(resultFrame(9, 5, 31, 12))), {
+    assert.deepEqual(decodeResult(payloadOf(resultFrame(9, 5, 31, 12, 0xfeedface))), {
       requestId: 9,
       status: 'alreadyInSetlist',
       entryId: 31,
       revision: 12,
+      token: 0xfeedface,
     })
     // A status from a newer YARG stays a number rather than being misnamed.
     assert.equal(decodeResult(payloadOf(resultFrame(1, 42, 0, 1))).status, 42)

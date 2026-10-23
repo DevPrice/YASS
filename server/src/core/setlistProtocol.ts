@@ -8,9 +8,12 @@
  *
  * Little-endian throughout. Version 1 is read-only: YARG pushes whole
  * snapshots, and a client only ever acks them. Version 2 gives every entry a
- * stable ID and adds commands, each answered by a Result — and changes what an
- * ack means, from "I read revision N" to "I have read N bytes", because a
- * client now has results to acknowledge as well as snapshots.
+ * stable ID and adds commands, each answered by a Result.
+ *
+ * Every frame YARG sends carries a random token, and an ack echoes the token
+ * of the last frame read, covering it and everything before it. A revision or
+ * a byte count would be predictable, so a client could acknowledge data it
+ * never read and stall YARG's socket thread behind a full send buffer.
  */
 
 import { stripRichText } from './richtext.js'
@@ -34,9 +37,9 @@ export const FRAME_HEADER_BYTES = 5
 export const MAX_FRAME_BYTES = 1024 * 1024
 
 const HASH_BYTES = 20
-const SNAPSHOT_HEADER_BYTES_V1 = 18
-const SNAPSHOT_HEADER_BYTES_V2 = 22
-const RESULT_PAYLOAD_BYTES = 13
+const SNAPSHOT_HEADER_BYTES_V1 = 22
+const SNAPSHOT_HEADER_BYTES_V2 = 26
+const RESULT_PAYLOAD_BYTES = 17
 
 const FLAG_SHOW_IN_PROGRESS = 1 << 0
 
@@ -114,6 +117,8 @@ export interface Snapshot {
   currentIndex: number
   totalCount: number
   entries: SnapshotEntry[]
+  /** What an ack echoes. */
+  token: number
 }
 
 export interface Result {
@@ -124,6 +129,8 @@ export interface Result {
   entryId: number
   /** The first snapshot revision that reflects the outcome. */
   revision: number
+  /** What an ack echoes. */
+  token: number
 }
 
 export class ProtocolError extends Error {}
@@ -156,22 +163,14 @@ function frame(type: number, payload: Buffer): Buffer {
   return Buffer.concat([header, payload])
 }
 
-/** Version 1: the revision of the snapshot just read. */
-export function encodeAckV1(revision: number): Buffer {
-  const payload = Buffer.alloc(4)
-  payload.writeUInt32LE(revision)
-  return frame(FrameType.Ack, payload)
-}
-
 /**
- * Version 2: every byte of every frame read since the server hello.
- *
- * YARG drops a client that claims more than it was sent, so this must only
- * ever count frames that were read whole.
+ * Both versions: the token of the last frame read, snapshot or result. YARG
+ * ignores a token it no longer remembers (it keeps the last 1,024 per client)
+ * rather than treating it as an error.
  */
-export function encodeAckV2(bytesRead: number): Buffer {
-  const payload = Buffer.alloc(8)
-  payload.writeBigUInt64LE(BigInt(bytesRead))
+export function encodeAck(token: number): Buffer {
+  const payload = Buffer.alloc(4)
+  payload.writeUInt32LE(token)
   return frame(FrameType.Ack, payload)
 }
 
@@ -230,6 +229,7 @@ export function decodeResult(payload: Buffer): Result {
     status: RESULT_STATUSES[status] ?? status,
     entryId: payload.readUInt32LE(5),
     revision: payload.readUInt32LE(9),
+    token: payload.readUInt32LE(13),
   }
 }
 
@@ -312,5 +312,6 @@ export function decodeSnapshot(payload: Buffer, version: number): Snapshot {
     currentIndex: payload.readInt32LE(6),
     totalCount: payload.readUInt32LE(10),
     entries,
+    token: payload.readUInt32LE(18),
   }
 }
