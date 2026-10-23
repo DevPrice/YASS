@@ -97,8 +97,10 @@ export function addGate(
   return (hash) => {
     let answer = answers.get(hash)
     if (answer === undefined) {
-      // `now` is only read against a previous try, and there is none here.
-      answer = actionBar({ state, hash, mine, pending: false, last: null, now: 0 }).kind === 'add'
+      // `playing` only changes how a song already in the setlist is worded,
+      // and such a song never answers `add`.
+      answer =
+        actionBar({ state, hash, mine, pending: null, last: null, playing: false }).kind === 'add'
       answers.set(hash, answer)
     }
     return answer

@@ -78,7 +78,7 @@ export function swipeCommits(dx: number, canAdd: boolean): boolean {
  */
 const HAND_OFF_MS = 10_000
 
-const handed = new Map<string, LastTry>()
+const handed = new Map<string, { last: LastTry; at: number }>()
 
 /**
  * Leave a swipe's refusal for the song's action bar.
@@ -89,15 +89,15 @@ const handed = new Map<string, LastTry>()
  * exactly the ones it cannot work out before a tap. Without the answer it would
  * offer `add to setlist` for a song that was just refused.
  */
-export function handOffRefusal(hash: string, last: LastTry): void {
-  handed.set(hash, last)
+export function handOffRefusal(hash: string, last: LastTry, at = Date.now()): void {
+  handed.set(hash, { last, at })
 }
 
 /** The refusal left for this song, once, if it is still fresh. */
 export function takeRefusal(hash: string | null, now = Date.now()): LastTry | null {
   if (hash === null) return null
 
-  const last = handed.get(hash)
+  const left = handed.get(hash)
   handed.delete(hash)
-  return last !== undefined && now - last.at < HAND_OFF_MS ? last : null
+  return left !== undefined && now - left.at < HAND_OFF_MS ? left.last : null
 }

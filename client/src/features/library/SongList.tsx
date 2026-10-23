@@ -293,7 +293,6 @@ export function SongList({
         reason: outcome.reason,
         entryId: outcome.entryId,
         currentIndex: setlistRef.current.currentIndex,
-        at: Date.now(),
       })
       onSelect(song)
     },

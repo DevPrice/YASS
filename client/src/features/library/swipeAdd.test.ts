@@ -47,16 +47,16 @@ describe('swipe offset', () => {
 })
 
 describe('refusal hand-off', () => {
-  const last = { reason: 'incompatible' as const, entryId: null, currentIndex: 2, at: 1_000 }
+  const last = { reason: 'incompatible' as const, entryId: null, currentIndex: 2 }
 
   it('is read once', () => {
-    handOffRefusal('A', last)
+    handOffRefusal('A', last, 1_000)
     assert.deepEqual(takeRefusal('A', 2_000), last)
     assert.equal(takeRefusal('A', 2_000), null)
   })
 
   it('expires if nobody opened the song for it', () => {
-    handOffRefusal('B', last)
+    handOffRefusal('B', last, 1_000)
     assert.equal(takeRefusal('B', 60_000), null)
   })
 })

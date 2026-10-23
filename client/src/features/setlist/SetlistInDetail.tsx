@@ -20,6 +20,7 @@ import type { ReactNode } from 'react'
 import type { SetlistState } from '@shared/types'
 import { Badge, Button, cx } from '../../ui'
 import { addToSetlist, removeFromSetlist } from '../../lib/setlist'
+import { takeRefusal } from '../library/swipeAdd'
 import { SetlistIcon } from './icons'
 import { actionBar, badgeStanding, ordinal, type LastTry } from './model'
 
@@ -82,7 +83,9 @@ export function SetlistActionBar({
   isPlaying: boolean
 }) {
   const [pending, setPending] = useState<'add' | 'remove' | null>(null)
-  const [last, setLast] = useState<LastTry | null>(null)
+  // A song opened because a swipe to add it was refused starts from that
+  // refusal, so the bar says why rather than offering the add YARG just turned down.
+  const [last, setLast] = useState<LastTry | null>(() => takeRefusal(hash))
 
   const bar = actionBar({ state: setlist, hash, mine, pending, last, playing: isPlaying })
   if (bar.kind === 'hidden') return null
