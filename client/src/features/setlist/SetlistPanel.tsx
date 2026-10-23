@@ -48,6 +48,7 @@ import { addToSetlist, moveInSetlist, removeFromSetlist, type EditOutcome } from
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { SetlistIcon } from './icons'
 import {
+  applyMove,
   dropPlacement,
   droppedIndex,
   earlier,
@@ -59,6 +60,7 @@ import {
   restorePlacement,
   runTime,
   setlistMode,
+  showsMove,
   standingAt,
   yourLine,
   type MovePlan,
@@ -565,8 +567,21 @@ function refusalWords(outcome: EditOutcome): string {
 
 // --- The list ---------------------------------------------------------------------
 
+/**
+ * A move this browser sent, drawn before YARG's setlist shows it. `answeredOn`
+ * is the setlist that was current when YARG said yes.
+ */
+type PendingMove = {
+  entryId: number
+  plan: NonNullable<MovePlan>
+  answeredOn: SetlistState | null
+}
+
+/** How long an accepted move is drawn on its own if no setlist arrives to confirm it. */
+const MOVE_SETTLE_MS = 2_000
+
 function SetlistRows({
-  setlist,
+  setlist: confirmed,
   mode,
   mine,
   editable,
@@ -592,6 +607,36 @@ function SetlistRows({
   onOpenSong: (song: Song) => void
   onFindSong: () => void
 }) {
+  const [pending, setPending] = useState<PendingMove | null>(null)
+  const latest = useRef(confirmed)
+  useEffect(() => {
+    latest.current = confirmed
+  }, [confirmed])
+
+  /*
+   * A dropped row stays where it was dropped rather than jumping back for the
+   * round trip. The move is applied to whatever setlist is current, by anchor
+   * as YARG applies it, so somebody else's edit landing first still shows. It
+   * gives way to YARG's own setlist once one arrives after the answer (the
+   * server publishes the snapshot before it answers, so that is usually at
+   * once), and a refusal puts the row straight back.
+   */
+  const settled =
+    pending?.answeredOn != null &&
+    (confirmed !== pending.answeredOn || showsMove(confirmed, pending.entryId, pending.plan))
+  const setlist =
+    pending === null || settled ? confirmed : applyMove(confirmed, pending.entryId, pending.plan)
+
+  useEffect(() => {
+    if (pending?.answeredOn == null) return
+    if (settled) {
+      setPending(null)
+      return
+    }
+    const timer = window.setTimeout(() => setPending(null), MOVE_SETTLE_MS)
+    return () => window.clearTimeout(timer)
+  }, [pending, settled])
+
   const stale = !isLive(mode)
   const current = setlist.showInProgress ? setlist.currentIndex : null
   const [busy, setBusy] = useState(false)
@@ -615,17 +660,14 @@ function SetlistRows({
   const played = current === null ? 0 : Math.min(current, setlist.entries.length)
   const upcoming = current === null ? 0 : setlist.totalCount - current - 1
 
-  /*
-   * No optimistic reordering: the row goes back where it was the moment it is
-   * let go, and the setlist YARG sends a few milliseconds later puts it where
-   * it actually landed. Somebody else's edit may have landed first, and the
-   * list should never show a position YARG didn't agree to.
-   */
   const move = async (entry: SetlistEntry, plan: MovePlan, to: number) => {
     if (plan === null || entry.id === null) return
+    const entryId = entry.id
+    setPending({ entryId, plan, answeredOn: null })
     setBusy(true)
-    const outcome = await moveInSetlist(entry.id, plan)
+    const outcome = await moveInSetlist(entryId, plan)
     setBusy(false)
+    setPending(outcome.ok ? { entryId, plan, answeredOn: latest.current } : null)
     setStatus(outcome.ok ? `Moved ${entry.name} to ${ordinal(to + 1)}.` : changeRefusal(outcome, false))
   }
 

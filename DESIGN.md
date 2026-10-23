@@ -434,7 +434,8 @@ song was played, and its up-now row carries a neutral `was up now` badge. **Your
 2px `accent-edge` bar on its start edge (Cool Gray once played or stale) instead of a
 badge, so it keeps its length. Your unplayed rows are moved by a grip and swipe left to
 remove (Imperial Red behind, the row following the finger), with an `×` beside the grip for
-pointer and keyboard; a removed row's place is taken by an undo strip for 8s.
+pointer and keyboard; a removed row's place is taken by an undo strip for 8s. A dropped row
+stays where it was dropped while YARG answers, and goes back only if YARG refuses.
 
 ### Action Bar
 The foot of the song detail in every housing: Bar Night with the bar lift. It holds a

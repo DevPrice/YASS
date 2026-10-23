@@ -316,6 +316,42 @@ export function later(state: SetlistState, index: number): MovePlan {
   return dropPlacement(state, index, index + 2)
 }
 
+/**
+ * The setlist as it will be once YARG takes the move, applied as YARG applies
+ * it: relative to the anchor, so an edit that landed in the meantime still
+ * leaves the song after the right neighbour. Unchanged when the entry or its
+ * anchor has gone, which is when YARG would refuse it.
+ */
+export function applyMove(
+  state: SetlistState,
+  entryId: number,
+  plan: NonNullable<MovePlan>,
+): SetlistState {
+  const moved = state.entries.find((entry) => entry.id === entryId)
+  if (moved === undefined) return state
+
+  const rest = state.entries.filter((entry) => entry !== moved)
+  let to = 0
+  if (plan.position === 'after') {
+    const anchor = rest.findIndex((entry) => entry.id === plan.anchorId)
+    if (anchor === -1) return state
+    to = anchor + 1
+  }
+
+  return { ...state, entries: [...rest.slice(0, to), moved, ...rest.slice(to)] }
+}
+
+/** Whether `state` already has the entry where the move puts it. */
+export function showsMove(
+  state: SetlistState,
+  entryId: number,
+  plan: NonNullable<MovePlan>,
+): boolean {
+  const at = state.entries.findIndex((entry) => entry.id === entryId)
+  if (at === -1) return false
+  return plan.position === 'start' ? at === 0 : state.entries[at - 1]?.id === plan.anchorId
+}
+
 // --- The action bar ---------------------------------------------------------
 
 /** YARG's cap on remote adds. */

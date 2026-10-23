@@ -13,6 +13,7 @@ import { describe, it } from 'node:test'
 import type { SetlistEntry, SetlistState } from '@shared/types'
 import {
   actionBar,
+  applyMove,
   badgeStanding,
   dropPlacement,
   droppedIndex,
@@ -24,6 +25,7 @@ import {
   restorePlacement,
   runTime,
   setlistMode,
+  showsMove,
   standingOf,
   waitSeconds,
   wasCleared,
@@ -226,6 +228,36 @@ describe('moving your own song a step', () => {
   it('moves later by anchoring after the entry below', () => {
     assert.deepEqual(later(list, 1), { position: 'after', anchorId: 3 })
     assert.equal(later(list, 3), null)
+  })
+})
+
+describe('showing a move before YARG confirms it', () => {
+  const list = state({ entries: [entry(1), entry(2), entry(3), entry(4)] })
+  const ids = (s: SetlistState) => s.entries.map((e) => e.id)
+
+  it('puts the song after its anchor, or at the start', () => {
+    assert.deepEqual(ids(applyMove(list, 4, { position: 'after', anchorId: 1 })), [1, 4, 2, 3])
+    assert.deepEqual(ids(applyMove(list, 1, { position: 'after', anchorId: 4 })), [2, 3, 4, 1])
+    assert.deepEqual(ids(applyMove(list, 3, { position: 'start' })), [3, 1, 2, 4])
+  })
+
+  it('follows the anchor when the list changed underneath', () => {
+    const shuffled = state({ entries: [entry(2), entry(5), entry(1), entry(4)] })
+    assert.deepEqual(ids(applyMove(shuffled, 4, { position: 'after', anchorId: 1 })), [2, 5, 1, 4])
+    assert.deepEqual(ids(applyMove(shuffled, 2, { position: 'after', anchorId: 1 })), [5, 1, 2, 4])
+  })
+
+  it('leaves the list alone when the song or its anchor has gone', () => {
+    assert.equal(applyMove(list, 9, { position: 'start' }), list)
+    assert.equal(applyMove(list, 2, { position: 'after', anchorId: 9 }), list)
+  })
+
+  it('knows when the setlist already shows it', () => {
+    const plan = { position: 'after', anchorId: 1 } as const
+    assert.equal(showsMove(list, 4, plan), false)
+    assert.equal(showsMove(applyMove(list, 4, plan), 4, plan), true)
+    assert.equal(showsMove(list, 1, { position: 'start' }), true)
+    assert.equal(showsMove(list, 9, { position: 'start' }), false)
   })
 })
 
