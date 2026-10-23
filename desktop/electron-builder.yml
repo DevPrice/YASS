@@ -118,11 +118,14 @@ portable:
   # Naming it pins the path across rebuilds: allow it once, and the rule keeps
   # matching no matter how many times the exe underneath is replaced.
   #
-  # The cost is that two copies cannot run at once — the stub wipes this
-  # directory before extracting into it, so a second launch pulls the files out
-  # from under the first. That was already true of two copies of the same
-  # build; this extends it to two *different* builds, which is a thing only a
-  # developer does, and cheaply undone by bumping the name.
+  # The cost is that every launch shares the directory, and the stub wipes it
+  # before extracting and again on exit — so a second launch, even one that
+  # just loses the single-instance lock, deletes every file the running copy
+  # does not hold open. That was already true of two launches of the same
+  # build; naming the directory extends it to two *different* builds. The tray
+  # copies the server and client out at startup (`locateResources` in
+  # `src/server.ts`), so guests keep their page, but Electron's own runtime goes
+  # too: until YASS is quit and reopened it cannot start a server again.
   unpackDirName: YASS
 
 # AppImage is the Linux answer to the portable .exe: a single file carrying its

@@ -15,12 +15,12 @@
  */
 
 import { createWriteStream, existsSync, type WriteStream } from 'node:fs'
-import { mkdir, rename, rm } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { cp, mkdir, rename, rm } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 
 import { app, utilityProcess, type UtilityProcess } from 'electron'
 
-import { logDir } from '@server/core/paths.js'
+import { logDir, runtimeDir } from '@server/core/paths.js'
 import { applyEnvOverrides, loadStoredSettings } from '@server/core/settings.js'
 import type { ServerState, ServerStatusName } from './ipc.js'
 
@@ -40,7 +40,12 @@ const RECENT_LINES = 60
 /** Addresses whose loopback requests the server's host-only guard accepts. */
 const LOCAL_HOSTS = new Set(['0.0.0.0', '::', '127.0.0.1', '::1', 'localhost'])
 
-function resourcePaths(): { serverEntry: string; clientDist: string } {
+interface ResourcePaths {
+  serverEntry: string
+  clientDist: string
+}
+
+function bundledResources(): ResourcePaths {
   if (app.isPackaged) {
     return {
       serverEntry: join(process.resourcesPath, 'server', 'index.mjs'),
@@ -52,6 +57,46 @@ function resourcePaths(): { serverEntry: string; clientDist: string } {
   return {
     serverEntry: resolve(__dirname, '../../server/dist/index.js'),
     clientDist: resolve(__dirname, '../../client/dist'),
+  }
+}
+
+/**
+ * Where to run the server and serve the client from, for the life of this
+ * process.
+ *
+ * The portable exe unpacks into a fixed `%TEMP%\YASS` (`unpackDirName` in
+ * `electron-builder.yml`), and every launch of it clears that directory before
+ * extracting and again when its stub exits — including a second launch that
+ * only lives long enough to lose the single-instance lock. Windows refuses to
+ * delete the files this process holds open, and deletes the rest: the server
+ * entry, which matters at the next restart, and the client, which the running
+ * server reads per request and so 404s every guest at once. Copying both out
+ * once, here, puts them where no launch of the exe reaches.
+ *
+ * Copied fresh on every launch rather than kept by version, because a local
+ * `npm run dist` rebuilds without changing the version. Only the copy that
+ * holds the single-instance lock gets this far, so nothing else is running
+ * from the directory being replaced. If the copy fails, the bundled files are
+ * still better than nothing.
+ */
+async function locateResources(): Promise<ResourcePaths> {
+  const bundled = bundledResources()
+  if (process.env.PORTABLE_EXECUTABLE_FILE === undefined) return bundled
+
+  const root = runtimeDir()
+  const staged: ResourcePaths = {
+    serverEntry: join(root, 'server', 'index.mjs'),
+    clientDist: join(root, 'client'),
+  }
+
+  try {
+    await rm(root, { recursive: true, force: true })
+    await mkdir(dirname(staged.serverEntry), { recursive: true })
+    await cp(bundled.serverEntry, staged.serverEntry)
+    await cp(bundled.clientDist, staged.clientDist, { recursive: true })
+    return staged
+  } catch {
+    return bundled
   }
 }
 
@@ -96,21 +141,39 @@ function describeFailure(recent: string[], port: number): string {
 }
 
 /**
- * What to tell someone whose server entry is not there.
+ * A file the server cannot start without, if one has gone.
  *
- * A packaged copy had the file when the exe unpacked, so something has deleted
- * it since: another launch of the portable exe clears the shared unpack
- * directory (`unpackDirName` in `electron-builder.yml`) before extracting and
- * again on exit, and antivirus quarantines scripts out of `%TEMP%`. Whoever sees
- * this downloaded an exe and has no build to run. Short because the tray
- * tooltip repeats it, and Windows cuts a tooltip off at 127 characters.
+ * Electron's own runtime sits beside the exe in the same wipe that
+ * `locateResources` steps around, and it cannot be copied out: a utility
+ * process is handed its ICU data by this process, from there, and dies on
+ * "Invalid file descriptor to ICU data received" without it. `icudtl.dat`
+ * stands for the rest of that directory.
  */
-function missingBundleMessage(serverEntry: string): string {
+function missingFile(serverEntry: string): string | null {
+  if (!existsSync(serverEntry)) return serverEntry
+
+  const icu = join(dirname(process.execPath), 'icudtl.dat')
+  if (app.isPackaged && !existsSync(icu)) return icu
+
+  return null
+}
+
+/**
+ * What to tell someone whose server cannot start for a missing file.
+ *
+ * A packaged copy had every file when the exe unpacked, so something has
+ * deleted them since: another launch of the portable exe (see
+ * `locateResources`), or antivirus quarantining a script out of `%TEMP%`.
+ * Whoever sees this downloaded an exe and has no build to run. Short because
+ * the tray tooltip repeats it, and Windows cuts a tooltip off at 127
+ * characters.
+ */
+function missingFileMessage(path: string): string {
   if (app.isPackaged) {
     return "YASS's files were deleted, by a second copy or antivirus. Quit YASS from the tray and open it again."
   }
 
-  return `The server bundle is missing (${serverEntry}). Run \`npm run build\`.`
+  return `The server bundle is missing (${path}). Run \`npm run build\`.`
 }
 
 export class ServerChild {
@@ -124,6 +187,8 @@ export class ServerChild {
   #recent: string[] = []
   /** Set while a deliberate stop is in flight, so `exit` isn't read as a crash. */
   #stopping = false
+  /** Settled on the first start; a restart must not copy from a cleared `%TEMP%`. */
+  #resources: Promise<ResourcePaths> | null = null
   #listeners = new Set<() => void>()
 
   get state(): ServerState {
@@ -220,7 +285,7 @@ export class ServerChild {
     // overrides here would make every field show as env-forced in the popover
     // and would be a lie about where the values came from.
     const settings = applyEnvOverrides(await loadStoredSettings())
-    const { serverEntry, clientDist } = resourcePaths()
+    const { serverEntry, clientDist } = await (this.#resources ??= locateResources())
 
     this.#host = settings.host
     this.#port = settings.port
@@ -230,11 +295,12 @@ export class ServerChild {
 
     await this.#openLog()
 
-    if (!existsSync(serverEntry)) {
-      this.#append(`\n[tray] server bundle missing: ${serverEntry}\n`)
+    const missing = missingFile(serverEntry)
+    if (missing) {
+      this.#append(`\n[tray] missing: ${missing}\n`)
       this.#log?.end()
       this.#log = null
-      this.#set('failed', missingBundleMessage(serverEntry))
+      this.#set('failed', missingFileMessage(missing))
       return
     }
 

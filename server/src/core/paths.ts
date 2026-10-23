@@ -115,6 +115,11 @@ export function logDir(): string {
   return join(appCacheDir(), 'logs')
 }
 
+/** The portable tray's copy of the server and client. See `desktop/src/server.ts`. */
+export function runtimeDir(): string {
+  return join(appCacheDir(), 'runtime')
+}
+
 /** Chromium's caches, cookies and preferences. See `desktop/src/main.ts`. */
 export function electronDataDir(): string {
   return join(appCacheDir(), 'electron')

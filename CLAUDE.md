@@ -140,6 +140,14 @@ no UI left to kill it with. The server entry ships as `.mjs` because `server/pac
 reuses the server's own settings and path modules through `@server/*` rather than
 reimplementing them.
 
+**The portable exe never runs its server out of `%TEMP%\YASS`.** Every launch of the exe
+wipes that directory, including a second launch that only loses the single-instance lock,
+and Windows deletes whatever the running copy does not hold open: the server entry and the
+whole client. So the tray copies both to `runtimeDir()` once at startup and runs from
+there (`locateResources` in `desktop/src/server.ts`). Electron's own runtime files go in
+the same wipe and cannot be moved, so after one a restart fails until YASS is reopened;
+`missingFile` checks for that rather than letting the child die on an ICU error.
+
 The popover is also the only place the app's own settings can be seen or changed — the web
 client deliberately has none. That is where the **release / nightly switch** lives: the
 server reports the YARG data directories it found (`SettingsView.installs`), and choosing
