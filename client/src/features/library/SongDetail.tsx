@@ -195,8 +195,10 @@ export function SongDetail({ song, isPlaying, artHash, className, setlistBadge }
              */}
             {/* Wrapped, because a bare badge is a flex child here and would stretch
                 to the width of the pane rather than to its own two words. */}
+            {/* `empty:hidden` because `setlistBadge` is an element even when it
+                renders nothing, and an empty row still took the gap and margin. */}
             {isPlaying || setlistBadge ? (
-              <div className="mb-[5px] flex flex-wrap items-center gap-[8px]">
+              <div className="mb-[5px] flex flex-wrap items-center gap-[8px] empty:hidden">
                 {isPlaying ? <Badge tone="accent">Now playing</Badge> : null}
                 {setlistBadge}
               </div>
